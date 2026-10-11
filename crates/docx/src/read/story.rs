@@ -642,7 +642,8 @@ impl Reader<'_> {
         n >= 2 && sc.fields.get(n - 2).is_some_and(|p| !p.spilled && !p.range && p.phase == Phase::Instr)
     }
 
-    /// `separate`: the code is complete; a range field starts its result here.
+    /// `separate`: the code is complete; a range field starts its result here, and a TOC
+    /// emits its marker before its entries, even when the whole result fits in one paragraph.
     fn separate_field(&mut self, sc: &mut StoryCtx, pb: &mut PB) {
         if sc.ignored_begins > 0 {
             return;
@@ -653,7 +654,10 @@ impl Reader<'_> {
             return;
         }
         f.phase = Phase::Result;
-        if !f.spilled && !nested_in_instr && is_range_instr(&f.instr) {
+        if !f.spilled && !nested_in_instr && super::is_toc(&f.instr) {
+            f.spilled = true;
+            pb.push_obj(InlineObject::Field { instr: f.instr.trim().to_string(), result: String::new(), locked: f.locked, code: false }, &f.props);
+        } else if !f.spilled && !nested_in_instr && is_range_instr(&f.instr) {
             f.range = true;
             let (obj, props) = (InlineObject::FieldStart { instr: f.instr.trim().to_string(), locked: f.locked }, f.props.clone());
             self.emit_obj(sc, pb, obj, &props);

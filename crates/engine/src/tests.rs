@@ -1292,6 +1292,72 @@ fn toc_and_fields() {
 }
 
 #[test]
+fn toc_refresh_after_save_and_reopen() {
+    for extension in ["docx", "json"] {
+        for (headings, levels) in [(&["Top"][..], 1), (&["Top", "Next"][..], 1), (&["Top"][..], 4)] {
+            let mut s = s();
+            run(&mut s, "document.setText", json!({"text": headings.join("\n")}));
+            for i in 0..headings.len() {
+                run(&mut s, "caret.set", json!({"pos": Pos::body(i, 0)}));
+                run(&mut s, "styles.apply", json!({"style": "Heading 1"}));
+            }
+            // A level-two heading must stay out of a depth-one TOC after reopening.
+            if levels == 1 {
+                run(&mut s, "caret.docEnd", json!({}));
+                run(&mut s, "text.newParagraph", json!({}));
+                run(&mut s, "text.insert", json!({"text": "Detail"}));
+                run(&mut s, "styles.apply", json!({"style": "Heading 2"}));
+            }
+            run(&mut s, "caret.docStart", json!({}));
+            run(&mut s, "references.toc", json!({"levels": levels}));
+            // Put the range last, as in #473's depth controls, so the current switch parser
+            // reads it independently of the trailing switches in the default field code.
+            let title = s.doc.body.iter().position(|b| b.as_para().is_some_and(|p| p.props.style.as_deref() == Some("TOCHeading"))).unwrap();
+            let end = s.doc.body[title].as_para().unwrap().len();
+            run(
+                &mut s,
+                "select.range",
+                json!({"anchor": Pos::body(title, end - wordcraft_doc::para::OBJ.len_utf8()), "focus": Pos::body(title, end)}),
+            );
+            run(&mut s, "insert.field", json!({"instr": format!(r#"TOC \h \z \u \o "1-{levels}""#)}));
+            run(&mut s, "references.updateToc", json!({}));
+            let expected = text(&s);
+            let name = format!("toc.{extension}");
+            let bytes = crate::io::save_bytes(&name, &s.doc).unwrap();
+            s = Session::new(crate::io::open_bytes(&name, &bytes).unwrap());
+            for command in ["references.updateToc", "references.updateToc", "references.updateFields"] {
+                run(&mut s, command, json!({}));
+                assert_eq!(text(&s), expected, "{extension}, levels={levels}, {command}");
+            }
+            let heading = s
+                .doc
+                .body
+                .iter()
+                .position(|b| b.as_para().is_some_and(|p| p.props.style.as_deref() == Some("Heading1") && p.plain_text() == "Top"))
+                .unwrap();
+            run(&mut s, "select.range", json!({"anchor": Pos::body(heading, 0), "focus": Pos::body(heading, 3)}));
+            run(&mut s, "text.insert", json!({"text": "Revised"}));
+            let before_refresh = text(&s);
+            run(&mut s, "references.updateToc", json!({}));
+            let revised = text(&s);
+            assert_eq!(revised.matches("Revised\t").count(), 1, "{revised}");
+            assert!(!revised.contains("Top"), "{revised}");
+            assert_eq!(revised.matches("Next\t").count(), headings.len() - 1, "{revised}");
+            assert_eq!(revised.matches("Detail\t").count(), 0, "{revised}");
+            assert_eq!(revised.lines().filter(|line| *line == "Detail").count(), usize::from(levels == 1), "{revised}");
+            assert!(s.undo());
+            assert_eq!(text(&s), before_refresh);
+            run(&mut s, "references.updateToc", json!({}));
+            assert_eq!(text(&s), revised);
+            let bytes = crate::io::save_bytes(&name, &s.doc).unwrap();
+            s = Session::new(crate::io::open_bytes(&name, &bytes).unwrap());
+            run(&mut s, "references.updateFields", json!({}));
+            assert_eq!(text(&s), revised, "saved edited TOC, {extension}");
+        }
+    }
+}
+
+#[test]
 fn toc_page_numbers_follow_headings() {
     let mut s = s();
     run(&mut s, "references.toc", json!({}));
