@@ -2471,6 +2471,35 @@ fn styles_apply_multi_paragraph_selection() {
     }
 }
 
+/// #865: `styles.modify` takes a colour the way `format.color` does (`RRGGBB`, `#RRGGBB`, `auto`),
+/// still reads the serialized forms, and rejects a bad colour without touching the style.
+#[test]
+fn modify_style_takes_hex_colours_like_format_color() {
+    use wordcraft_doc::{CharProps, Rgb, TextColor};
+    let mut s = s();
+    let color = |s: &Session| s.doc.styles.get("Heading1").and_then(|st| st.chr.color);
+    let modify = |s: &mut Session, c: serde_json::Value| s.run("styles.modify", &json!({"style": "Heading1", "chr": {"color": c}}));
+
+    modify(&mut s, json!("1B1611")).unwrap();
+    assert_eq!(color(&s), Some(TextColor::Rgb(Rgb(0x1B, 0x16, 0x11))));
+    modify(&mut s, json!("auto")).unwrap();
+    assert_eq!(color(&s), Some(TextColor::Auto));
+    modify(&mut s, json!("#1B1611")).unwrap();
+    assert_eq!(color(&s), Some(TextColor::Rgb(Rgb(0x1B, 0x16, 0x11))));
+    modify(&mut s, json!("Auto")).unwrap();
+    assert_eq!(color(&s), Some(TextColor::Auto));
+    modify(&mut s, json!({"Rgb": [192, 0, 0]})).unwrap();
+    let red = TextColor::Rgb(Rgb(0xC0, 0, 0));
+    assert_eq!(color(&s), Some(red));
+    assert_eq!(s.doc.styles.resolve_char(Some("Heading1"), &CharProps::default()).color, red);
+
+    for bad in [json!("1B16"), json!("not a colour"), json!({"Rgb": "1B1611"}), json!(7)] {
+        let r = modify(&mut s, bad.clone());
+        assert!(matches!(r, Err(crate::CmdError::Params(_))), "{bad}: {r:?}");
+        assert_eq!(color(&s), Some(red), "{bad} leaves the style alone");
+    }
+}
+
 /// #555: Update Heading 2 to Match Selection (the styles pane's context menu) makes Heading 2
 /// look like the selected text — its paragraph style and direct formatting — so every Heading 2
 /// paragraph changes; the selected paragraph takes Heading 2, and it is one undo step.
@@ -3730,6 +3759,31 @@ fn colour_commands_take_any_custom_hex() {
     assert_eq!(shading, wordcraft_doc::Rgb::parse("C0FFEE"));
     run(&mut s, "design.pageColor", json!({"color": "123ABC"}));
     assert_eq!(s.doc.settings.page_color, wordcraft_doc::Rgb::parse("123ABC"));
+}
+
+/// A document whose content is another format than its extension says opens by what it holds,
+/// as in Word: RTF saved as `.doc` (accounting systems and report generators save their documents
+/// that way), a `.docx` package renamed `.doc`, and RTF renamed `.docx`.
+#[test]
+fn documents_open_by_content_when_the_extension_is_wrong() {
+    let text = |doc: &wordcraft_doc::Document| doc.plain_text(StoryRef::Body);
+    let rtf = b"{\\rtf1\\ansi\\ansicpg1251\\deff0{\\fonttbl{\\f0 Times New Roman;}}\\f0 \\'d1\\'f7\\'e5\\'f2 \\'b9 12\\par Invoice line\\par}";
+    for name in ["Счет 12.doc", "report.DOC", "letter.dot", "renamed.docx"] {
+        let doc = crate::io::open_bytes(name, rtf).unwrap_or_else(|e| panic!("{name}: {e}"));
+        let t = text(&doc);
+        assert!(t.contains("Счет № 12") && t.contains("Invoice line"), "{name}: {t:?}");
+    }
+    // A Word package renamed `.doc` or `.rtf`.
+    let mut s = Session::new(wordcraft_doc::Document::new());
+    run(&mut s, "text.insert", json!({"text": "Packaged text"}));
+    let docx = crate::io::save_bytes("a.docx", &s.doc).unwrap();
+    for name in ["package.doc", "package.rtf"] {
+        let doc = crate::io::open_bytes(name, &docx).unwrap_or_else(|e| panic!("{name}: {e}"));
+        assert!(text(&doc).contains("Packaged text"), "{name}");
+    }
+    // Matching content still goes the usual way, and garbage stays an error.
+    assert!(text(&crate::io::open_bytes("plain.rtf", rtf).unwrap()).contains("Invoice line"));
+    assert!(crate::io::open_bytes("broken.doc", b"\x00\x01not a document").is_err());
 }
 
 /// #569: a playlist (.m3u / .m3u8) — or any file with an extension WordCraft doesn't know —

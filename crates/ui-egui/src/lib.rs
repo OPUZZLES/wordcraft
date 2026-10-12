@@ -63,6 +63,7 @@ pub mod panes;
 pub mod paste_picture;
 pub mod previews;
 pub mod print_page;
+pub mod printing;
 pub mod read_aloud;
 pub mod ribbon;
 pub mod scroll;
@@ -87,6 +88,10 @@ pub use file_dialogs::{FileDialogAnswer, FileDialogRequest, open_filters};
 /// Platform services injected by the host (file dialogs, file I/O).
 #[derive(Default)]
 pub struct Services {
+    /// Desktop: discover configured printers on a worker.
+    pub printers: Option<printing::Discover>,
+    /// Desktop: submit the PDF with the chosen settings on a worker.
+    pub print_native: Option<printing::Submit>,
     /// Pick a file to open; the argument says what for (`document`, `picture`).
     pub pick_open: Option<Box<dyn Fn(&str) -> Option<String>>>,
     /// Pick a path to save to, given a suggested name.
@@ -107,9 +112,8 @@ pub struct Services {
     /// Web: told whether the document has unsaved changes after each pass, for the browser's
     /// leave-page guard (`beforeunload` runs between frames and can't ask the app).
     pub on_dirty: Option<Box<dyn Fn(bool)>>,
-    /// Hand PDF bytes to the system's print flow. Web: the browser's print dialog on that PDF (no
-    /// download, no intermediate file). Desktop: the PDF opens in the system's viewer (a temporary
-    /// file), where the user prints (#15). An error means nothing was opened.
+    /// Web: hand PDF bytes to the browser's print dialog (no download or intermediate file).
+    /// Desktop uses `print_native` instead. An error means nothing was opened.
     pub print: Option<Box<dyn Fn(&[u8]) -> Result<(), String>>>,
     /// Desktop: the picture on the system clipboard, if any — egui's paste only carries text
     /// (#45). Read when Paste finds no text; see [`paste_picture`].
@@ -341,6 +345,8 @@ pub struct WordApp {
     pub session: Session,
     pub ui: UiState,
     pub services: Services,
+    pub printing: printing::State,
+    print_feedback_seen: Option<printing::Feedback>,
     pub canvas: canvas::CanvasState,
     /// Content control frames, check boxes and lists on the page.
     pub controls: content_controls::ControlUi,
@@ -462,6 +468,8 @@ impl WordApp {
             session,
             ui: UiState::default(),
             services,
+            printing: Default::default(),
+            print_feedback_seen: None,
             canvas: canvas::CanvasState::default(),
             controls: Default::default(),
             dialog: None,
@@ -873,6 +881,10 @@ impl WordApp {
     /// The window's close button (or the system) asked to quit. Returns true to let the window
     /// close; with unsaved changes it asks first and returns false.
     pub fn close_requested(&mut self) -> bool {
+        if self.printing.busy() {
+            self.status(tl!("Wait for the print job to finish submitting before closing."));
+            return false;
+        }
         if self.quit_requested || !self.session.dirty {
             return true;
         }
@@ -1134,10 +1146,9 @@ impl WordApp {
                 self.pick_recipient_list();
                 json!({"pending": self.recipient_list_pending})
             }
-            // Send the document to the system print flow (web, desktop). `file.print` opens the Print
-            // page; this is the button on it, and the one programmatic call that opens system UI
-            // here, like `ui.openFileDialog` — only when the host can print.
-            "ui.print" => return Some(self.print_to_system(p)),
+            // Native printing submits the selected queue on a worker; the browser owns its dialog.
+            "ui.printSettings" => return Some(printing::settings(&mut self.printing, p, self.services.printers.as_ref())),
+            "ui.print" | "ui.printSubmit" => return Some(self.print_to_system(p)),
             // File › Options › General › Make WordCraft the default… changes the user's system
             // default apps (Linux) or opens system settings (Windows), so only a click on that
             // button does it ([`WordApp::make_default_app`]); scripts, the control channel and
@@ -1185,38 +1196,9 @@ impl WordApp {
         }))
     }
 
-    /// `ui.print`: export the document to PDF in memory and hand it to the host's print hook.
-    /// `p` holds the print settings (`range`, `pages`, `parity`, `copies`, `collate`; see
-    /// `file.printPdf`); without any, every page prints once.
-    /// An error when the host can't print (File › Print then only saves a PDF).
+    /// Submit the selected print job; the implementation lives beside its localized controls.
     fn print_to_system(&mut self, p: &Value) -> Result<Value, String> {
-        if self.services.print.is_none() {
-            return Err("printing to the system print dialog isn't available here; export a PDF instead".into());
-        }
-        // File › Options › Display: fields first, and the page colour only when asked for.
-        if self.ui.update_fields_before_print
-            && let Err(e) = self.session.run("references.updateFields", &json!({}))
-        {
-            log::warn!("updating fields before printing: {e}");
-        }
-        let colour = if self.ui.print_backgrounds { None } else { self.session.doc.settings.page_color.take() };
-        let pdf = self.session.print_pdf(p).map_err(|e| e.to_string());
-        if colour.is_some() {
-            self.session.doc.settings.page_color = colour;
-        }
-        let result = pdf.and_then(|(bytes, _)| self.services.print.as_ref().map_or(Ok(()), |print| print(&bytes)).map(|()| bytes.len()));
-        match result {
-            Ok(len) => {
-                self.status(tl!("Opening print dialog…"));
-                Ok(json!({"printing": true, "bytes": len}))
-            }
-            Err(e) => {
-                log::error!("print failed: {e}");
-                let msg = i18n::fmt(tl!("Print failed: {error}"), &[("error", &e)]);
-                self.status(msg.clone());
-                Err(msg)
-            }
-        }
+        printing::submit(self, p)
     }
 
     /// File › Options › General › Make WordCraft the default…: hand over to the host's
@@ -1353,6 +1335,22 @@ impl WordApp {
         }
     }
 
+    /// Terminal feedback also reaches the normal window when printing starts through control.
+    pub fn poll_printing(&mut self, ctx: &egui::Context) {
+        self.printing.poll(ctx);
+        if self.printing.message == self.print_feedback_seen {
+            return;
+        }
+        self.print_feedback_seen = self.printing.message.clone();
+        let Some(message @ (printing::Feedback::Submitted(_) | printing::Feedback::Failed(_) | printing::Feedback::WorkerStopped)) =
+            self.printing.message.clone()
+        else {
+            return;
+        };
+        let text = printing::feedback(&message, |label| i18n::t(label).to_owned());
+        self.status(text);
+    }
+
     /// Per-frame logic before layout: control requests, screenshots, shortcuts, file drops.
     pub fn logic(&mut self, ctx: &egui::Context) {
         let lang = i18n::Lang::from_pref(&self.ui.language);
@@ -1407,6 +1405,7 @@ impl WordApp {
         if self.ctx.is_none() {
             self.ctx = Some(ctx.clone());
         }
+        self.poll_printing(ctx);
         self.drain_control(ctx);
         zotero::poll(self, ctx);
         read_aloud::poll(self, ctx);

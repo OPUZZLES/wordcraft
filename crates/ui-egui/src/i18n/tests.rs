@@ -922,10 +922,11 @@ fn polish_covers_every_key_of_every_other_catalog() {
     use std::collections::HashSet;
     let keys = |source| parse_entries(source).0.into_iter().map(|e| e.source).collect::<HashSet<_>>();
     let polish = keys(lang("pl").0.source);
-    // Russian, Italian, Hungarian, Turkish, Bulgarian and Spanish also translate the built-in
-    // style names and the equation gallery, which the others don't yet; Polish matches every
-    // other catalog.
-    for other in Lang::all().filter(|l| *l != Lang::EN && !matches!(l.code(), "pl" | "ru" | "it" | "hu" | "tr" | "bg" | "es")) {
+    // Italian and Hungarian still carry "Style: APA", which the interface no longer shows;
+    // Hungarian and Bulgarian also name the citation styles, and Bulgarian has a few one-line
+    // pieces of gallery labels. Polish matches every other catalog, including the style names and
+    // equation gallery Russian translates.
+    for other in Lang::all().filter(|l| *l != Lang::EN && !matches!(l.code(), "pl" | "it" | "hu" | "bg")) {
         let mut missing: Vec<String> = keys(other.0.source).difference(&polish).cloned().collect();
         missing.sort();
         assert!(missing.is_empty(), "pl lacks {}'s {missing:?}", other.code());
