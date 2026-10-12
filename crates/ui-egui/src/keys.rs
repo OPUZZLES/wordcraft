@@ -258,6 +258,10 @@ pub fn canvas_events(app: &mut WordApp, ctx: &egui::Context) {
                     app.session.painter = None;
                     continue;
                 }
+                // The lasso selection and Ink Replay take Delete and Escape first.
+                if crate::ink::key(app, key) {
+                    continue;
+                }
                 // Escape puts the pen or eraser down (back to selecting).
                 if key == Key::Escape && app.session.view.draw.mode != wordcraft_engine::cmd::draw::DrawMode::Select {
                     app.canvas.ink = None;
@@ -265,6 +269,13 @@ pub fn canvas_events(app: &mut WordApp, ctx: &egui::Context) {
                     continue;
                 }
                 if key == Key::Escape && crate::table_pen::stop(app) {
+                    continue;
+                }
+                // File › Options › Advanced: the Insert key switches overtype only when asked to.
+                if key == Key::Insert && modifiers.is_none() {
+                    if app.session.prefs.insert_key_overtype {
+                        let _ = app.run("text.overtype", json!({}));
+                    }
                     continue;
                 }
                 if crate::objects::key(app, key, modifiers) {

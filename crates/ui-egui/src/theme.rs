@@ -270,12 +270,57 @@ pub fn install_fonts_for(ctx: &egui::Context, prefer_hans: bool) {
     install_fonts_with(ctx, prefer_hans, false);
 }
 
-/// [`install_fonts_for`], also adding an installed CJK font when `system_cjk` is set and no
-/// embedded face covers the need (#241). Reading that font is a large file read, so callers ask
-/// for it only when CJK text is on screen: a CJK interface language, or the language names in
-/// Options.
+/// [`install_fonts_for`], also adding an installed CJK font after the embedded faces when
+/// `system_cjk` is set and the embedded faces leave CJK characters of the interface text without
+/// a glyph (#241, #486). Reading that font is a large file read, so callers ask for it only when
+/// CJK text is on screen: a CJK interface language, or the language names in Options.
 pub fn install_fonts_with(ctx: &egui::Context, prefer_hans: bool, system_cjk: bool) {
-    ctx.set_fonts(font_definitions(prefer_hans, system_cjk));
+    install_fonts_extra(ctx, prefer_hans, system_cjk, &[]);
+}
+
+/// [`install_fonts_with`], also adding document-font `faces` as last-resort fallbacks (#565): the
+/// faces that cover the text an input method is composing.
+pub fn install_fonts_extra(ctx: &egui::Context, prefer_hans: bool, system_cjk: bool, faces: &[Arc<wordcraft_fonts::FontFace>]) {
+    let mut fonts = font_definitions(prefer_hans, system_cjk);
+    add_fallback_faces(&mut fonts, faces);
+    ctx.set_fonts(fonts);
+}
+
+/// Add `faces` after every other font of the interface families.
+pub fn add_fallback_faces(fonts: &mut FontDefinitions, faces: &[Arc<wordcraft_fonts::FontFace>]) {
+    for f in faces {
+        let name = format!("fallback {} {} {}", f.family, f.style, f.id());
+        let mut data = FontData::from_owned(f.data().to_vec());
+        data.index = f.index();
+        fonts.font_data.insert(name.clone(), Arc::new(data));
+        for fam in [FontFamily::Proportional, FontFamily::Name("medium".into()), FontFamily::Name("semibold".into())] {
+            if let Some(v) = fonts.families.get_mut(&fam) {
+                v.push(name.clone());
+            }
+        }
+    }
+}
+
+/// Document faces needed to draw `text` (the input method's composition), one for each character
+/// the interface fonts cannot draw, skipping faces in `have` (#565). Characters of the embedded
+/// interface fonts are not looked up; very large faces (system CJK collections) are left to the CJK
+/// fallback.
+pub fn faces_for_preedit(
+    text: &str,
+    have: &[Arc<wordcraft_fonts::FontFace>],
+    covered: impl Fn(char) -> bool,
+    lookup: impl Fn(char) -> Option<Arc<wordcraft_fonts::FontFace>>,
+) -> Vec<Arc<wordcraft_fonts::FontFace>> {
+    let mut out: Vec<Arc<wordcraft_fonts::FontFace>> = Vec::new();
+    for c in text.chars().filter(|c| !c.is_ascii() && !c.is_whitespace() && !covered(*c)) {
+        if have.iter().chain(&out).any(|f| f.covers(c)) {
+            continue;
+        }
+        if let Some(f) = lookup(c).filter(|f| f.data().len() <= 16 << 20 && !have.iter().chain(&out).any(|h| h.id() == f.id())) {
+            out.push(f);
+        }
+    }
+    out
 }
 
 /// The interface fonts; see [`install_fonts_with`].
@@ -311,13 +356,11 @@ pub fn font_definitions(prefer_hans: bool, system_cjk: bool) -> FontDefinitions 
         // The same static bytes the document fonts use: one copy in the binary.
         add_cjk(&mut fonts, format!("{} {}", f.family, f.style), FontData::from_static(f.bytes));
     }
-    // No embedded face covers the interface language (a build without craft-fonts, or without
-    // its Chinese face, #241): an installed CJK font, so the menus don't show boxes.
+    // The embedded faces leave interface characters without a glyph (a build without craft-fonts,
+    // without its Chinese face, #241, or with faces lacking catalog characters, #486): an
+    // installed CJK font after them, so the menus don't show boxes or `?`.
     #[cfg(not(target_arch = "wasm32"))]
-    if system_cjk
-        && wordcraft_fonts::ui_needs_system_cjk(prefer_hans, &cjk)
-        && let Some(f) = system_cjk_font(prefer_hans)
-    {
+    if system_cjk && let Some(f) = system_cjk_font(prefer_hans) {
         let mut data = FontData::from_static(&f.bytes);
         data.index = f.index;
         add_cjk(&mut fonts, format!("system {}", f.family), data);
@@ -328,12 +371,29 @@ pub fn font_definitions(prefer_hans: bool, system_cjk: bool) -> FontDefinitions 
     fonts
 }
 
-/// The installed CJK interface font for a Chinese (`hans`) or other interface, read once.
+/// The installed CJK interface font for a Chinese (`hans`) or other interface, chosen once:
+/// `None` when the embedded faces already cover the interface text
+/// ([`cjk_font_text`](crate::i18n::Lang::cjk_font_text)). The font is picked for the catalogs'
+/// missing characters, or for the language names when only those are missing.
 #[cfg(not(target_arch = "wasm32"))]
 fn system_cjk_font(hans: bool) -> Option<&'static wordcraft_fonts::SystemUiFont> {
     static ZH: std::sync::OnceLock<Option<wordcraft_fonts::SystemUiFont>> = std::sync::OnceLock::new();
     static OTHER: std::sync::OnceLock<Option<wordcraft_fonts::SystemUiFont>> = std::sync::OnceLock::new();
-    (if hans { &ZH } else { &OTHER }).get_or_init(|| wordcraft_fonts::system_cjk_ui_font(hans)).as_ref()
+    (if hans { &ZH } else { &OTHER })
+        .get_or_init(|| {
+            let embedded = wordcraft_fonts::ui_cjk_fonts(hans);
+            let (catalogs, names) = crate::i18n::Lang::cjk_font_text(hans);
+            let mut needed = wordcraft_fonts::ui_uncovered_cjk(&catalogs, &embedded);
+            if needed.is_empty() {
+                needed = wordcraft_fonts::ui_uncovered_cjk(&[&names], &embedded);
+                if needed.is_empty() {
+                    return None;
+                }
+            }
+            log::debug!("interface: {} CJK characters lack an embedded glyph", needed.len());
+            wordcraft_fonts::system_cjk_ui_font(hans, &needed)
+        })
+        .as_ref()
 }
 
 pub fn medium(size: f32) -> FontId {
@@ -494,6 +554,26 @@ pub fn c32(c: wordcraft_doc::Rgb) -> Color32 {
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeSet;
+
+    /// #565: the composition of an input method (Bangla through ibus) drew as boxes because only the
+    /// interface fonts were used. Faces found for the uncovered characters are added as fallbacks,
+    /// once, and not for characters the interface fonts draw.
+    #[test]
+    fn preedit_gets_document_fallback_faces() {
+        let face = wordcraft_fonts::FontDb::global().face("Source Sans 3", "Regular");
+        let lookup = |_: char| Some(face.clone());
+        let bangla = "\u{0986}\u{09AE}\u{09BF}";
+        let got = super::faces_for_preedit(bangla, &[], |_| false, lookup);
+        assert_eq!(got.len(), 1, "one face, not one per character");
+        assert!(super::faces_for_preedit(bangla, &got, |_| false, lookup).is_empty(), "already added");
+        assert!(super::faces_for_preedit(bangla, &[], |_| true, lookup).is_empty(), "the interface fonts draw it");
+        assert!(super::faces_for_preedit("abc", &[], |_| false, lookup).is_empty(), "ASCII never needs one");
+        let mut defs = super::font_definitions(false, false);
+        let before = defs.font_data.len();
+        super::add_fallback_faces(&mut defs, &got);
+        assert_eq!(defs.font_data.len(), before + 1);
+        assert!(defs.families[&egui::FontFamily::Proportional].last().is_some_and(|n| n.starts_with("fallback ")));
+    }
 
     /// Symbols written as text in the interface code must exist in the interface fonts (Inter and
     /// egui's emoji fallbacks); a missing glyph draws as an empty box, as the panes' "✕" close

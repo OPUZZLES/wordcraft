@@ -35,6 +35,11 @@ pub(crate) enum AfterPick {
     Export { ext: String },
     /// Load the picked CSV/TSV/text file or spreadsheet as the mail-merge recipients (#240, #334).
     Recipients,
+    /// Hand the picked path to the open dialog (`WordApp::dialog_pick`): Templates and Add-ins,
+    /// Organizer (#377).
+    ForDialog,
+    /// Put the picked document into the Compare dialog (original or revised, #412).
+    ComparePath { revised: bool },
 }
 
 /// What to do once Save As has written the document.
@@ -123,9 +128,20 @@ impl WordApp {
                 };
                 self.insert_or_change_picture(json!({"path": path}))
             }
+            AfterPick::ForDialog => {
+                let picked = picked.filter(|p| !p.is_empty());
+                let r = json!({"picked": picked});
+                self.dialog_pick = picked;
+                Ok(r)
+            }
             AfterPick::Recipients => {
                 let Some(path) = picked else { return Ok(json!({"cancelled": true})) };
                 self.load_recipients(json!({"path": path}))
+            }
+            AfterPick::ComparePath { revised } => {
+                let Some(path) = picked else { return Ok(json!({"cancelled": true})) };
+                crate::dialogs_review::set_compare_path(self, revised, path);
+                Ok(json!({"picked": true}))
             }
             AfterPick::Export { ext } => {
                 let Some(path) = picked else { return Ok(json!({"cancelled": true})) };

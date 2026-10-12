@@ -234,6 +234,13 @@ Remove-Item Env:WGPU_BACKEND                     # restore the default for later
 An explicit `gl` override can bring the driver crash back on affected systems. The macOS, Linux
 and web backend defaults are unchanged.
 
+**If the app quits right after its window appears with "Parent device is lost" in the log:**
+WordCraft compiles DirectX 12 shaders with FXC, the compiler built into Windows, so it needs no
+`dxcompiler.dll`/`dxil.dll` and ignores any copy another program put on `PATH` (#603).
+`WGPU_DX12_COMPILER` (`fxc`, `dxc`, `auto`) overrides this; with `dxc`, a matching
+`dxcompiler.dll` *and* `dxil.dll` must sit next to `wordcraft.exe`. `WGPU_BACKEND = "vulkan"`
+also avoids DirectX 12 altogether.
+
 **If the app is slow on an older Windows PC:** when DirectX 12 finds no graphics card with a
 driver for it (for example Intel 4th-generation graphics on Windows 11), it only offers Microsoft's
 software renderer, which draws every frame on the processor. In that case WordCraft uses OpenGL
@@ -259,6 +266,17 @@ instead, without setting anything. The log file records the choice (lines starti
 
 RISC-V (riscv64): `wordcraft-<ver>-linux-riscv64.tar.gz`, a tarball cross-compiled for glibc 2.39+
 (Ubuntu 24.04, Debian 13 and newer).
+
+**Arch Linux (AUR).** Community members maintain three AUR packages; the project doesn't publish
+to the AUR itself. Install one of them:
+
+| Package | What it installs | Choose it when |
+|---|---|---|
+| [`wordcraft-bin`](https://aur.archlinux.org/packages/wordcraft-bin) | The release tarball above, prebuilt (x86_64, aarch64) | You want the latest release without compiling (quickest) |
+| [`wordcraft`](https://aur.archlinux.org/packages/wordcraft) | The latest release, built from source with `cargo` | You prefer to build releases yourself |
+| [`wordcraft-git`](https://aur.archlinux.org/packages/wordcraft-git) | The current `main` branch, built from source | You want unreleased changes and accept an occasional broken build |
+
+For example `yay -S wordcraft-bin` or `paru -S wordcraft-bin`.
 
 ### FreeBSD
 

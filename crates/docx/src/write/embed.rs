@@ -121,6 +121,37 @@ impl<'d> EmbedWriter<'d> {
         }
     }
 
+    /// A number `n` for which every `{stem}{n}{ext}` is a free part name, with those names taken.
+    fn fresh_set(&mut self, stems: &[&str], ext: &str) -> Vec<String> {
+        let mut n: u32 = 1;
+        loop {
+            let names: Vec<String> = stems.iter().map(|s| format!("{s}{n}{ext}")).collect();
+            if names.iter().all(|name| {
+                let lower = name.to_ascii_lowercase();
+                !Self::reserved(&lower) && !self.taken.contains(&lower)
+            }) {
+                for name in &names {
+                    self.taken.insert(name.to_ascii_lowercase());
+                }
+                return names;
+            }
+            n = n.saturating_add(1);
+        }
+    }
+
+    /// A free part name `{stem}{n}{ext}` for a new part, from n = 1 up.
+    fn fresh(&mut self, stem: &str, ext: &str) -> String {
+        let mut n: u32 = 1;
+        loop {
+            let name = format!("{stem}{n}{ext}");
+            let lower = name.to_ascii_lowercase();
+            if !Self::reserved(&lower) && self.taken.insert(lower) {
+                return name;
+            }
+            n = n.saturating_add(1);
+        }
+    }
+
     /// Can part `name` be written (bytes and manifest entry both kept)?
     fn available(&self, name: &str) -> bool {
         self.manifest.parts.contains_key(name) && self.passthrough.contains_key(name)
@@ -191,7 +222,7 @@ impl super::Writer<'_> {
     /// story part's) and the parts it needs queued for writing. `resize`, for an OLE object, writes
     /// the object's current size and position into its own markup (a chart or diagram's frame is
     /// written by the caller). `None` when it can't be written back (its parts are gone).
-    pub(super) fn embedded_xml(&mut self, src: &Embedded, rels: &mut PartRels, resize: Option<(f32, f32, &Float)>) -> Option<String> {
+    pub(super) fn embedded_xml(&mut self, src: &Embedded, rels: &mut PartRels, resize: Option<(f32, f32, &Float, &str)>) -> Option<String> {
         let Some(left) = self.embeds.markup_bytes.checked_sub(src.xml.len() as u64) else {
             log::warn!("docx: too much embedded-object markup; the rest is left out");
             return None;
@@ -243,16 +274,84 @@ impl super::Writer<'_> {
             }
         }
         set_rel_ids(&mut root, &ids, 0);
-        if let Some((w, h, float)) = resize {
-            self.resize_object(&mut root, w, h, float, 0);
+        if let Some((w, h, float, alt)) = resize {
+            self.resize_object(&mut root, w, h, float, alt, 0);
         }
         Some(root.to_xml())
     }
 
+    /// The `a:graphic` of a SmartArt graphic written from its model, laid out `w` × `h` points:
+    /// new diagram parts (`word/diagrams/{data,layout,quickStyle,colors,drawing}N.xml`) related
+    /// from the story part through `rels`.
+    pub(super) fn smart_art_graphic(&mut self, spec: &wordcraft_doc::smart_art::SmartArtSpec, w: f32, h: f32, rels: &mut PartRels) -> String {
+        use crate::package::rt;
+        use crate::smart_art as sa;
+        let names = self.embeds.fresh_set(
+            &["word/diagrams/data", "word/diagrams/layout", "word/diagrams/quickStyle", "word/diagrams/colors", "word/diagrams/drawing"],
+            ".xml",
+        );
+        let [data, layout, style, colors, drawing] = names.as_slice() else { return String::new() };
+        // The drawing first: the data part names it by the story part's relationship id.
+        let drawing_id = rels.add(rt::DIAGRAM_DRAWING, &relative(STORY_PART, drawing), false);
+        let parts = [
+            (data, sa::data_xml(spec, &drawing_id), sa::DATA_CT, rt::DIAGRAM_DATA),
+            (layout, sa::layout_xml(spec.layout), sa::LAYOUT_CT, rt::DIAGRAM_LAYOUT),
+            (style, sa::quick_style_xml(), sa::STYLE_CT, rt::DIAGRAM_QUICK_STYLE),
+            (colors, sa::colors_xml(spec.colors), sa::COLORS_CT, rt::DIAGRAM_COLORS),
+            (drawing, sa::drawing_xml(spec, w, h), sa::DRAWING_CT, rt::DIAGRAM_DRAWING),
+        ];
+        let mut ids = Vec::new();
+        for (name, xml, ct, kind) in parts {
+            self.embeds.parts.push((name.clone(), xml.into_bytes(), ct.to_string(), PartRels::default()));
+            ids.push(rels.add(kind, &relative(STORY_PART, name), false));
+        }
+        let id = |i: usize| ids.get(i).cloned().unwrap_or_default();
+        let mut x = xml::W::default();
+        x.open("a:graphic", &[("xmlns:a", "http://schemas.openxmlformats.org/drawingml/2006/main")]);
+        x.open("a:graphicData", &[("uri", sa::DIAGRAM_URI)]);
+        x.empty(
+            "dgm:relIds",
+            &[
+                ("xmlns:dgm", "http://schemas.openxmlformats.org/drawingml/2006/diagram"),
+                ("xmlns:r", "http://schemas.openxmlformats.org/officeDocument/2006/relationships"),
+                ("r:dm", &id(0)),
+                ("r:lo", &id(1)),
+                ("r:qs", &id(2)),
+                ("r:cs", &id(3)),
+            ],
+        );
+        x.close("a:graphicData");
+        x.close("a:graphic");
+        x.s
+    }
+
+    /// The `a:graphic` of a chart written from its model: a new chart part (`word/charts/chartN.xml`)
+    /// related from the story part through `rels`.
+    pub(super) fn chart_graphic(&mut self, spec: &wordcraft_doc::chart::ChartSpec, rels: &mut PartRels) -> String {
+        let name = self.embeds.fresh("word/charts/chart", ".xml");
+        let bytes = crate::chart_spec::chart_xml(spec).into_bytes();
+        self.embeds.parts.push((name.clone(), bytes, crate::chart_spec::CHART_CT.to_string(), PartRels::default()));
+        let id = rels.add(crate::package::rt::CHART, &relative(STORY_PART, &name), false);
+        let mut w = xml::W::default();
+        w.open("a:graphic", &[("xmlns:a", "http://schemas.openxmlformats.org/drawingml/2006/main")]);
+        w.open("a:graphicData", &[("uri", crate::chart_spec::CHART_URI)]);
+        w.empty(
+            "c:chart",
+            &[
+                ("xmlns:c", "http://schemas.openxmlformats.org/drawingml/2006/chart"),
+                ("xmlns:r", "http://schemas.openxmlformats.org/officeDocument/2006/relationships"),
+                ("r:id", &id),
+            ],
+        );
+        w.close("a:graphicData");
+        w.close("a:graphic");
+        w.s
+    }
+
     /// Write an OLE object's size (and position, when floating), rotation and flips into its VML
     /// shape and DrawingML picture, with the effect extent covering the rotated bounds as for
-    /// other drawings, and give its drawing a fresh `wp:docPr` id.
-    fn resize_object(&mut self, e: &mut El, w: f32, h: f32, float: &Float, depth: usize) {
+    /// other drawings, its alt text into both, and give its drawing a fresh `wp:docPr` id.
+    fn resize_object(&mut self, e: &mut El, w: f32, h: f32, float: &Float, alt: &str, depth: usize) {
         if depth > MAX_DEPTH {
             return;
         }
@@ -261,6 +360,7 @@ impl super::Writer<'_> {
                 if let Some((_, style)) = e.attrs.iter_mut().find(|(k, _)| k == "style") {
                     *style = vml_style_with(style, w, h, float);
                 }
+                set_attr(e, "alt", alt);
             }
             "wp:extent" => set_size_attrs(e, w, h),
             // A turned object needs an effect extent (filled in below) right after its extent.
@@ -299,12 +399,13 @@ impl super::Writer<'_> {
                 if let Some((_, v)) = e.attrs.iter_mut().find(|(k, _)| k == "id") {
                     *v = id;
                 }
+                set_attr(e, "descr", alt);
             }
             _ => {}
         }
         for k in e.kids.iter_mut() {
             if let xml::Node::El(c) = k {
-                self.resize_object(c, w, h, float, depth + 1);
+                self.resize_object(c, w, h, float, alt, depth + 1);
             }
         }
     }
@@ -318,6 +419,15 @@ fn set_size_attrs(e: &mut El, w: f32, h: f32) {
             "cy" => *v = emu(h.max(0.0)),
             _ => {}
         }
+    }
+}
+
+/// Set attribute `k` of `e` to `v` (added when missing; left out when both are empty).
+fn set_attr(e: &mut El, k: &str, v: &str) {
+    match e.attrs.iter_mut().find(|(n, _)| n == k) {
+        Some((_, old)) => *old = v.to_string(),
+        None if !v.is_empty() => e.attrs.push((k.to_string(), v.to_string())),
+        None => {}
     }
 }
 

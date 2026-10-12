@@ -1,35 +1,49 @@
 //! Command implementations, one module per area. Each module exposes `specs()`.
 
+pub mod accessibility;
 pub mod canvas;
 pub mod caret;
+pub mod chart;
 pub mod citations;
 pub mod column;
+pub mod connectors;
+pub mod controls;
 pub mod design;
 pub mod draw;
 pub mod edit;
 pub mod equation;
 pub mod fields;
 pub mod file;
+pub mod find_pattern;
 pub mod fmt_revisions;
 pub mod format;
+pub mod index;
+pub mod ink_shape;
 pub mod insert;
 pub mod inspector;
 pub mod lists;
 pub mod mailings;
+pub mod moves;
 pub mod objects;
+pub mod options;
+pub mod outline;
 pub mod page;
 pub mod para;
 pub mod paste;
 pub mod phonetic;
+pub mod protect;
 pub mod references;
 pub mod review;
+pub mod smart_art;
 pub mod speech;
 pub mod table;
 pub mod table_draw;
 pub mod table_style;
+pub mod templates;
 pub mod text;
 pub mod tools;
 pub mod view;
+pub mod wordart;
 
 use serde_json::{Value, json};
 use wordcraft_doc::props::CharProps;
@@ -51,6 +65,7 @@ pub fn registry() -> Registry {
     v.extend(lists::specs());
     v.extend(inspector::specs());
     v.extend(view::specs());
+    v.extend(outline::specs());
     v.extend(insert::specs());
     v.extend(equation::specs());
     v.extend(page::specs());
@@ -59,16 +74,25 @@ pub fn registry() -> Registry {
     v.extend(table_draw::specs());
     v.extend(review::specs());
     v.extend(file::specs());
+    v.extend(options::specs());
     v.extend(design::specs());
     v.extend(references::specs());
     v.extend(fields::specs());
     v.extend(mailings::specs());
     v.extend(citations::specs());
+    v.extend(index::specs());
     v.extend(objects::specs());
+    v.extend(smart_art::specs());
+    v.extend(chart::specs());
     v.extend(draw::specs());
     v.extend(canvas::specs());
+    v.extend(wordart::specs());
+    v.extend(connectors::specs());
     v.extend(tools::specs());
+    v.extend(templates::specs());
+    v.extend(protect::specs());
     v.extend(speech::specs());
+    v.extend(controls::specs());
     Registry::new(v)
 }
 
@@ -108,6 +132,7 @@ pub fn delete_selection(s: &mut Session) -> Result<Pos, CmdError> {
     if a == b {
         return Ok(a);
     }
+    controls::check_delete(s, &a, &b)?;
     let at = if s.doc.settings.track_changes { track_delete(s, &a, &b)? } else { s.doc.delete_range(&a, &b)? };
     s.sel = crate::Selection::caret(at.clone());
     Ok(at)
@@ -116,10 +141,19 @@ pub fn delete_selection(s: &mut Session) -> Result<Pos, CmdError> {
 /// A revision record for the current author.
 pub fn new_revision(s: &mut Session, kind: RevisionKind) -> u32 {
     let date = now_iso();
-    if let Some((i, _)) = s.doc.revisions.iter().enumerate().rev().find(|(_, r)| r.kind == kind && r.author == s.author && r.date == date) {
+    // Never one end of a move, nor the deletion a cut may still turn into one.
+    let held = s.pending_move.as_ref().map(|m| m.rev);
+    if let Some((i, _)) = s
+        .doc
+        .revisions
+        .iter()
+        .enumerate()
+        .rev()
+        .find(|(i, r)| r.kind == kind && r.author == s.author && r.date == date && r.move_name.is_none() && held != Some(*i as u32))
+    {
         return i as u32;
     }
-    s.doc.revisions.push(Revision { kind, author: s.author.clone(), date });
+    s.doc.revisions.push(Revision { kind, author: s.author.clone(), date, move_name: None });
     (s.doc.revisions.len() - 1) as u32
 }
 
@@ -150,6 +184,11 @@ pub fn join_next_para(s: &mut Session, story: StoryRef, path: &wordcraft_doc::Pa
 /// Tracked deletion: own insertions are removed, other text is marked deleted.
 pub(crate) fn track_delete(s: &mut Session, a: &Pos, b: &Pos) -> Result<Pos, CmdError> {
     let rid = new_revision(s, RevisionKind::Delete);
+    track_delete_as(s, a, b, rid)
+}
+
+/// [`track_delete`] marking the deleted text with revision `rid`.
+pub(crate) fn track_delete_as(s: &mut Session, a: &Pos, b: &Pos, rid: u32) -> Result<Pos, CmdError> {
     let author = s.author.clone();
     // Remove text this author inserted (it never existed for the reader); mark the rest.
     let paths = s.doc.paths_between(a, b);
@@ -197,7 +236,22 @@ pub(crate) fn track_delete(s: &mut Session, a: &Pos, b: &Pos) -> Result<Pos, Cmd
 
 /// Insert typed text at the caret (replacing the selection), with pending formatting and track changes.
 pub fn type_text(s: &mut Session, text: &str) -> Result<(), CmdError> {
+    insert_text(s, text, true)
+}
+
+/// Insert pasted plain text like [`type_text`], except that its paragraph separators are text
+/// being transferred, not Enter key presses: an empty list item between them stays (Enter on
+/// one would end the list).
+pub fn paste_text(s: &mut Session, text: &str) -> Result<(), CmdError> {
+    insert_text(s, text, false)
+}
+
+fn insert_text(s: &mut Session, text: &str, enter: bool) -> Result<(), CmdError> {
     let mut props = s.typing_props();
+    // Content controls: a placeholder is replaced, locked ones refuse.
+    if let Some(p) = controls::prepare_edit(s)? {
+        props = p;
+    }
     delete_selection(s)?;
     // Typed text is new: never deleted, and not a formatting change of the text around it.
     props.fmt_change = None;
@@ -212,7 +266,7 @@ pub fn type_text(s: &mut Session, text: &str) -> Result<(), CmdError> {
     let mut first = true;
     for part in text.split(['\r', '\u{2029}']) {
         if !first {
-            at = split_para(s, &at)?;
+            at = split_para_as(s, &at, enter)?;
         }
         first = false;
         let part = part.replace('\u{000B}', "\n");
@@ -237,15 +291,22 @@ pub fn leave_list(para: &mut wordcraft_doc::Paragraph) {
     }
     para.props.indent_left = None;
     para.props.indent_first = None;
+    para.props.indent_left_chars = None;
+    para.props.indent_first_chars = None;
     para.touch();
 }
 
 /// Split the paragraph at `at` like Enter does: an empty list paragraph leaves the list, the
 /// next paragraph gets the style's "next" style when Enter is at the end.
 pub fn split_para(s: &mut Session, at: &Pos) -> Result<Pos, CmdError> {
+    split_para_as(s, at, true)
+}
+
+/// [`split_para`]; without `enter` an empty list item is split like any other paragraph.
+fn split_para_as(s: &mut Session, at: &Pos, enter: bool) -> Result<Pos, CmdError> {
     // `num: 0` means "explicitly not in a list", so it isn't a list item.
     let (at_end, style, empty_list) = match s.doc.para_at(at) {
-        Some(p) => (at.off >= p.len(), p.props.style.clone(), p.props.numbering.filter(|n| n.num != 0 && p.is_empty())),
+        Some(p) => (at.off >= p.len(), p.props.style.clone(), p.props.numbering.filter(|n| enter && n.num != 0 && p.is_empty())),
         None => return Err(CmdError::Failed("no paragraph at caret".into())),
     };
     if let Some(n) = empty_list {

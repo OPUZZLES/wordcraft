@@ -167,9 +167,10 @@ pub fn measure_table_columns(doc: &wordcraft_doc::Document, t: &Table) -> Vec<(f
                 field_codes: false,
                 hide_deleted: false,
                 table: text.as_ref(),
-                proofing: false,
+                proofing: None,
                 exclusions: &[],
                 eq_number: 0,
+                grid: crate::para::Grid::default(),
             };
             let (mut min, mut max) = (EMPTY_TEXT, EMPTY_TEXT);
             if cell.props.vmerge != VMerge::Continue && !cell.props.text_direction.is_turned() {

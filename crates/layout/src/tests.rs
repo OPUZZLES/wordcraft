@@ -234,6 +234,7 @@ fn many_hidden_float_anchors_lay_out_in_linear_time() {
             story: None,
             freeform: None,
             effects: Default::default(),
+            extra: Default::default(),
         };
         let obj = wordcraft_doc::para::OBJ.to_string();
         let mut p = wordcraft_doc::Paragraph::with_text("Text ", Default::default());
@@ -399,7 +400,7 @@ fn right_tab_aligns_text_end() {
 fn lists_get_labels_and_indent() {
     let mut d = Document::from_text("one\ntwo\nthree");
     let id = d.numbering.add_list(wordcraft_doc::ListKind::Numbered);
-    d.format_paragraphs(&Pos::body(0, 0), &Pos::body(2, 0), &|p| p.numbering = Some(wordcraft_doc::props::NumRef { num: id, level: 0 })).unwrap();
+    d.format_paragraphs(&Pos::body(0, 0), &Pos::body(2, 5), &|p| p.numbering = Some(wordcraft_doc::props::NumRef { num: id, level: 0 })).unwrap();
     let l = lay(&d);
     let labels: Vec<String> = l.pages[0]
         .items
@@ -409,6 +410,55 @@ fn lists_get_labels_and_indent() {
     assert_eq!(labels, vec!["1.", "2.", "3."]);
     let x = l.caret(&Pos::body(0, 0)).unwrap().x;
     assert!((x - 108.0).abs() < 0.5, "{x}");
+}
+
+#[test]
+fn chinese_counting_list_labels_and_their_font_runs() {
+    // Issue #534: a "一、" list showed digits, drawn with glyph ids of another font.
+    use wordcraft_doc::section::NumFormat;
+    let mut d = Document::from_text("甲\n乙\n丙");
+    let id = d.numbering.add_list(wordcraft_doc::ListKind::Numbered);
+    for a in &mut d.numbering.abstracts {
+        if let Some(l) = a.levels.first_mut() {
+            l.format = NumFormat::ChineseCounting;
+            l.text = "%1、".into();
+        }
+    }
+    d.format_paragraphs(&Pos::body(0, 0), &Pos::body(2, 3), &|p| p.numbering = Some(wordcraft_doc::props::NumRef { num: id, level: 0 })).unwrap();
+    let labels = |d: &Document| -> Vec<(String, Vec<(String, bool)>)> {
+        let l = lay(d);
+        l.pages[0]
+            .items
+            .iter()
+            .filter_map(|it| if let Placed::Lines { para, .. } = it { Some(para.clone()) } else { None })
+            .filter_map(|pl| {
+                let lab = pl.label.clone()?;
+                // Every run draws glyphs of its own face.
+                let runs = lab
+                    .runs
+                    .iter()
+                    .map(|r| {
+                        let face = &pl.styles[r.style as usize].face;
+                        let gids: Vec<u32> = lab.glyphs[r.glyphs.clone()].iter().map(|g| g.gid).collect();
+                        (r.text.clone(), r.text.chars().all(|c| gids.contains(&face.glyph_for(c))))
+                    })
+                    .collect();
+                Some((lab.text, runs))
+            })
+            .collect()
+    };
+    let got = labels(&d);
+    assert_eq!(got.iter().map(|(t, _)| t.as_str()).collect::<Vec<_>>(), ["一、", "二、", "三、"]);
+    // A decimal label next to a CJK comma mixes faces when the Latin face lacks the comma.
+    for a in &mut d.numbering.abstracts {
+        if let Some(l) = a.levels.first_mut() {
+            l.format = NumFormat::Decimal;
+        }
+    }
+    for (text, runs) in labels(&d).into_iter().chain(got) {
+        assert_eq!(runs.iter().map(|(t, _)| t.as_str()).collect::<String>(), text);
+        assert!(runs.iter().all(|(_, own)| *own), "{text}: {runs:?}");
+    }
 }
 
 #[test]
@@ -694,7 +744,12 @@ fn display_has_glyphs_and_marks() {
 #[test]
 fn a_tracked_paragraph_mark_shows_in_its_authors_colour() {
     let mut d = Document::from_text("Split\nhere");
-    d.revisions.push(wordcraft_doc::Revision { kind: wordcraft_doc::RevisionKind::Insert, author: "Ana".into(), date: String::new() });
+    d.revisions.push(wordcraft_doc::Revision {
+        kind: wordcraft_doc::RevisionKind::Insert,
+        author: "Ana".into(),
+        date: String::new(),
+        move_name: None,
+    });
     d.para_mut(wordcraft_doc::StoryRef::Body, &wordcraft_doc::Path::top(0)).unwrap().mark.ins = Some(0);
     let l = lay(&d);
     let marks = |markup: bool| -> Vec<Option<wordcraft_doc::props::Rgb>> {
@@ -858,11 +913,7 @@ fn runs_differing_only_in_link_or_decoration_keep_their_own_style() {
 fn web_view_is_one_page() {
     let d = Document::from_text(&"text ".repeat(3000));
     let mut c = LayoutCache::new();
-    let l = layout(
-        &d,
-        &mut c,
-        &LayoutOptions { view: ViewMode::Web, web_width: 800.0, show_hidden: false, hide_deleted: false, proofing: false, field_codes: false },
-    );
+    let l = layout(&d, &mut c, &LayoutOptions { view: ViewMode::Web, web_width: 800.0, ..Default::default() });
     assert_eq!(l.pages.len(), 1);
     assert!(l.pages[0].h > 800.0);
 }
@@ -1056,6 +1107,7 @@ fn text_wraps_around_square_float() {
         story: None,
         freeform: None,
         effects: Default::default(),
+        extra: Default::default(),
     };
     d.insert_object(&Pos::body(0, 0), shape, &Default::default()).unwrap();
     let l = lay(&d);
@@ -1095,6 +1147,7 @@ fn deleted_float_leaves_no_wrap_area_without_markup() {
         story: None,
         freeform: None,
         effects: Default::default(),
+        extra: Default::default(),
     };
     d.insert_object(&Pos::body(0, 0), shape, &Default::default()).unwrap();
     let obj = wordcraft_doc::para::OBJ.len_utf8();
@@ -1148,6 +1201,7 @@ fn hidden_float_leaves_no_wrap_area_when_hidden_text_is_not_shown() {
         story: None,
         freeform: None,
         effects: Default::default(),
+        extra: Default::default(),
     };
     d.insert_object(&Pos::body(0, 0), shape, &Default::default()).unwrap();
     let obj = wordcraft_doc::para::OBJ.len_utf8();
@@ -1202,6 +1256,7 @@ fn line_numbers_borders_text_boxes() {
         story: Some(id),
         freeform: None,
         effects: Default::default(),
+        extra: Default::default(),
     };
     d.insert_object(&Pos::body(2, 5), tb, &Default::default()).unwrap();
     let l = lay(&d);
@@ -1380,6 +1435,32 @@ fn auto_hyphenation_breaks_long_words() {
     let _ = hyphens(&l2);
 }
 
+/// Hyphenation Options (#407): a consecutive-hyphen limit of 1 never lets two lines in a row end
+/// with a hyphen, and words in capitals stay whole when the document says so.
+#[test]
+fn hyphenation_options_limit_hyphens_and_spare_capitals() {
+    let text = "Internationalization considerations notwithstanding, administrators systematically reconsidered extraordinarily uncharacteristic responsibilities. ".repeat(6);
+    let lines = |d: &Document| -> Vec<bool> {
+        lay(d).pages[0]
+            .items
+            .iter()
+            .filter_map(|i| {
+                if let Placed::Lines { para, .. } = i { Some(para.lines.iter().map(|x| x.hyphen.is_some()).collect::<Vec<_>>()) } else { None }
+            })
+            .flatten()
+            .collect()
+    };
+    let mut d = Document::from_text(&text);
+    d.settings.auto_hyphenation = true;
+    d.settings.consecutive_hyphen_limit = 1;
+    let hy = lines(&d);
+    assert!(hy.windows(2).all(|w| !(w[0] && w[1])), "two hyphenated lines in a row: {hy:?}");
+    let mut caps = Document::from_text(&text.to_uppercase());
+    caps.settings.auto_hyphenation = true;
+    caps.settings.hyphenate_caps = false;
+    assert!(lines(&caps).iter().all(|h| !h), "a word in capitals was hyphenated");
+}
+
 /// A table of `rows` x 2 with text in every cell, after a "before" paragraph.
 fn styled_table_doc(style: Option<&str>, rows: usize) -> Document {
     let mut d = Document::from_text("before\nafter");
@@ -1515,6 +1596,7 @@ fn text_box_at(d: &mut Document, pos: &Pos, text: &str, w: f32, h: f32, float: w
         story: Some(id),
         freeform: None,
         effects: Default::default(),
+        extra: Default::default(),
     };
     d.insert_object(pos, shape, &Default::default()).unwrap();
     id
@@ -1587,6 +1669,7 @@ fn presses_grab_pictures_anywhere_and_text_boxes_by_their_border() {
         story: None,
         freeform: None,
         effects: Default::default(),
+        extra: Default::default(),
     };
     d.insert_object(&Pos::body(0, 0), shape, &Default::default()).unwrap();
     let l = lay(&d);
@@ -1808,6 +1891,7 @@ fn box_fan_out(levels: usize, fan: usize) -> Document {
         story: Some(story),
         freeform: None,
         effects: Default::default(),
+        extra: Default::default(),
     };
     for (k, id) in ids.iter().enumerate() {
         let next = *ids.get(k + 1).unwrap_or(id);
@@ -1882,6 +1966,7 @@ fn picture(w: f32, h: f32, float: wordcraft_doc::para::Float) -> InlineObject {
         story: None,
         freeform: None,
         effects: Default::default(),
+        extra: Default::default(),
     }
 }
 
@@ -2031,6 +2116,7 @@ fn rect_shape(w: f32, h: f32, float: wordcraft_doc::para::Float) -> InlineObject
         story: None,
         freeform: None,
         effects: Default::default(),
+        extra: Default::default(),
     }
 }
 
@@ -2201,6 +2287,7 @@ fn floating_header_text_box_leaves_the_body_at_the_top_margin() {
                 story: Some(story),
                 freeform: None,
                 effects: Default::default(),
+                extra: Default::default(),
             };
             anchor.insert_object(0, tb, &Default::default()).unwrap();
         }
@@ -2352,6 +2439,74 @@ fn a_floating_table_taller_than_a_page_runs_across_pages() {
         }
     }
     assert_eq!(rows, 80);
+}
+
+/// #534: a table placed on the page (`w:tblpPr w:vertAnchor="page"`) whose anchor comes after a
+/// page full of text goes to the next page with it, like Word, instead of covering that text.
+#[test]
+fn a_page_anchored_floating_table_after_a_full_page_moves_to_the_next() {
+    use wordcraft_doc::para::Anchor;
+    use wordcraft_doc::props::TableFloat;
+    let text: Vec<String> = (0..24).map(|i| format!("Paragraph {i} before the table.")).collect();
+    let mut d = Document::from_text(&(text.join("\n") + "\nAfter the table."));
+    let mut t = Table::new(15, 1, 300.0);
+    for (i, r) in t.rows.iter_mut().enumerate() {
+        r.cells[0].blocks = vec![wordcraft_doc::para_block(wordcraft_doc::Paragraph::with_text(&format!("Row {i}"), Default::default()))];
+    }
+    t.props.float = Some(TableFloat { h_rel: Anchor::Page, v_rel: Anchor::Page, x: 70.0, y: 71.0, ..Default::default() });
+    d.insert_block(StoryRef::Body, &Path::top(24), wordcraft_doc::Block::Table(t)).unwrap();
+    let l = lay(&d);
+    let page_of = |want: &dyn Fn(&Path) -> bool| -> Vec<usize> {
+        l.pages
+            .iter()
+            .enumerate()
+            .flat_map(|(i, p)| p.items.iter().map(move |it| (i, it)))
+            .filter_map(|(i, it)| if let Placed::Lines { story: StoryRef::Body, path, .. } = it { want(path).then_some(i) } else { None })
+            .collect()
+    };
+    // The text before the table fills page 1; the table and the text after it are on page 2.
+    assert_eq!(page_of(&|p| p.0 == [23]), vec![0]);
+    let rows = page_of(&|p| p.0.first() == Some(&24) && p.0.len() > 1);
+    assert!(rows.len() == 15 && rows.iter().all(|pg| *pg == 1), "table rows on pages {rows:?}");
+    assert_eq!(page_of(&|p| p.0 == [25]), vec![1]);
+}
+
+/// #534: a paragraph that starts with a page break right where the page is full keeps the break
+/// on that page: no blank page between the two tables around it.
+#[test]
+fn a_page_break_at_the_bottom_of_a_full_page_leaves_no_blank_page() {
+    use wordcraft_doc::props::LineSpacing;
+    let props = ParaProps { line_spacing: Some(LineSpacing::Exactly(24.0)), space_before: Some(0.0), space_after: Some(0.0), ..Default::default() };
+    let para = |text: &str| {
+        let mut p = wordcraft_doc::Paragraph::with_text(text, Default::default());
+        p.props = props.clone();
+        wordcraft_doc::para_block(p)
+    };
+    let mut d = Document::from_text("");
+    // 27 lines of 24pt fill the 648pt of text on a Letter page.
+    d.body = (0..27).map(|i| para(&format!("Line {i}"))).collect();
+    d.body.push(para("\u{000C}Next page"));
+    let l = lay(&d);
+    assert_eq!(l.pages.len(), 2, "pages: {}", l.pages.len());
+    let last_on_2 = l.pages[1].items.iter().any(|it| matches!(it, Placed::Lines { path, .. } if path.0 == [27]));
+    assert!(last_on_2, "the text after the break is on page 2");
+}
+
+/// #534: indents in characters (`w:firstLineChars`) are measured in the paragraph mark's font
+/// size and win over the indent in points.
+#[test]
+fn character_indents_use_the_paragraph_mark_size() {
+    let mut p = wordcraft_doc::Paragraph::with_text(&"字".repeat(80), Default::default());
+    p.props.indent_first = Some(5.0);
+    p.props.indent_first_chars = Some(2.0);
+    p.props.indent_left_chars = Some(1.0);
+    p.mark.size = Some(20.0);
+    let mut d = Document::from_text("");
+    d.body = vec![wordcraft_doc::para_block(p)];
+    let l = lay(&d);
+    let para = l.pages[0].items.iter().find_map(|it| if let Placed::Lines { para, .. } = it { Some(para.clone()) } else { None }).unwrap();
+    assert!((para.lines[0].left - 60.0).abs() < 0.01, "first line at {}", para.lines[0].left);
+    assert!((para.lines[1].left - 20.0).abs() < 0.01, "second line at {}", para.lines[1].left);
 }
 
 #[test]
@@ -2594,7 +2749,7 @@ fn oversized_graphic_draws_shrunk_with_its_items() {
         stroke: Some(Rgb::BLACK),
         stroke_width: 4.0,
     }];
-    let graphic = Graphic { kind: GraphicKind::Chart, items, w: 1000.0, h: 500.0, source: None };
+    let graphic = Graphic { kind: GraphicKind::Chart, items, w: 1000.0, h: 500.0, source: None, chart: None, smart_art: None };
     let obj = InlineObject::Graphic { w: 1000.0, h: 500.0, alt: String::new(), float: Default::default(), graphic: Arc::new(graphic) };
     let mut d = Document::from_text("Chart");
     d.insert_object(&Pos::body(0, 0), obj, &Default::default()).unwrap();
@@ -2811,6 +2966,7 @@ fn rotated_float_wraps_around_its_rotated_bounds() {
             story: None,
             freeform: None,
             effects: Default::default(),
+            extra: Default::default(),
         };
         d.insert_object(&Pos::body(0, 0), shape, &Default::default()).unwrap();
         let l = layout(&d, &mut LayoutCache::new(), &LayoutOptions::default());
@@ -2855,6 +3011,7 @@ fn rotated_group_turns_its_members_and_their_shadows() {
         story: None,
         freeform: None,
         effects: ShapeEffects { shadow: Some(Shadow { angle: 0.0, rot_with_shape, ..Default::default() }), ..Default::default() },
+        extra: Default::default(),
     };
     let float =
         Float { wrap: Wrap::InFrontOfText, h_rel: Anchor::Column, v_rel: Anchor::Paragraph, x: 100.0, y: 100.0, rot: 90.0, ..Default::default() };
@@ -3014,6 +3171,7 @@ fn wrapped_shape_doc(kind: wordcraft_doc::para::ShapeKind, w: f32, h: f32, float
         story: None,
         effects: Default::default(),
         freeform: None,
+        extra: Default::default(),
     };
     d.insert_object(&Pos::body(0, 0), shape, &Default::default()).unwrap();
     d
@@ -3278,6 +3436,7 @@ fn rotated_canvas_draws_its_clipped_members_inside_the_turn() {
         story: None,
         effects: Default::default(),
         freeform: None,
+        extra: Default::default(),
     };
     let canvas = |float: Float| InlineObject::Group {
         w: 200.0,
@@ -3349,6 +3508,26 @@ fn rotated_canvas_draws_its_clipped_members_inside_the_turn() {
             assert!(l.object_at(0, cx, cy - 80.0, 0.0).is_some());
         }
     }
+}
+
+#[test]
+fn mirror_indents_swap_sides_on_even_pages() {
+    // #512: with mirrored indents the left indent is the inside one, on the right of an even page.
+    let mut d = Document::from_text("odd page\neven page");
+    let last = Pos::body(1, 0);
+    d.format_paragraphs(&Pos::body(0, 0), &last, &|p| {
+        p.indent_left = Some(72.0);
+        p.mirror_indents = Some(true);
+    })
+    .unwrap();
+    d.format_paragraphs(&last, &last, &|p| p.page_break_before = Some(true)).unwrap();
+    let l = lay(&d);
+    assert_eq!(l.pages.len(), 2);
+    let odd = l.caret(&Pos::body(0, 0)).unwrap();
+    let even = l.caret(&last).unwrap();
+    assert_eq!(even.page, 1);
+    assert!((odd.x - 144.0).abs() < 0.5, "odd page: inside indent on the left, {odd:?}");
+    assert!((even.x - 72.0).abs() < 0.5, "even page: the left side has the outside indent (0), {even:?}");
 }
 
 /// Ten short paragraphs in a two-column section (`widths`: unequal columns), then one paragraph
@@ -3423,4 +3602,169 @@ fn columns_before_a_page_break_or_a_column_break_are_not_balanced() {
     assert_eq!((nl, nr, page), (2, 8, 0));
     // The next section starts below the taller column.
     assert!(br > bl + 50.0 && after >= br - 0.5, "columns end at {bl} and {br}, next section at {after}");
+}
+
+/// The glyphs of each note reference mark in the body, by note id.
+fn note_marks(l: &DocLayout) -> HashMap<u32, Vec<u32>> {
+    let mut marks = HashMap::new();
+    for it in l.pages.iter().flat_map(|p| p.items.iter()) {
+        if let Placed::Lines { story: StoryRef::Body, para, .. } = it {
+            for (ci, id) in &para.notes {
+                let c = &para.clusters[*ci];
+                marks.insert(*id, para.glyphs[c.g0 as usize..c.g1 as usize].iter().map(|g| g.gid).collect::<Vec<_>>());
+            }
+        }
+    }
+    marks
+}
+
+#[test]
+fn footnotes_restart_on_each_page_and_section() {
+    use wordcraft_doc::section::{NoteProps, NoteRestart};
+    let mut d = Document::from_text(&"Body text line.\n".repeat(120));
+    let a = footnote(&mut d, &Pos::body(2, 4), "First note.");
+    let b = footnote(&mut d, &Pos::body(4, 4), "Second note.");
+    let c = footnote(&mut d, &Pos::body(110, 4), "A later page's note.");
+    let l = lay(&d);
+    let page = |l: &DocLayout, id: u32| l.caret(&d.start_of(StoryRef::Part(id))).unwrap().page;
+    assert!(page(&l, c) > page(&l, a), "the third note is on a later page");
+    let marks = note_marks(&l);
+    assert_ne!(marks[&c], marks[&a], "numbered on: 3 is not 1");
+    // Restart each page: the later page's note is 1 again; the first page counts 1, 2.
+    d.settings.footnote_pr = NoteProps { num_restart: Some(NoteRestart::EachPage), ..Default::default() };
+    let marks = note_marks(&lay(&d));
+    assert_eq!(marks[&c], marks[&a]);
+    assert_ne!(marks[&b], marks[&a]);
+    // Restart each section, starting at 5, in a second section that starts at paragraph 50.
+    d.settings.footnote_pr = NoteProps::default();
+    d.para_mut(StoryRef::Body, &Path::top(49)).unwrap().section = Some(Box::new(SectionProps::default()));
+    d.last_section.footnote_pr = NoteProps { num_restart: Some(NoteRestart::EachSect), num_start: Some(5), ..Default::default() };
+    let nums = note_numbers(&d, false);
+    assert_eq!((nums[&a], nums[&b], nums[&c]), (1, 2, 5));
+}
+
+#[test]
+fn endnotes_at_section_end_and_footnotes_below_text() {
+    use wordcraft_doc::section::{NotePos, NoteProps};
+    let mut d = Document::from_text("Alpha\nBeta\nGamma\nDelta");
+    let eid = d.add_part(
+        wordcraft_doc::PartKind::Endnote,
+        vec![wordcraft_doc::para_block(wordcraft_doc::Paragraph::with_text("An endnote.", Default::default()))],
+    );
+    d.insert_object(
+        &Pos::body(0, 5),
+        InlineObject::NoteRef { kind: wordcraft_doc::para::NoteKind::Endnote, id: eid, custom: String::new() },
+        &Default::default(),
+    )
+    .unwrap();
+    // Two sections, the second on a new page.
+    d.para_mut(StoryRef::Body, &Path::top(1)).unwrap().section = Some(Box::new(SectionProps::default()));
+    let end_page = |d: &Document| {
+        let l = lay(d);
+        (l.caret(&d.start_of(StoryRef::Part(eid))).unwrap().page, l.caret(&Pos::body(2, 0)).unwrap().page)
+    };
+    assert_eq!(end_page(&d), (1, 1), "end of document: after the second section's text");
+    d.settings.endnote_pr = NoteProps { pos: Some(NotePos::SectEnd), ..Default::default() };
+    assert_eq!(end_page(&d), (0, 1), "end of section: on the first section's page");
+    // A footnote below the text sits right under the last line, above where it'd be at the bottom.
+    let fid = footnote(&mut d, &Pos::body(0, 2), "A footnote.");
+    let top = |d: &Document| lay(d).caret(&d.start_of(StoryRef::Part(fid))).unwrap().top;
+    let bottom = top(&d);
+    d.settings.footnote_pr = NoteProps { pos: Some(NotePos::BeneathText), ..Default::default() };
+    let below = top(&d);
+    let text = lay(&d).caret(&Pos::body(1, 0)).unwrap();
+    assert!(below > text.top + text.height && below < bottom - 100.0, "{below} {bottom} {text:?}");
+}
+
+/// #451: page totals in the body show the document's page count (the stale cached result is
+/// ignored), on every page, like the same fields in the footer.
+#[test]
+fn body_page_totals_count_every_page() {
+    let mut d = Document::from_text("Body-1\nBody-2\nBody-3");
+    let field = |instr: &str| InlineObject::Field { instr: instr.into(), result: "9".into(), locked: false, code: false };
+    for i in 0..3 {
+        let p = d.para_mut(StoryRef::Body, &Path::top(i)).unwrap();
+        p.props.page_break_before = Some(i > 0);
+        let n = p.len();
+        p.insert_object(n, field("NUMPAGES"), &Default::default()).unwrap();
+        let n = p.len();
+        p.insert_object(n, field("SECTIONPAGES"), &Default::default()).unwrap();
+    }
+    let mut fp = wordcraft_doc::Paragraph::new();
+    fp.insert_object(0, field("NUMPAGES"), &Default::default()).unwrap();
+    let id = d.add_part(wordcraft_doc::PartKind::Footer, vec![wordcraft_doc::para_block(fp)]);
+    d.last_section.footers.default = Some(id);
+    let l = lay(&d);
+    assert_eq!(l.pages.len(), 3);
+    let shown = |items: &[Placed]| -> Vec<String> {
+        items
+            .iter()
+            .flat_map(|it| if let Placed::Lines { para, .. } = it { para.shown.iter().map(|s| s.1.clone()).collect() } else { vec![] })
+            .collect()
+    };
+    for (i, p) in l.pages.iter().enumerate() {
+        assert_eq!(shown(&p.items), ["3", "3"], "body of page {}", i + 1);
+        assert_eq!(shown(&p.footer), ["3"], "footer of page {}", i + 1);
+    }
+    // One page: one pass, total 1.
+    let mut d1 = Document::from_text("Only");
+    let p = d1.para_mut(StoryRef::Body, &Path::top(0)).unwrap();
+    p.insert_object(4, field("NUMPAGES"), &Default::default()).unwrap();
+    assert_eq!(shown(&lay(&d1).pages[0].items), ["1"]);
+}
+
+/// #450: a footnote referenced in a table cell is placed at the bottom of its page, like one in
+/// a body paragraph.
+#[test]
+fn table_cell_footnotes_are_placed() {
+    let mut d = Document::from_text("After the table.");
+    d.insert_block(StoryRef::Body, &Path::top(0), wordcraft_doc::Block::Table(wordcraft_doc::Table::new(1, 1, 300.0))).unwrap();
+    let cell = Pos { story: StoryRef::Body, path: Path(vec![0, 0, 0, 0]), off: 0 };
+    d.para_mut(StoryRef::Body, &cell.path).unwrap().insert_text(0, "Table reference", &Default::default()).unwrap();
+    let id = footnote(&mut d, &Pos { off: "Table reference".len(), ..cell }, "Table note payload.");
+    let l = lay(&d);
+    assert_eq!(l.pages.len(), 1);
+    let c = l.caret(&d.start_of(StoryRef::Part(id))).expect("the cell's footnote is placed");
+    assert_eq!(c.page, 0);
+    let body = l.caret(&Pos::body(1, 0)).unwrap();
+    assert!(c.top > body.top + 100.0, "at the page bottom: {c:?} {body:?}");
+}
+
+#[test]
+fn east_asian_text_takes_the_asian_font_and_latin_text_the_latin_font() {
+    // #505: one run with a Latin font and an Asian font (w:eastAsia) of its own sets each script in
+    // its font. Prefer an installed CJK font other than the one fallback would pick anyway.
+    let resolve = |f: &str| wordcraft_fonts::word::resolve(f, false, false);
+    let fallback = wordcraft_fonts::FontDb::global().fallback_for('你', 0).map(|f| f.family.clone());
+    let mut fonts: Vec<String> = wordcraft_fonts::FontDb::global()
+        .east_asian_families()
+        .into_iter()
+        .filter(|f| {
+            let r = resolve(f);
+            !r.substituted && r.face.covers('你') && r.face.covers('好')
+        })
+        .collect();
+    fonts.sort_by_key(|f| Some(f) == fallback.as_ref());
+    let Some(asian) = fonts.first().cloned() else {
+        eprintln!("skipped: no Chinese font installed");
+        return;
+    };
+    let latin = wordcraft_doc::styles::BODY_FONT;
+    let text = "Hello 你好 World";
+    let mut d = Document::from_text(text);
+    d.format_range(&Pos::body(0, 0), &Pos::body(0, text.len()), &|c| {
+        c.font = Some(latin.into());
+        c.font_ea = Some(asian.clone());
+    })
+    .unwrap();
+    let l = lay(&d);
+    let para =
+        l.pages.iter().flat_map(|p| p.items.iter()).find_map(|it| if let Placed::Lines { para, .. } = it { Some(para) } else { None }).unwrap();
+    let (latin_face, asian_face) = (resolve(latin).face.id(), resolve(&asian).face.id());
+    for c in &para.clusters {
+        let Some(ch) = text.get(c.start..c.end).and_then(|s| s.chars().next()).filter(|ch| !ch.is_whitespace()) else { continue };
+        let face = para.styles[c.style as usize].face.id();
+        let want = if ch.is_ascii() { latin_face } else { asian_face };
+        assert_eq!(face, want, "{ch:?} in {}", if ch.is_ascii() { latin } else { &asian });
+    }
 }

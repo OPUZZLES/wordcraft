@@ -1,13 +1,15 @@
 //! DOCX → [`Document`].
 
-mod chart;
-mod diagram;
+pub(crate) mod chart;
+pub(crate) mod diagram;
 mod drawing_color;
 mod embed;
 mod freeform;
 mod math;
 mod props;
+mod sdt;
 mod story;
+mod wordart;
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
@@ -33,12 +35,16 @@ const MAX_PARTS: usize = 50_000;
 /// Most graphic work (items plus path segments, see `story::graphic_work`) built for one file's
 /// charts and diagrams; later ones are left empty.
 const MAX_GRAPHIC_WORK: usize = 2_000_000;
+/// Longest attached-template path we keep (bytes); a longer one is not a real path.
+const MAX_TEMPLATE_PATH: usize = 32 * 1024;
 
 pub(crate) struct Reader<'p> {
     pkg: &'p Package,
     pub doc: Document,
     pub pc: PropCtx,
-    revs: HashMap<(u8, String, String), u32>,
+    revs: HashMap<(u8, String, String, Option<String>), u32>,
+    /// Move ranges (`w:moveFromRangeStart` …) seen so far.
+    pub moves: MoveCtx,
     media_by_path: HashMap<String, String>,
     hf_by_path: HashMap<String, u32>,
     pub footnotes: HashMap<i64, u32>,
@@ -52,18 +58,27 @@ pub(crate) struct Reader<'p> {
     pub comment_map: HashMap<String, u32>,
     pub comments_ended: HashSet<u32>,
     pub bookmarks: HashMap<String, String>,
+    /// Restrict Editing exception ranges (`w:permStart`): the file's id → ours.
+    pub perms: HashMap<String, u32>,
     /// Chart and diagram parts by path, parsed once.
     graphic_parts: HashMap<String, Option<Arc<El>>>,
     /// Charts and diagrams by (kind, part path, width bits, height bits), built once.
     graphics: HashMap<(GraphicKind, String, u32, u32), Arc<Graphic>>,
     /// Graphic work left before charts and diagrams are left empty (see [`MAX_GRAPHIC_WORK`]).
     graphic_budget: usize,
+    /// Drawing ids connectors are glued to (`a:stCxn`, `a:endCxn`), and whether any shape's id
+    /// was kept while reading (those not glued to are dropped at the end).
+    pub glued: HashSet<u32>,
+    pub shape_ids: bool,
     /// The main document part's name.
     main: String,
     /// The package's content types, read when first needed.
     content_types: Option<ContentTypes>,
     /// Parts kept for charts, diagrams and OLE objects (see `embed`).
     embedded: EmbeddedManifest,
+    /// Linked text boxes as read: (`wps:txbx/@id` or `wps:linkedTxbx/@id`, `seq` (0 for the box
+    /// holding the text), text box part). See [`link_text_boxes`].
+    pub txbx_links: Vec<(u32, u32, u32)>,
 }
 
 /// The package path that internal relationship `id` points at, if it has type `kind` (an `rt`
@@ -84,7 +99,12 @@ pub fn read(bytes: &[u8]) -> Result<Document, DocxError> {
 
 /// [`read`] for bytes known not to be an encrypted package.
 pub(crate) fn read_package(bytes: &[u8]) -> Result<Document, DocxError> {
-    let pkg = Package::open(bytes)?;
+    read_opened(&Package::open(bytes)?)
+}
+
+/// Read a package whose parts are already unpacked (from a zip, a Flat OPC file or a converted
+/// Word 2003 XML document).
+pub(crate) fn read_opened(pkg: &Package) -> Result<Document, DocxError> {
     let root_rels = pkg.rels("");
     let main = root_rels.by_type(rt::OFFICE_DOC).filter(|r| !r.external).map(|r| r.target.clone()).unwrap_or_else(|| "word/document.xml".to_string());
     let Some(root) = pkg.xml(&main)? else {
@@ -97,10 +117,11 @@ pub(crate) fn read_package(bytes: &[u8]) -> Result<Document, DocxError> {
     let mut doc = Document::new();
     doc.body.clear();
     let mut r = Reader {
-        pkg: &pkg,
+        pkg,
         doc,
         pc: PropCtx::default(),
         revs: HashMap::new(),
+        moves: MoveCtx::default(),
         media_by_path: HashMap::new(),
         hf_by_path: HashMap::new(),
         footnotes: HashMap::new(),
@@ -110,12 +131,16 @@ pub(crate) fn read_package(bytes: &[u8]) -> Result<Document, DocxError> {
         comment_map: HashMap::new(),
         comments_ended: HashSet::new(),
         bookmarks: HashMap::new(),
+        perms: HashMap::new(),
         graphic_parts: HashMap::new(),
         graphics: HashMap::new(),
         graphic_budget: MAX_GRAPHIC_WORK,
+        glued: HashSet::new(),
+        shape_ids: false,
         main: main.clone(),
         content_types: None,
         embedded: EmbeddedManifest::default(),
+        txbx_links: Vec::new(),
     };
     r.pc.major_font = r.doc.settings.major_font.clone();
     r.pc.minor_font = r.doc.settings.minor_font.clone();
@@ -130,6 +155,10 @@ pub(crate) fn read_package(bytes: &[u8]) -> Result<Document, DocxError> {
             log::warn!("docx: ignoring unreadable {what}: {e}");
         }
     };
+    // Styles come before settings, but their theme colours already follow its colour mapping.
+    if let Some(p) = part(rt::SETTINGS) {
+        r.read_color_mapping(&p);
+    }
     if let Some(p) = part(rt::STYLES) {
         lenient("styles", r.read_styles(&p));
     }
@@ -187,9 +216,132 @@ pub(crate) fn read_package(bytes: &[u8]) -> Result<Document, DocxError> {
         let manifest = r.embedded.to_bytes();
         r.doc.passthrough.insert(EMBEDDED_PARTS.into(), Arc::new(manifest));
     }
+    r.finish_moves();
+    let links = std::mem::take(&mut r.txbx_links);
+    link_text_boxes(&mut r.doc, links);
+    if r.shape_ids {
+        keep_glued_ids(&mut r.doc, &r.glued);
+    }
     let mut doc = r.doc;
     doc.ensure_nonempty();
     Ok(doc)
+}
+
+/// Most move ranges open at once, and most move names tracked, per file.
+const MAX_OPEN_MOVES: usize = 64;
+const MAX_MOVES: usize = 100_000;
+
+/// The move ranges of a file (ECMA-376 §17.13.5.22–27): a `w:moveFrom` / `w:moveTo` is one end
+/// of a move when it sits inside a range of that kind; the range's name links both ends.
+#[derive(Default)]
+pub(crate) struct MoveCtx {
+    /// Open source and destination ranges: (`w:id`, `w:name`).
+    open: [Vec<(String, String)>; 2],
+    /// Per name: a source range started / ended, a destination range started / ended (bits 0–3).
+    seen: HashMap<String, u8>,
+    /// The range of each kind that ended last in the paragraph being read (for its mark).
+    pub closed_here: [Option<String>; 2],
+}
+
+impl Reader<'_> {
+    /// A `w:moveFromRangeStart/End` or `w:moveToRangeStart/End`.
+    pub fn move_range(&mut self, e: &El) {
+        let (side, start) = match e.name.as_str() {
+            "w:moveFromRangeStart" => (0, true),
+            "w:moveFromRangeEnd" => (0, false),
+            "w:moveToRangeStart" => (1, true),
+            "w:moveToRangeEnd" => (1, false),
+            _ => return,
+        };
+        let id = e.attr("w:id").unwrap_or("").chars().take(64).collect::<String>();
+        let m = &mut self.moves;
+        let Some(open) = m.open.get_mut(side) else { return };
+        if start {
+            let name = e.attr("w:name").unwrap_or("").chars().take(256).collect::<String>();
+            if name.is_empty() || open.len() >= MAX_OPEN_MOVES || (m.seen.len() >= MAX_MOVES && !m.seen.contains_key(&name)) {
+                return;
+            }
+            *m.seen.entry(name.clone()).or_default() |= 1 << (side * 2);
+            open.push((id, name));
+        } else if let Some(i) = open.iter().rposition(|(x, _)| *x == id) {
+            let (_, name) = open.remove(i);
+            *m.seen.entry(name.clone()).or_default() |= 2 << (side * 2);
+            if let Some(c) = m.closed_here.get_mut(side) {
+                *c = Some(name);
+            }
+        }
+    }
+
+    /// The revision of a `w:moveFrom` (`to` false) or `w:moveTo`: one end of the innermost open
+    /// range of its kind, else (no range) a plain deletion or insertion.
+    pub fn move_revision(&mut self, to: bool, e: &El, mark: bool) -> u32 {
+        let side = usize::from(to);
+        let open = self.moves.open.get(side).and_then(|o| o.last()).map(|(_, n)| n.clone());
+        // A paragraph mark comes after its paragraph's text: a range that ended in it counts.
+        let name = if mark { open.or_else(|| self.moves.closed_here.get(side).cloned().flatten()) } else { open };
+        let kind = if to { RevisionKind::Insert } else { RevisionKind::Delete };
+        self.revision_named(kind, e, name)
+    }
+
+    /// Moves missing an end (a source or destination range, or its text) are plain deletions
+    /// and insertions.
+    fn finish_moves(&mut self) {
+        let mut ends: HashMap<&str, u8> = HashMap::new();
+        for r in &self.doc.revisions {
+            if let Some(n) = r.move_name.as_deref() {
+                *ends.entry(n).or_default() |= if r.kind == RevisionKind::Delete { 1 } else { 2 };
+            }
+        }
+        let ok: HashSet<String> =
+            ends.into_iter().filter(|(n, e)| *e == 3 && self.moves.seen.get(*n) == Some(&0b1111)).map(|(n, _)| n.to_string()).collect();
+        for r in &mut self.doc.revisions {
+            if r.move_name.as_ref().is_some_and(|n| !ok.contains(n)) {
+                r.move_name = None;
+            }
+        }
+    }
+}
+
+/// Link the text boxes read as (id, seq, part) into chains (see [`Reader::txbx_links`]): each
+/// id's boxes in `seq` order after the box holding the text. A repeated seq, a chain without its
+/// first box or more than [`wordcraft_doc::MAX_LINKED_BOXES`] boxes: the extra boxes stay apart.
+fn link_text_boxes(doc: &mut Document, mut links: Vec<(u32, u32, u32)>) {
+    links.sort_by_key(|l| (l.0, l.1));
+    links.dedup_by_key(|l| (l.0, l.1));
+    for group in links.chunk_by(|a, b| a.0 == b.0) {
+        if group.first().is_none_or(|l| l.1 != 0) {
+            continue;
+        }
+        let chain: Vec<u32> = group.iter().take(wordcraft_doc::MAX_LINKED_BOXES).map(|l| l.2).collect();
+        for pair in chain.windows(2) {
+            if let [a, b] = pair
+                && let Some(p) = doc.parts.get_mut(a)
+            {
+                p.body.next = Some(*b);
+            }
+        }
+    }
+}
+
+/// Drop the drawing ids read with shapes, except those connectors are glued to (so a shape
+/// without connectors reads back as it was written).
+fn keep_glued_ids(doc: &mut Document, glued: &HashSet<u32>) {
+    let has_id = |o: &InlineObject| match o {
+        InlineObject::Shape { extra, .. } => extra.id != 0,
+        InlineObject::Group { children, .. } => children.iter().any(|c| matches!(&c.obj, InlineObject::Shape { extra, .. } if extra.id != 0)),
+        _ => false,
+    };
+    let clear = |o: &mut InlineObject| {
+        if let InlineObject::Shape { extra, .. } = o
+            && !glued.contains(&extra.id)
+        {
+            extra.id = 0;
+        }
+    };
+    doc.objects_mut(&has_id, &mut |o| match o {
+        InlineObject::Group { children, .. } => children.iter_mut().for_each(|c| clear(&mut c.obj)),
+        o => clear(o),
+    });
 }
 
 /// Word starts a TOC field in the first entry; the engine keeps it at the end of the TOC heading
@@ -310,6 +462,10 @@ impl Reader<'_> {
     }
 
     pub fn revision(&mut self, kind: RevisionKind, e: &El) -> u32 {
+        self.revision_named(kind, e, None)
+    }
+
+    fn revision_named(&mut self, kind: RevisionKind, e: &El, move_name: Option<String>) -> u32 {
         let author = e.attr("w:author").unwrap_or("").chars().take(256).collect::<String>();
         let date = e.attr("w:date").unwrap_or("").chars().take(64).collect::<String>();
         let k = match kind {
@@ -317,12 +473,12 @@ impl Reader<'_> {
             RevisionKind::Delete => 1,
             RevisionKind::Format => 2,
         };
-        let key = (k, author.clone(), date.clone());
+        let key = (k, author.clone(), date.clone(), move_name.clone());
         if let Some(i) = self.revs.get(&key) {
             return *i;
         }
         let i = self.doc.revisions.len() as u32;
-        self.doc.revisions.push(Revision { kind, author, date });
+        self.doc.revisions.push(Revision { kind, author, date, move_name });
         self.revs.insert(key, i);
         i
     }
@@ -413,6 +569,7 @@ impl Reader<'_> {
                     *slot = rgb;
                 }
             }
+            self.pc.theme_colors = colors.clone();
             self.doc.settings.theme_colors = colors;
         }
         if let Some(fs) = el.child("a:fontScheme") {
@@ -427,6 +584,48 @@ impl Reader<'_> {
         }
         self.pc.major_font = self.doc.settings.major_font.clone();
         self.pc.minor_font = self.doc.settings.minor_font.clone();
+        self.pc.theme = self.doc.settings.theme_colors.clone();
+    }
+
+    /// `w:settings/w:clrSchemeMapping`: which scheme colour text1, background1… stand for.
+    fn read_color_mapping(&mut self, path: &str) {
+        let Ok(Some(root)) = self.xml(path) else { return };
+        let Some(m) = root.child("w:clrSchemeMapping") else { return };
+        let names = [
+            "dark1",
+            "light1",
+            "dark2",
+            "light2",
+            "accent1",
+            "accent2",
+            "accent3",
+            "accent4",
+            "accent5",
+            "accent6",
+            "hyperlink",
+            "followedHyperlink",
+        ];
+        let attrs = [
+            "w:t1",
+            "w:bg1",
+            "w:t2",
+            "w:bg2",
+            "w:accent1",
+            "w:accent2",
+            "w:accent3",
+            "w:accent4",
+            "w:accent5",
+            "w:accent6",
+            "w:hyperlink",
+            "w:followedHyperlink",
+        ];
+        let mut map = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
+        for (slot, a) in map.iter_mut().zip(attrs) {
+            if let Some(i) = m.attr(a).and_then(|v| names.iter().position(|n| *n == v)) {
+                *slot = i;
+            }
+        }
+        self.pc.color_map = Some(map);
     }
 
     fn read_styles(&mut self, path: &str) -> Result<(), DocxError> {
@@ -479,6 +678,7 @@ impl Reader<'_> {
                 quick: flag(s, "w:qFormat").unwrap_or(false),
                 hidden: flag(s, "w:semiHidden").unwrap_or(false) || flag(s, "w:hidden").unwrap_or(false),
                 builtin: !s.attr("w:customStyle").is_some_and(|v| v == "1" || v == "true"),
+                locked: flag(s, "w:locked").unwrap_or(false),
                 ..Default::default()
             };
             if let Some(p) = s.child("w:pPr") {
@@ -505,12 +705,12 @@ impl Reader<'_> {
             if let Some(b) = tp.child("w:tblBorders") {
                 t.borders = Some(props::borders(b));
             }
-            t.fill = tp.child("w:shd").and_then(props::shd_fill);
+            t.fill = tp.child("w:shd").and_then(|e| self.pc.shd_fill(e));
             t.cell_margins = tp.child("w:tblCellMar").map(props::margins);
             t.band_size = tp.child_val("w:tblStyleRowBandSize").and_then(u32_of).filter(|n| *n > 0).map(|n| n.min(1000));
         }
         for c in s.children("w:tblStylePr").take(64) {
-            let fill = c.child("w:tcPr").and_then(|p| p.child("w:shd")).and_then(props::shd_fill);
+            let fill = c.child("w:tcPr").and_then(|p| p.child("w:shd")).and_then(|e| self.pc.shd_fill(e));
             let cell_borders = c.child("w:tcPr").and_then(|p| p.child("w:tcBorders")).map(props::borders);
             let chr = c.child("w:rPr").map(|r| self.pc.rpr(r)).unwrap_or_default();
             match c.attr("w:type") {
@@ -663,9 +863,19 @@ impl Reader<'_> {
 
     fn read_settings(&mut self, path: &str) -> Result<(), DocxError> {
         let Some(root) = self.xml(path)? else { return Ok(()) };
+        let rels = self.pkg.rels(path);
         let s = &mut self.doc.settings;
         for k in root.els() {
             match k.name.as_str() {
+                // §17.15.1.6: the template, by a relationship (usually external) of the settings part.
+                "w:attachedTemplate" => {
+                    s.attached_template = k
+                        .attr("r:id")
+                        .and_then(|id| rels.by_id(id))
+                        .map(|r| r.target.trim().to_string())
+                        .filter(|t| !t.is_empty() && t.len() <= MAX_TEMPLATE_PATH);
+                }
+                "w:linkStyles" => s.link_styles = on_off(k),
                 "w:compat" => {
                     // Only Word's own setting: another `w:uri` names a different application's.
                     let mode = k
@@ -695,22 +905,30 @@ impl Reader<'_> {
                 "m:mathPr" => s.math = Some(math::read_math_pr(k)),
                 "w:mirrorMargins" => s.mirror_margins = on_off(k),
                 "w:autoHyphenation" => s.auto_hyphenation = on_off(k),
+                "w:doNotHyphenateCaps" => s.hyphenate_caps = !on_off(k),
+                "w:hyphenationZone" => {
+                    if let Some(v) = tw(k, "w:val").filter(|v| v.is_finite() && *v >= 0.0) {
+                        s.hyphenation_zone = v.min(1584.0);
+                    }
+                }
+                "w:consecutiveHyphenLimit" => {
+                    if let Some(v) = k.attr("w:val").and_then(u32_of) {
+                        s.consecutive_hyphen_limit = v.min(32_767);
+                    }
+                }
                 "w:footnotePr" => {
                     if let Some(f) = k.child_val("w:numFmt") {
                         s.footnote_format = NumFormat::from_ooxml(f);
                     }
+                    s.footnote_pr = props::note_pr(k, false);
                 }
                 "w:endnotePr" => {
                     if let Some(f) = k.child_val("w:numFmt") {
                         s.endnote_format = NumFormat::from_ooxml(f);
                     }
+                    s.endnote_pr = props::note_pr(k, false);
                 }
-                "w:documentProtection" => {
-                    let enforced = k.attr("w:enforcement").is_some_and(|v| !matches!(v, "0" | "false" | "off"));
-                    if enforced && let Some(e) = k.attr("w:edit") {
-                        s.protection = Some(e.to_string());
-                    }
-                }
+                "w:documentProtection" => read_protection(k, s),
                 _ => {}
             }
         }
@@ -870,6 +1088,51 @@ impl Reader<'_> {
     }
 }
 
-fn default_level(i: usize) -> Level {
-    Level { indent: 36.0 * (i as f32 + 1.0), text: String::new(), ..Level::default() }
+/// A level as the file defines it before its own elements: no indents (a level without `w:ind`
+/// leaves the label at the paragraph's left edge, as Word shows it), no text.
+fn default_level(_i: usize) -> Level {
+    Level { indent: 0.0, hanging: 0.0, text: String::new(), ..Level::default() }
+}
+
+/// The password hash attributes of `w:documentProtection` that are kept (ECMA-376 §17.15.1.29:
+/// the current `algorithmName`/`hashValue`/`saltValue`/`spinCount`, and the older transitional
+/// `crypt*`/`hash`/`salt` set).
+pub(crate) const PROTECTION_HASH_ATTRS: [&str; 16] = [
+    "w:algorithmName",
+    "w:hashValue",
+    "w:saltValue",
+    "w:spinCount",
+    "w:cryptProviderType",
+    "w:cryptAlgorithmClass",
+    "w:cryptAlgorithmType",
+    "w:cryptAlgorithmSid",
+    "w:cryptSpinCount",
+    "w:cryptProvider",
+    "w:algIdExt",
+    "w:algIdExtSource",
+    "w:cryptProviderTypeExt",
+    "w:cryptProviderTypeExtSource",
+    "w:hash",
+    "w:salt",
+];
+
+/// Restrict Editing (`w:documentProtection`, §17.15.1.29): the editing restriction, whether
+/// formatting is limited to unlocked styles, and the password hash. Only enforced protection is
+/// kept; a hostile attribute value can't be longer than a hash needs.
+fn read_protection(k: &El, s: &mut wordcraft_doc::Settings) {
+    let on = |v: &str| !matches!(v, "0" | "false" | "off");
+    if !k.attr("w:enforcement").is_some_and(on) {
+        return;
+    }
+    let edit = k.attr("w:edit").filter(|e| matches!(*e, "readOnly" | "comments" | "trackedChanges" | "forms"));
+    let formatting = k.attr("w:formatting").is_some_and(on);
+    if edit.is_none() && !formatting {
+        return;
+    }
+    s.protection = Some(edit.unwrap_or("none").to_string());
+    s.protect_formatting = formatting;
+    s.protect_hash = PROTECTION_HASH_ATTRS
+        .iter()
+        .filter_map(|n| k.attr(n).filter(|v| !v.is_empty() && v.len() <= 1024).map(|v| (n.to_string(), v.to_string())))
+        .collect();
 }

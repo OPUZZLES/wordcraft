@@ -37,6 +37,8 @@ pub struct CanvasState {
     pub focused: bool,
     pub render_ms: f64,
     pub ime_preedit: String,
+    /// Document faces added to the interface fonts to draw the input method's composition (#565).
+    pub(crate) ime_faces: Vec<std::sync::Arc<wordcraft_fonts::FontFace>>,
     pub want_focus: bool,
     pub context_issue: Option<serde_json::Value>,
     pub context_synonyms: Option<serde_json::Value>,
@@ -50,6 +52,8 @@ pub struct CanvasState {
     pub(crate) ink: Option<crate::ink::InkDrag>,
     /// The eraser is down: whether it has erased anything in this drag yet.
     pub(crate) erasing: Option<bool>,
+    /// The lasso being drawn or dragged, and Ink Replay (Draw tab).
+    pub(crate) ink_ui: crate::ink::InkUi,
     /// Wheel/touchpad scrolling (smooth notches, touchpad momentum).
     pub(crate) wheel: crate::scroll::CanvasScroll,
     /// The scroll offset and its maximum at the end of last frame.
@@ -76,6 +80,10 @@ pub struct CanvasState {
     /// The last key ran an Alt shortcut: the text its key sends (it may arrive a frame later)
     /// isn't typed. The next key press clears it.
     pub(crate) swallow_text: bool,
+    /// Create Link is waiting for a click on the text box to link to: the linking box's object.
+    pub(crate) link_from: Option<wordcraft_doc::Pos>,
+    /// What screen readers were last told about the document (#488).
+    pub(crate) a11y: crate::a11y::A11yCache,
 }
 
 impl CanvasState {
@@ -103,12 +111,14 @@ impl Default for CanvasState {
             focused: false,
             render_ms: 0.0,
             ime_preedit: String::new(),
+            ime_faces: Vec::new(),
             want_focus: true,
             context_issue: None,
             context_synonyms: None,
             obj_drag: None,
             ink: None,
             erasing: None,
+            ink_ui: Default::default(),
             context_menu_open: false,
             mini_anchor: None,
             pasted: false,
@@ -124,6 +134,8 @@ impl Default for CanvasState {
             balloon_rects: Vec::new(),
             table_tool: None,
             table_stroke: None,
+            link_from: None,
+            a11y: Default::default(),
         }
     }
 }
@@ -154,7 +166,9 @@ pub fn markup_width(app: &WordApp) -> f32 {
     let m = &app.session.prefs.markup;
     let on = on && m.balloons != wordcraft_layout::display::BalloonMode::Inline;
     let comments = m.comments && !app.session.doc.comments.is_empty();
-    if on && (comments || (m.formatting && wordcraft_engine::cmd::review::has_format_changes(&app.session.doc))) { 216.0 } else { 0.0 }
+    let formats = m.formatting && wordcraft_engine::cmd::review::has_format_changes(&app.session.doc);
+    let moves = m.insertions_deletions && wordcraft_engine::cmd::moves::has_moves(&app.session.doc);
+    if on && (comments || formats || moves) { 216.0 } else { 0.0 }
 }
 
 /// A page dimension (points) safe to lay out: finite, at least 1 pt, at most `cap`.
@@ -261,7 +275,7 @@ fn page_key(app: &WordApp, page: &Page, scale_px: f32, dim_body: bool) -> u64 {
     let mut h = std::collections::hash_map::DefaultHasher::new();
     scale_px.to_bits().hash(&mut h);
     let v = &app.session.view;
-    (v.marks, v.show_markup, v.dark_mode, wordcraft_render::DARK_PAPER, v.hide_ink).hash(&mut h);
+    (v.marks, app.session.prefs.marks, v.show_markup, v.dark_mode, wordcraft_render::DARK_PAPER, v.hide_ink, v.draw.replay).hash(&mut h);
     app.session.prefs.markup.hash(&mut h);
     dim_body.hash(&mut h);
     format!("{:?}{:?}", app.session.doc.settings.page_color, app.session.doc.settings.watermark).hash(&mut h);
@@ -276,8 +290,8 @@ fn page_key(app: &WordApp, page: &Page, scale_px: f32, dim_body: bool) -> u64 {
                 Placed::Fill { rect, color } => format!("{rect:?}{color:?}").hash(&mut h),
                 Placed::Rule { x0, y0, x1, y1, border } => format!("{x0}{y0}{x1}{y1}{border:?}").hash(&mut h),
                 Placed::Image { rect, media, spin, .. } => format!("{rect:?}{media}{spin:?}").hash(&mut h),
-                Placed::Shape { rect, kind, fill, stroke, stroke_width, effects, freeform, spin } => {
-                    format!("{rect:?}{kind:?}{fill:?}{stroke:?}{stroke_width}{effects:?}{spin:?}").hash(&mut h);
+                Placed::Shape { rect, kind, fill, stroke, stroke_width, effects, freeform, spin, extra } => {
+                    format!("{rect:?}{kind:?}{fill:?}{stroke:?}{stroke_width}{effects:?}{spin:?}{extra:?}").hash(&mut h);
                     freeform.as_ref().map(|f| std::sync::Arc::as_ptr(f) as usize).hash(&mut h);
                 }
                 Placed::Graphic { rect, graphic, spin, .. } => {
@@ -345,6 +359,7 @@ fn drawing_grid_step(spacing: f32, scale: f32) -> f32 {
 
 pub fn show(app: &mut WordApp, ui: &mut Ui) {
     let t = Tokens::get(ui.ctx());
+    crate::ink::replay_tick(app, ui.ctx());
     let layout = app.session.layout();
     // View › Switch Modes: dark paper, inverted document colours, a white caret.
     let dark_page = app.session.view.dark_mode;
@@ -453,9 +468,11 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
             if !fresh && (rendered < 2 || !app.canvas.textures.contains_key(&i) && rendered < 4) {
                 let mut opts = screen_render_options();
                 opts.display.marks = app.session.view.marks;
+                opts.display.always = app.session.prefs.marks;
                 opts.display.placeholders = true;
                 opts.display.markup = app.session.view.show_markup;
-                opts.display.hide_ink = app.session.view.hide_ink;
+                // Ink Replay draws the ink itself, stroke by stroke, over pages without it.
+                opts.display.hide_ink = app.session.view.hide_ink || app.session.view.draw.replay;
                 opts.display.revisions = app.session.prefs.markup.clone();
                 opts.dark = dark_page;
                 opts.dark_paper = dark_paper;
@@ -499,7 +516,18 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
             // View › Gridlines: the drawing grid over the text area (Print Layout, on screen only).
             if app.session.view.gridlines && app.session.view.mode == wordcraft_layout::ViewMode::Print && !app.session.view.read_mode {
                 let settings = &app.session.doc.settings;
-                let step = (drawing_grid_step(settings.grid_h, page_scale), drawing_grid_step(settings.grid_v, page_scale));
+                // A section with a document grid (`w:docGrid`) shows that grid: lines at the line
+                // pitch and, for a character grid, columns at the character pitch.
+                let sections = app.session.doc.sections();
+                let sect = sections.get(page.section).map(|(_, s)| *s);
+                let step = match sect.and_then(|s| s.grid_line_pitch().map(|lp| (s, lp))) {
+                    Some((s, lp)) => {
+                        let size = app.session.doc.styles.resolve_char(Some("Normal"), &Default::default()).size;
+                        let cp = s.grid_char_pitch(size).map_or(f32::INFINITY, |cp| drawing_grid_step(cp, page_scale));
+                        (cp, drawing_grid_step(lp, page_scale))
+                    }
+                    None => (drawing_grid_step(settings.grid_h, page_scale), drawing_grid_step(settings.grid_v, page_scale)),
+                };
                 let (xs, ys) = drawing_grid(page.body, step);
                 let stroke = Stroke::new(1.0, t.blue.linear_multiply(0.22));
                 let (x0, x1) = (visual_sr.min.x + page.body.x * page_scale, visual_sr.min.x + page.body.right() * page_scale);
@@ -570,6 +598,8 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
         } else {
             app.canvas.mini_anchor = None;
         }
+        // Content controls: the frame of the one the caret is in (all of them in Design Mode).
+        crate::content_controls::paint(app, &painter, &t, &layout, &rects, geo.scale);
         // Read Aloud: the sentence being spoken.
         if let Some((a, b)) = crate::read_aloud::highlight(app) {
             for (pi, r) in layout.selection_rects(&app.session.doc, &a, &b, app.session.page_hint) {
@@ -649,6 +679,19 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                 });
             }
             if !app.canvas.ime_preedit.is_empty() {
+                // The composition is interface text, but it may be in a script the interface fonts lack
+                // (Bangla, Thai ...): borrow the document fonts' fallback faces, or it draws as boxes (#565).
+                let new = crate::theme::faces_for_preedit(
+                    &app.canvas.ime_preedit,
+                    &app.canvas.ime_faces,
+                    |c| (c as u32) < 0x250,
+                    |c| wordcraft_fonts::FontDb::global().fallback_for(c, u32::MAX),
+                );
+                if !new.is_empty() {
+                    app.canvas.ime_faces.extend(new);
+                    crate::theme::install_fonts_extra(ui.ctx(), app.fonts_hans, app.fonts_system_cjk, &app.canvas.ime_faces);
+                    ui.ctx().request_repaint();
+                }
                 let g = painter.text(pos2(x, y1), egui::Align2::LEFT_BOTTOM, &app.canvas.ime_preedit, regular(c.height * scale * 0.8), caret_color);
                 painter.line_segment([pos2(g.min.x, g.max.y), pos2(g.max.x, g.max.y)], Stroke::new(1.0, caret_color));
             }
@@ -659,6 +702,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
         (resp, rects)
     });
     app.canvas.scroll_offset = out.state.offset;
+    crate::ink::replay_bar(app, ui, out.inner_rect);
     app.canvas.scroll_max = (out.content_size - out.inner_rect.size()).max(egui::Vec2::ZERO);
     let (resp, rects) = out.inner;
     // A click on the page leaves the selected comment balloon.
@@ -676,10 +720,14 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
         });
     }
     app.canvas.focused = resp.has_focus();
+    // Screen readers: the document under the canvas, with the caret (#488).
+    crate::a11y::expose(app, ui.ctx(), resp.id, &layout, &rects, area);
     // Draw Table / Eraser own the mouse while on (no caret moves); else the usual editing.
     if !crate::table_pen::pointer(app, ui, &resp, &rects, &layout, geo.scale) {
         mouse(app, ui, &resp, &rects, &layout, geo.scale);
     }
+    // A click on a check box ticks it; on a list's button opens the list.
+    crate::content_controls::clicks(app, &resp);
     // Right-click: move the caret there (unless inside the selection), then the context menu.
     // Right-click in an equation puts the caret there and opens the equation menu.
     if resp.secondary_clicked()
@@ -697,18 +745,23 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
             None => {}
         }
     }
+    // Right-click on a picture, shape or text box selects it (its menu offers Wrap Text).
     if resp.secondary_clicked()
         && app.session.math.is_none()
         && let Some(p) = resp.interact_pointer_pos()
         && let Some((page, x, y)) = page_at(&rects, &layout, geo.scale, p)
-        && let Some(pos) = layout.hit(page, x, y, app.session.sel.focus.story)
     {
-        let (a, b) = app.session.sel.ordered();
-        if !(a <= pos && pos <= b) || app.session.sel.is_collapsed() {
-            app.session.sel = wordcraft_engine::Selection::caret(pos);
+        if crate::objects::select_at(app, &layout, &rects, geo.scale, p) {
+            app.canvas.context_issue = None;
+            app.canvas.context_synonyms = None;
+        } else if let Some(pos) = layout.hit(page, x, y, app.session.sel.focus.story) {
+            let (a, b) = app.session.sel.ordered();
+            if !(a <= pos && pos <= b) || app.session.sel.is_collapsed() {
+                app.session.sel = wordcraft_engine::Selection::caret(pos);
+            }
+            app.canvas.context_issue = app.session.run("review.suggestions", &json!({})).ok().filter(|v| !v.is_null());
+            app.canvas.context_synonyms = app.session.run("review.thesaurus", &json!({})).ok().and_then(|v| v.get("synonyms").cloned());
         }
-        app.canvas.context_issue = app.session.run("review.suggestions", &json!({})).ok().filter(|v| !v.is_null());
-        app.canvas.context_synonyms = app.session.run("review.thesaurus", &json!({})).ok().and_then(|v| v.get("synonyms").cloned());
     }
     resp.context_menu(|ui| context_menu(app, ui));
     // Stand down while the context menu owns the pointer so the two never double up;
@@ -729,7 +782,9 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
     if let (Some(h), Some(v)) = (hruler, vruler) {
         rulers(app, ui, h, v, &rects, &layout, geo.scale);
     }
-    if let Some(sel) = app.canvas.mini_anchor {
+    if let Some(sel) = app.canvas.mini_anchor
+        && app.ui.mini_toolbar
+    {
         crate::mini_toolbar::show(app, ui.ctx(), sel, area);
     }
 }
@@ -774,6 +829,13 @@ fn balloons(app: &mut WordApp, ui: &mut Ui, painter: &egui::Painter, rects: &[Re
         let Some(c) = layout.caret_on(&pos, app.session.page_hint) else { continue };
         let what = crate::panes::describe_props(&props).join(", ");
         let text = if what.is_empty() { tl!("Formatted").to_string() } else { format!("{}: {what}", tl!("Formatted")) };
+        by_page.entry(c.page).or_default().push((c.x, c.top + c.height, Balloon::Format(author, text), pos));
+    }
+    // Each end of a tracked move.
+    let moves = if m.insertions_deletions { wordcraft_engine::cmd::review::move_changes(&app.session) } else { Vec::new() };
+    for (pos, author, from) in moves.into_iter().take(500) {
+        let Some(c) = layout.caret_on(&pos, app.session.page_hint) else { continue };
+        let text = if from { tl!("Moved from") } else { tl!("Moved to") }.to_string();
         by_page.entry(c.page).or_default().push((c.x, c.top + c.height, Balloon::Format(author, text), pos));
     }
     let palette = [t.blue, Color32::from_rgb(0xB0, 0x3A, 0x2E), Color32::from_rgb(0x2E, 0x7D, 0x32), Color32::from_rgb(0x8E, 0x44, 0xAD), t.orange];
@@ -910,7 +972,7 @@ fn balloons(app: &mut WordApp, ui: &mut Ui, painter: &egui::Painter, rects: &[Re
 /// What a balloon in the markup area shows.
 enum Balloon {
     Comment(u32),
-    /// A tracked formatting change: its author and "Formatted: …".
+    /// A tracked formatting change or move: its author and "Formatted: …" / "Moved from".
     Format(String, String),
 }
 
@@ -1066,6 +1128,19 @@ fn mouse(app: &mut WordApp, ui: &Ui, resp: &egui::Response, rects: &[Rect], layo
     let story = app.session.sel.focus.story;
     // Inside an equation, clicks place the caret in it (and double-clicks don't select words).
     if (resp.double_clicked() || resp.triple_clicked()) && layout.equation_hit(page, x, y, story).is_some() {
+        return;
+    }
+    // Outline view: a paragraph's symbol selects it with what is under it; a double-click
+    // expands or collapses the heading.
+    if app.session.view.mode == wordcraft_layout::ViewMode::Outline
+        && let Some(block) = layout.outline_symbol_at(page, x, y)
+    {
+        if resp.double_clicked() {
+            let _ = app.run("outline.toggle", json!({ "block": block }));
+        } else if ui.input(|i| i.pointer.primary_pressed()) && resp.contains_pointer() {
+            let _ = app.run("outline.selectSubtree", json!({ "block": block }));
+            app.session.page_hint = page;
+        }
         return;
     }
     // Double-click in the header/footer area edits it; double-click in the body leaves it.
@@ -1224,21 +1299,22 @@ fn rulers(app: &mut WordApp, ui: &mut Ui, h: Rect, v: Rect, rects: &[Rect], layo
     hp.rect_filled(bar, 0.0, t.ruler_margin);
     let text = Rect::from_min_max(pos2(x0 + page.body.x * scale, bar.min.y), pos2(x0 + page.body.right() * scale, bar.max.y));
     hp.rect_filled(text, 0.0, t.ruler);
-    let unit = 72.0;
+    // Graduations in the File › Options unit.
+    let (unit, div, step) = ruler_scale(app.session.prefs.units);
     let origin = page.body.x;
-    let mut k = -((origin / unit).ceil() as i32) * 8;
+    let mut k = -((origin / unit).ceil() as i32) * div;
     loop {
-        let xpt = origin + k as f32 * unit / 8.0;
+        let xpt = origin + k as f32 * unit / div as f32;
         if xpt > page.w {
             break;
         }
         if xpt >= 0.0 {
             let sx = x0 + xpt * scale;
-            let (len, label) = if k % 8 == 0 {
-                (0.0, Some(k / 8))
-            } else if k % 4 == 0 {
+            let (len, label) = if k % div == 0 {
+                (0.0, Some(k / div * step))
+            } else if k % (div / 2) == 0 {
                 (5.0, None)
-            } else if k % 2 == 0 {
+            } else if div >= 8 && k % (div / 4) == 0 {
                 (3.0, None)
             } else {
                 (1.5, None)
@@ -1249,7 +1325,7 @@ fn rulers(app: &mut WordApp, ui: &mut Ui, h: Rect, v: Rect, rects: &[Rect], layo
                 }
                 Some(_) => {}
                 None => {
-                    if scale * unit / 8.0 > 4.0 || k % 2 == 0 {
+                    if scale * unit / div as f32 > 4.0 || k % 2 == 0 {
                         hp.line_segment([pos2(sx, bar.center().y - len / 2.0), pos2(sx, bar.center().y + len / 2.0)], Stroke::new(1.0, t.ruler_tick));
                     }
                 }
@@ -1367,15 +1443,21 @@ fn rulers(app: &mut WordApp, ui: &mut Ui, h: Rect, v: Rect, rects: &[Rect], layo
         margin_handle(app, ui, edge, zone, |p| (p.y - y0) / scale, &sect);
     }
     let origin = page.body.y;
-    let mut k = -((origin / unit).ceil() as i32) * 8;
+    let mut k = -((origin / unit).ceil() as i32) * div;
     loop {
-        let ypt = origin + k as f32 * unit / 8.0;
+        let ypt = origin + k as f32 * unit / div as f32;
         if ypt > page.h.min(20_000.0) {
             break;
         }
-        if ypt >= 0.0 && k % 8 == 0 && k != 0 {
-            vp.text(pos2(vbar.center().x, y0 + ypt * scale), egui::Align2::CENTER_CENTER, (k / 8).abs().to_string(), regular(9.5), t.ruler_tick);
-        } else if ypt >= 0.0 && k % 4 == 0 {
+        if ypt >= 0.0 && k % div == 0 && k != 0 {
+            vp.text(
+                pos2(vbar.center().x, y0 + ypt * scale),
+                egui::Align2::CENTER_CENTER,
+                (k / div * step).abs().to_string(),
+                regular(9.5),
+                t.ruler_tick,
+            );
+        } else if ypt >= 0.0 && k % (div / 2) == 0 {
             let sy = y0 + ypt * scale;
             vp.line_segment([pos2(vbar.center().x - 2.5, sy), pos2(vbar.center().x + 2.5, sy)], Stroke::new(1.0, t.ruler_tick));
         }
@@ -1383,6 +1465,19 @@ fn rulers(app: &mut WordApp, ui: &mut Ui, h: Rect, v: Rect, rects: &[Rect], layo
         if k > 2000 {
             break;
         }
+    }
+}
+
+/// A ruler's graduation for a unit: points per numbered step, divisions per step, and how much
+/// each step counts (millimetre rulers number every centimetre as 10, 20…).
+fn ruler_scale(u: wordcraft_geom::Unit) -> (f32, i32, i32) {
+    use wordcraft_geom::Unit;
+    match u {
+        Unit::Centimeters => (wordcraft_geom::PT_PER_CM, 4, 1),
+        Unit::Millimeters => (wordcraft_geom::PT_PER_CM, 4, 10),
+        Unit::Points => (72.0, 8, 72),
+        Unit::Picas => (72.0, 8, 6),
+        Unit::Inches => (72.0, 8, 1),
     }
 }
 
@@ -1472,7 +1567,7 @@ fn part_kind(app: &WordApp, s: StoryRef) -> Option<PartKind> {
 }
 
 /// The story a text box's story sits in (where the box is), when the caret is in a text box.
-fn text_box_host(app: &WordApp, layout: &DocLayout) -> Option<StoryRef> {
+pub(crate) fn text_box_host(app: &WordApp, layout: &DocLayout) -> Option<StoryRef> {
     match app.session.sel.focus.story {
         StoryRef::Part(id) if in_text_box(app) => layout.text_box(id, app.session.page_hint).map(|o| o.story),
         _ => None,
@@ -1627,11 +1722,23 @@ fn context_menu(app: &mut WordApp, ui: &mut Ui) {
         item(ui, app, tl!("Edit Field…"), "fields.setCode", json!({}));
         item(ui, app, tl!("Toggle Field Codes"), "fields.toggleCode", json!({}));
     }
-    if crate::ribbon::has_picture_selected(&app.session) {
+    let selected_object = wordcraft_engine::cmd::objects::selected(&app.session).is_some();
+    if selected_object || app.session.sel.focus.path.cell().is_some() {
+        item(ui, app, "View Alt Text…", "view.altTextPane", json!({"value": true}));
+    }
+    // A selected picture, shape, text box or chart: its own items, then Wrap Text (#513).
+    let picture = crate::ribbon::has_picture_selected(&app.session);
+    let object = wordcraft_engine::cmd::objects::object_selection(&app.session).is_some();
+    if picture || object {
         ui.separator();
+    }
+    if picture {
         item(ui, app, "Change Picture…", "ui.changePicture", json!({}));
         item(ui, app, "Reset Picture", "picture.reset", json!({}));
         item(ui, app, "Size and Crop…", "ui.tab", json!({"tab": "Picture Format"}));
+    }
+    if object {
+        ui.menu_button(tl!("Wrap Text"), |ui| crate::ribbon::wrap_text_items(ui, app));
     }
     if app.session.sel.focus.path.cell().is_some() {
         ui.separator();
@@ -1777,6 +1884,53 @@ mod tests {
         assert_eq!(h.state().session.undo_depth(), depth + 1, "one undo step for the edit");
         assert!(h.state_mut().session.undo());
         assert_eq!(h.state().session.doc.plain_text(StoryRef::Part(part)), "Original");
+    }
+
+    /// #513: right-clicking a picture selects it and offers Wrap Text, as in Word; choosing
+    /// Square there wraps text around it.
+    #[test]
+    fn right_click_on_a_picture_offers_wrap_text() {
+        use egui_kittest::kittest::Queryable;
+        let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
+        a.run("text.insert", json!({"text": "Text before the picture "})).unwrap();
+        let mut png = Vec::new();
+        let img = image::RgbaImage::from_pixel(40, 20, image::Rgba([200, 30, 30, 255]));
+        image::DynamicImage::ImageRgba8(img).write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png).unwrap();
+        a.run("insert.picture", json!({"data": wordcraft_engine::cmd::insert::base64_encode(&png), "width": 160})).unwrap();
+        let pos = wordcraft_engine::cmd::objects::selected(&a.session).unwrap().0;
+        a.session.sel = wordcraft_engine::Selection::caret(Pos::body(0, 0));
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        for _ in 0..6 {
+            h.step();
+        }
+        let rect = h.state_mut().session.layout().object(&pos, 0).expect("the picture is laid out").rect;
+        let at = crate::frame::to_screen(h.state().canvas.page_rects[0], h.state().canvas.scale, rect).center();
+        h.event(egui::Event::PointerMoved(at));
+        for pressed in [true, false] {
+            h.event(egui::Event::PointerButton { pos: at, button: egui::PointerButton::Secondary, pressed, modifiers: Default::default() });
+            h.step();
+        }
+        h.step();
+        let picked = wordcraft_engine::cmd::objects::object_selection(&h.state().session).map(|(p, _)| p);
+        assert_eq!(picked, Some(pos.clone()), "the right-click selected the picture");
+        h.get_by_label_contains("Wrap Text").hover();
+        for _ in 0..3 {
+            h.step();
+        }
+        assert!(h.query_by_label_contains("Fix Position on Page").is_some(), "the anchoring choices are offered");
+        h.get_by_label_contains("Square").click();
+        for _ in 0..3 {
+            h.step();
+        }
+        let o = wordcraft_engine::cmd::objects::selected(&h.state().session).unwrap().1;
+        assert_eq!(o.frame().unwrap().2.wrap, wordcraft_doc::para::Wrap::Square);
     }
 
     #[test]

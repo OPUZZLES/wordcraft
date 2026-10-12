@@ -215,8 +215,13 @@ impl Line {
 #[derive(Clone, Debug)]
 pub struct Label {
     pub text: String,
+    /// Style of the label's last run (the suffix space and the bidi tests measure with it).
     pub style: u16,
     pub glyphs: Vec<Glyph>,
+    /// Font runs over `glyphs`, in drawing order: font fallback can split a label ("1、" takes
+    /// the digit from the Latin face and the comma from a CJK one), and each glyph id only means
+    /// something in the face it was shaped with.
+    pub runs: Vec<LabelRun>,
     pub x: f32,
     pub width: f32,
 }
@@ -234,6 +239,17 @@ pub struct RubyLayout {
     pub ranges: Vec<std::ops::Range<usize>>,
     /// The ruby's baseline above the base text's, points.
     pub raise: f32,
+}
+
+/// One font run of a list label.
+#[derive(Clone, Debug)]
+pub struct LabelRun {
+    /// Index into `ParaLayout::styles`.
+    pub style: u16,
+    /// Glyph range in `Label::glyphs`.
+    pub glyphs: std::ops::Range<usize>,
+    /// The run's characters (for the PDF text layer).
+    pub text: String,
 }
 
 /// A laid-out paragraph.
@@ -316,12 +332,86 @@ pub struct ParaEnv<'a> {
     pub hide_deleted: bool,
     /// The table style's formatting for text in this paragraph's cell (`None` outside tables).
     pub table: Option<&'a CellText>,
-    pub proofing: bool,
+    /// Check spelling (and grammar, as the options say) for squiggles; `None` = no squiggles.
+    pub proofing: Option<crate::ProofOptions>,
     /// Areas text must flow around (floating objects), relative to the paragraph: x from the
     /// column's left edge, y from the top of the first line.
     pub exclusions: &'a [Exclusion],
     /// Automatic equation numbers used before this paragraph.
     pub eq_number: u32,
+    /// The section's document grid (`Grid::default()`: none).
+    pub grid: Grid,
+}
+
+/// The section's document grid as layout applies it (`w:docGrid`, ECMA-376 §17.6.5).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Grid {
+    /// Line pitch, points: line heights snap to multiples of it.
+    pub line: Option<f32>,
+    /// Character pitch, points: East Asian characters advance by it.
+    pub chars: Option<f32>,
+    /// The default font size the character pitch is based on, points.
+    pub font_size: f32,
+    /// `snapToChars`: all text snaps to the character grid, not just East Asian characters.
+    pub snap_all: bool,
+}
+
+impl Grid {
+    /// The grid of section `s` of `doc` (its default font size from the Normal style).
+    pub fn of(doc: &Document, s: &wordcraft_doc::SectionProps) -> Grid {
+        let Some(line) = s.grid_line_pitch() else { return Grid::default() };
+        let size = doc.styles.resolve_char(Some("Normal"), &CharProps::default()).size;
+        let font_size = if size.is_finite() { size.clamp(1.0, 1584.0) } else { 10.5 };
+        let chars = s.grid_char_pitch(font_size);
+        let snap_all = s.doc_grid.is_some_and(|g| g.kind == wordcraft_doc::section::DocGridType::SnapToChars);
+        Grid { line: Some(line), chars, font_size, snap_all }
+    }
+    /// A cache key for paragraph layouts.
+    pub fn key(&self) -> (u32, u32, u32, bool) {
+        (self.line.map_or(0, f32::to_bits), self.chars.map_or(0, f32::to_bits), self.font_size.to_bits(), self.snap_all)
+    }
+    /// `h` rounded up to whole line pitches (unchanged without a line grid).
+    pub fn snap_height(&self, h: f32) -> f32 {
+        match self.line {
+            Some(p) if h.is_finite() => ((h / p - 0.001).ceil().clamp(1.0, 10_000.0) * p).min(1e6),
+            _ => h,
+        }
+    }
+}
+
+/// East Asian characters the character grid places on its pitch: CJK ideographs, kana, Hangul,
+/// CJK punctuation and full-width forms.
+pub fn is_east_asian(c: char) -> bool {
+    matches!(c as u32,
+        0x1100..=0x11FF | 0x2E80..=0x2FDF | 0x2FF0..=0x303F | 0x3040..=0x30FF | 0x3100..=0x312F | 0x3130..=0x318F
+        | 0x3190..=0x31FF | 0x3200..=0x4DBF | 0x4E00..=0x9FFF | 0xA960..=0xA97F | 0xAC00..=0xD7FF | 0xF900..=0xFAFF
+        | 0xFE30..=0xFE4F | 0xFF01..=0xFF60 | 0xFFE0..=0xFFE6 | 0x20000..=0x3FFFF)
+}
+
+/// Character grid: East Asian characters (all text with `snapToChars`) take whole cells of the
+/// pitch, the glyph centred in them. A character at the default size takes one cell, a larger one
+/// as many as its size needs; Latin text stays proportional unless everything snaps.
+fn snap_chars(b: &mut Builder, text: &str, grid: &Grid) {
+    let Some(pitch) = grid.chars else { return };
+    let base = grid.font_size.max(1.0);
+    for c in b.clusters.iter_mut() {
+        if !matches!(c.kind, ClKind::Text | ClKind::Space) || c.adv <= 0.0 {
+            continue;
+        }
+        let Some(ch) = text.get(c.start..).and_then(|t| t.chars().next()) else { continue };
+        let east_asian = is_east_asian(ch);
+        if !(east_asian || (grid.snap_all && c.kind == ClKind::Text)) {
+            continue;
+        }
+        let size = b.styles.get(c.style as usize).map_or(base, |st| st.size);
+        let cells = if east_asian { (size / base).round() } else { (c.adv / pitch - 0.01).ceil() }.clamp(1.0, 64.0);
+        let adv = cells * pitch;
+        let shift = (adv - c.adv) / 2.0;
+        for g in b.glyphs.get_mut(c.g0 as usize..c.g1 as usize).into_iter().flatten() {
+            g.dx += shift;
+        }
+        c.adv = adv;
+    }
 }
 
 /// An area text wraps around.
@@ -420,6 +510,12 @@ pub fn visual_order(levels: &[u8]) -> Vec<usize> {
     order
 }
 
+/// Text Word sets in the East Asian font: CJK ideographs, kana, bopomofo, CJK punctuation and
+/// fullwidth forms, and Hangul.
+fn east_asian(c: char) -> bool {
+    crate::kinsoku::is_east_asian(c) || matches!(u32::from(c), 0x1100..=0x11FF | 0x3130..=0x318F | 0xAC00..=0xD7AF)
+}
+
 impl<'a> Builder<'a> {
     /// Style index for a resolved char in `face` (caps-scaled `size` override for small caps).
     fn style(&mut self, rc: &Arc<ResolvedChar>, face_override: Option<FaceRef>, small: bool) -> u16 {
@@ -489,6 +585,15 @@ impl<'a> Builder<'a> {
         let rc_cs: Option<Arc<ResolvedChar>> = text.chars().any(|c| rc.uses_complex(c)).then(|| Arc::new(rc.complex()));
         let primary = wordcraft_fonts::word::resolve(&rc.font, rc.bold, rc.italic).face;
         let primary_cs = rc_cs.as_ref().map(|r| wordcraft_fonts::word::resolve(&r.font, r.bold, r.italic).face);
+        // Chinese, Japanese and Korean characters use the run's East Asian font (`w:eastAsia`) when
+        // it is installed and has them.
+        let primary_ea = rc
+            .font_ea
+            .as_ref()
+            .filter(|f| !f.eq_ignore_ascii_case(&rc.font) && text.chars().any(east_asian))
+            .map(|f| wordcraft_fonts::word::resolve(f, rc.bold, rc.italic))
+            .filter(|r| !r.substituted)
+            .map(|r| r.face);
         let use_levels = para_text && !self.levels.is_empty();
         // Split by font coverage (fallback faces), small caps case, script formatting and direction.
         let mut seg_start = 0;
@@ -503,6 +608,7 @@ impl<'a> Builder<'a> {
             let prim = if complex { primary_cs.unwrap_or(primary) } else { primary };
             let face = match cur {
                 Some(k) if mark => k.face,
+                _ if !complex && east_asian(c) && primary_ea.is_some_and(|f| f.covers(c)) => primary_ea,
                 _ if prim.covers(c) || c.is_whitespace() || c.is_control() || c == SOFT_HYPHEN => None,
                 // Stay in the fallback face the word started in while it covers the letters.
                 Some(SegKey { face: Some(f), .. }) if f.covers(c) => Some(f),
@@ -846,17 +952,21 @@ pub(crate) fn left_out(rc: &ResolvedChar, show_hidden: bool, hide_deleted: bool)
 pub fn layout_para(p: &Paragraph, env: &ParaEnv) -> ParaLayout {
     let doc = env.doc;
     let mut rp = doc.styles.resolve_para_in(&p.props, env.table.map(|t| &t.para));
+    let para_style = p.props.style.as_deref();
+    let table_chr = env.table.map(|t| &t.chr);
+    // Indents in characters are measured in the paragraph mark's font size.
+    if rp.indent_chars.iter().any(|c| *c != 0.0) {
+        rp.set_char_unit(doc.styles.resolve_char_in(para_style, table_chr, &p.mark).size);
+    }
     // List level indents apply unless the paragraph sets its own.
     if let Some((_, lvl)) = &env.label {
-        if p.props.indent_left.is_none() {
+        if p.props.indent_left.is_none() && p.props.indent_left_chars.is_none_or(|c| c == 0.0) {
             rp.indent_left = lvl.indent;
         }
-        if p.props.indent_first.is_none() {
+        if p.props.indent_first.is_none() && p.props.indent_first_chars.is_none_or(|c| c == 0.0) {
             rp.indent_first = -lvl.hanging;
         }
     }
-    let para_style = p.props.style.as_deref();
-    let table_chr = env.table.map(|t| &t.chr);
     let resolve = |c: &CharProps| -> Arc<ResolvedChar> { Arc::new(doc.styles.resolve_char_in(para_style, table_chr, c)) };
     let levels = bidi_levels(&p.text, rp.bidi);
     let mut b =
@@ -1010,11 +1120,11 @@ pub fn layout_para(p: &Paragraph, env: &ParaEnv) -> ParaLayout {
                         }
                         Some(InlineObject::NoteRef { kind, id, custom }) => {
                             let num = if custom.is_empty() {
-                                let n = env.fields.note_number(*id);
-                                match kind {
-                                    NoteKind::Footnote => doc.settings.footnote_format.format(n),
-                                    NoteKind::Endnote => doc.settings.endnote_format.format(n),
-                                }
+                                let fmt = match kind {
+                                    NoteKind::Footnote => doc.settings.footnote_format,
+                                    NoteKind::Endnote => doc.settings.endnote_format,
+                                };
+                                env.fields.note_mark(*id, fmt)
                             } else {
                                 custom.clone()
                             };
@@ -1072,6 +1182,9 @@ pub fn layout_para(p: &Paragraph, env: &ParaEnv) -> ParaLayout {
         if let Some(s) = text.get(seg..) {
             b.shape(s, range.start + seg, &rc, None);
         }
+    }
+    if rp.snap_to_grid {
+        snap_chars(&mut b, &p.text, &env.grid);
     }
     // Break opportunities and hyphenation points come from the text as laid out: hidden text that is
     // not shown and, without markup, tracked deletions are left out, so a space or soft hyphen there
@@ -1141,17 +1254,27 @@ pub fn layout_para(p: &Paragraph, env: &ParaEnv) -> ParaLayout {
             cl = order.iter().filter_map(|&i| cl.get(i).cloned()).collect();
         }
         let mut glyphs = Vec::new();
+        let mut runs: Vec<LabelRun> = Vec::new();
         let mut x = 0.0;
         let mut style = mark_style;
         for c in &cl {
             style = c.style;
+            let g0 = glyphs.len();
             for g in b.glyphs.get(c.g0 as usize..c.g1 as usize).into_iter().flatten() {
                 glyphs.push(Glyph { dx: g.dx + x, ..*g });
+            }
+            let chars = text.get(c.start..c.end).unwrap_or("");
+            match runs.last_mut() {
+                Some(r) if r.style == c.style => {
+                    r.glyphs.end = glyphs.len();
+                    r.text.push_str(chars);
+                }
+                _ => runs.push(LabelRun { style: c.style, glyphs: g0..glyphs.len(), text: chars.to_string() }),
             }
             x += c.adv;
         }
         b.glyphs.truncate(before_g);
-        Label { text, style, glyphs, x: 0.0, width: x }
+        Label { text, style, glyphs, runs, x: 0.0, width: x }
     });
 
     let mut pl = ParaLayout {
@@ -1166,7 +1289,7 @@ pub fn layout_para(p: &Paragraph, env: &ParaEnv) -> ParaLayout {
         text_len: p.text.len(),
         has_page_fields,
         notes,
-        issues: if env.proofing { proof_issues(p) } else { Vec::new() },
+        issues: env.proofing.map(|o| proof_issues(p, &o)).unwrap_or_default(),
         drop_cap,
         hyph_after: Vec::new(),
         bidi_levels: b.levels,
@@ -1177,7 +1300,8 @@ pub fn layout_para(p: &Paragraph, env: &ParaEnv) -> ParaLayout {
         left_out: Vec::new(),
         enclosures,
     };
-    pl.hyph_after = hyphenation_points(&text, to_para, &pl, env.doc.settings.auto_hyphenation && !pl.rp.suppress_hyphens);
+    let auto = env.doc.settings.auto_hyphenation && !pl.rp.suppress_hyphens;
+    pl.hyph_after = hyphenation_points(&text, to_para, &pl, auto, env.doc.settings.hyphenate_caps);
     pl.left_out = left;
     for k in pl.hyph_after.clone() {
         if let Some(c) = pl.clusters.get_mut(k as usize) {
@@ -1216,11 +1340,17 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u16, level: Optio
     // spaces, up to MAX_SPACE_SHRINK of their width; never on lines with tabs.
     let shrink_spaces = rp.align == Align::Justify && env.doc.settings.compat_mode >= wordcraft_doc::COMPAT_MODE_CURRENT;
     let hanging_at = if rp.indent_first < 0.0 { Some(rp.indent_left) } else { None };
+    // Hyphenation Options: the zone, and how many lines in a row may end with a hyphen.
+    let zone = Some(env.doc.settings.hyphenation_zone).filter(|z| z.is_finite() && *z >= 0.0).unwrap_or(HYPHENATION_ZONE).min(1584.0);
+    let hyph_limit = env.doc.settings.consecutive_hyphen_limit as usize;
     let n = pl.clusters.len();
     // A right-to-left paragraph is laid out from its start edge, as if mirrored: indents, tabs,
     // the list label and alignment are measured from the right. Lines are mirrored back (and
     // bidirectional text reordered) once broken; floating objects are mirrored in.
     let rtl_para = rp.bidi;
+    // The document grid's line pitch, for paragraphs that snap to it.
+    let grid = Some(env.grid).filter(|g| g.line.is_some() && rp.snap_to_grid);
+    let grid = grid.as_ref();
     let bidi = rtl_para || !pl.bidi_levels.is_empty();
     let mirrored: Vec<Exclusion>;
     let exclusions: &[Exclusion] = if rtl_para {
@@ -1319,6 +1449,8 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u16, level: Optio
         let mut leaders = Vec::new();
         let mut last_break: Option<usize> = None; // cluster index after which we may break
         let mut last_plain: Option<(usize, f32)> = None; // last non-hyphen break and the x after it
+        // After `hyph_limit` hyphenated lines in a row this one may not end with a hyphen.
+        let hyph_ok = hyph_limit == 0 || lines.iter().rev().take_while(|l| l.hyphen.is_some()).count() < hyph_limit;
         let mut end = LineEnd::Para;
         let mut j = i;
         let mut pending_tab: Option<(usize, TabStop, f32)> = None; // tab cluster, stop, x where tab started
@@ -1402,7 +1534,7 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u16, level: Optio
                     && pj >= c0
                     && pj < bk
                     && pl.hyph_after.binary_search(&(bk as u32)).is_ok()
-                    && right_edge - px <= HYPHENATION_ZONE
+                    && right_edge - px <= zone
                 {
                     last_break = Some(pj);
                 }
@@ -1476,7 +1608,7 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u16, level: Optio
                 if !hyph {
                     last_break = Some(j);
                     last_plain = Some((j, x));
-                } else if x + hyphen_glyph(pl, c.style, &mut hcache).2 <= right_edge + shrink + 0.01 {
+                } else if hyph_ok && x + hyphen_glyph(pl, c.style, &mut hcache).2 <= right_edge + shrink + 0.01 {
                     last_break = Some(j);
                 }
             }
@@ -1546,12 +1678,11 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u16, level: Optio
             asc = st.ascent;
             desc = st.descent;
         }
-        if first
-            && let Some(lab) = &pl.label
-            && let Some(st) = pl.styles.get(lab.style as usize)
-        {
-            asc = asc.max(st.ascent);
-            desc = desc.max(st.descent);
+        if first && let Some(lab) = &pl.label {
+            for st in lab.runs.iter().filter_map(|r| pl.styles.get(r.style as usize)) {
+                asc = asc.max(st.ascent);
+                desc = desc.max(st.descent);
+            }
         }
         // Line spacing scales the text's height, never a picture's: a line is at least as tall
         // as its tallest picture plus the descent below the baseline.
@@ -1560,12 +1691,20 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u16, level: Optio
         // no rule tried so far (none, only the text's descent) matched both; it needs Word probes.
         let natural = asc + desc;
         let pictures = if obj_asc > asc { obj_asc + desc } else { 0.0 };
-        let height = match rp.line_spacing {
-            LineSpacing::Multiple(m) => (natural * m).max(pictures),
-            LineSpacing::AtLeast(v) => natural.max(pictures).max(v),
-            LineSpacing::Exactly(v) => v,
+        // Document grid: the line takes whole line pitches, its text centred in them.
+        let (height, centred) = match (rp.line_spacing, grid) {
+            (LineSpacing::Multiple(m), Some(g)) => ((g.snap_height(natural) * m).max(g.snap_height(pictures)), true),
+            (LineSpacing::AtLeast(v), Some(g)) => (g.snap_height(natural.max(pictures)).max(v), true),
+            (LineSpacing::Multiple(m), None) => ((natural * m).max(pictures), false),
+            (LineSpacing::AtLeast(v), None) => (natural.max(pictures).max(v), false),
+            (LineSpacing::Exactly(v), _) => (v, false),
         };
-        let baseline = top + height - desc;
+        let baseline = if centred {
+            let up = asc.max(obj_asc);
+            top + ((height - up - desc) / 2.0).max(0.0) + up
+        } else {
+            top + height - desc
+        };
 
         // Alignment / justification (trailing spaces hang).
         let mut content_end = xs.last().copied().unwrap_or(line_start_x);
@@ -1681,10 +1820,12 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u16, level: Optio
             if matches!(end, LineEnd::LineBreak | LineEnd::PageBreak | LineEnd::ColumnBreak) {
                 let (asc, desc) = pl.styles.get(mark_style as usize).map(|s| (s.ascent, s.descent)).unwrap_or((10.0, 3.0));
                 let natural = asc + desc;
-                let h = match rp.line_spacing {
-                    LineSpacing::Multiple(m) => natural * m,
-                    LineSpacing::AtLeast(v) => natural.max(v),
-                    LineSpacing::Exactly(v) => v,
+                let h = match (rp.line_spacing, grid) {
+                    (LineSpacing::Multiple(m), Some(g)) => g.snap_height(natural) * m,
+                    (LineSpacing::AtLeast(v), Some(g)) => g.snap_height(natural).max(v),
+                    (LineSpacing::Multiple(m), None) => natural * m,
+                    (LineSpacing::AtLeast(v), None) => natural.max(v),
+                    (LineSpacing::Exactly(v), _) => v,
                 };
                 let x0 = rp.indent_left;
                 let (x0, left, right) = if rtl_para { (width - x0, width - base_right, width - x0) } else { (x0, x0, base_right) };
@@ -1859,7 +2000,7 @@ fn row_spans(exclusions: &[Exclusion], top: f32, h: f32, lo: f32, hi: f32) -> Re
 }
 
 /// Word's default hyphenation zone (0.25"), points.
-const HYPHENATION_ZONE: f32 = 18.0;
+const HYPHENATION_ZONE: f32 = wordcraft_doc::DEFAULT_HYPHENATION_ZONE;
 
 /// How much of their width the spaces of a justified line may give up to fit more text (Word
 /// 2013+, compatibility mode 15).
@@ -1916,7 +2057,7 @@ fn hyphen_glyph(pl: &ParaLayout, style: u16, cache: &mut Vec<(u16, u32, f32)>) -
 /// pattern hyphenation points of each word when automatic hyphenation is on. Both are found in
 /// `text`, the paragraph as laid out (without what the layout leaves out, [`left_out`]), and
 /// `to_para` maps the end of a char there to the paragraph's text.
-fn hyphenation_points(text: &str, to_para: impl Fn(usize) -> Option<usize>, pl: &ParaLayout, auto: bool) -> Vec<u32> {
+fn hyphenation_points(text: &str, to_para: impl Fn(usize) -> Option<usize>, pl: &ParaLayout, auto: bool, caps: bool) -> Vec<u32> {
     let mut bytes: Vec<usize> = text.char_indices().filter(|(_, c)| *c == SOFT_HYPHEN).map(|(i, c)| i + c.len_utf8()).collect();
     if auto {
         let lim = wordcraft_proof::hyphen::Limits::default();
@@ -1927,9 +2068,12 @@ fn hyphenation_points(text: &str, to_para: impl Fn(usize) -> Option<usize>, pl: 
                 (None, true) => start = Some(i),
                 (Some(a), false) => {
                     // The patterns are for Latin-script languages: never hyphenate Persian/Arabic words.
+                    // Words in capitals (`NASA`, `README`) only when the document allows it.
+                    let all_caps = |w: &str| w.chars().filter(|c| c.is_alphabetic()).all(char::is_uppercase);
                     if let Some(w) = text.get(a..i)
                         && w.chars().count() >= lim.min_word
                         && !w.chars().any(wordcraft_fonts::is_rtl)
+                        && (caps || !all_caps(w))
                     {
                         let offs: Vec<usize> = w.char_indices().map(|(o, _)| o).collect();
                         for pt in wordcraft_proof::hyphen::hyphen_points(w, &lim) {
@@ -2111,7 +2255,7 @@ impl ParaLayout {
 }
 
 /// Spelling and grammar issues in a paragraph (skipping "do not check" and hidden runs).
-fn proof_issues(p: &Paragraph) -> Vec<(usize, usize, bool)> {
+fn proof_issues(p: &Paragraph, opts: &crate::ProofOptions) -> Vec<(usize, usize, bool)> {
     if p.text.trim().is_empty() || p.text.len() > 100_000 {
         return Vec::new();
     }
@@ -2119,9 +2263,14 @@ fn proof_issues(p: &Paragraph) -> Vec<(usize, usize, bool)> {
     let skip = |a: usize, b: usize| {
         p.run_ranges().any(|(r, c)| r.start < b && a < r.end && (c.no_proof == Some(true) || c.hidden == Some(true) || c.link.is_some()))
     };
-    let mut v: Vec<(usize, usize, bool)> =
-        wordcraft_proof::check_spelling(&text).into_iter().filter(|i| !skip(i.start, i.end)).map(|i| (i.start, i.end, false)).collect();
-    v.extend(wordcraft_proof::check_grammar(&text).into_iter().filter(|i| !skip(i.start, i.end)).map(|i| (i.start, i.end, true)));
+    let mut v: Vec<(usize, usize, bool)> = wordcraft_proof::check_spelling_with(&text, &opts.spelling)
+        .into_iter()
+        .filter(|i| !skip(i.start, i.end))
+        .map(|i| (i.start, i.end, false))
+        .collect();
+    if opts.grammar {
+        v.extend(wordcraft_proof::check_grammar(&text).into_iter().filter(|i| !skip(i.start, i.end)).map(|i| (i.start, i.end, true)));
+    }
     v
 }
 
