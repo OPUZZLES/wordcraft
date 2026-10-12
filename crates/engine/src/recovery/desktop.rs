@@ -590,6 +590,40 @@ mod tests {
     }
 
     #[test]
+    fn recovery_commands_only_address_known_profile_records() {
+        use crate::file_access::{AutomationRoots, confine};
+        let profile = Temp::new();
+        let files = Temp::new();
+        let original = files.0.join("original.txt");
+        fs::write(&original, b"External synthetic original").unwrap();
+        let roots = AutomationRoots::new(Some(&files.0), Some(&files.0)).unwrap().unwrap();
+        let mut s = session(&profile.0);
+        s.run("document.setText", &json!({"text": "Recoverable synthetic draft"})).unwrap();
+        save_now(&mut s);
+        let id = s.recovery_documents()[0].id.clone();
+        confine(Some(&roots), || {
+            // A command cannot use a file path or choose a different storage folder.
+            for bad in [original.to_string_lossy().into_owned(), "../original.txt".into()] {
+                for action in ["restore", "discard"] {
+                    let err = s.run("file.recover", &json!({action: bad, "root": files.0})).unwrap_err();
+                    assert!(err.to_string().contains("no such recovery copy"), "{err}");
+                }
+            }
+            assert_eq!(s.recovery_documents().len(), 1);
+            s.run("file.recover", &json!({"restore": id})).unwrap();
+            settle(&mut s);
+            assert!(s.path.is_none());
+            assert!(s.dirty);
+            assert_eq!(s.doc.plain_text(StoryRef::Body), "Recoverable synthetic draft");
+            s.run("file.recover", &json!({"discard": id})).unwrap();
+            settle(&mut s);
+            assert!(s.recovery_documents().is_empty());
+        });
+        assert_eq!(fs::read(&original).unwrap(), b"External synthetic original");
+        assert_eq!(fs::read_dir(&files.0).unwrap().count(), 1);
+    }
+
+    #[test]
     fn failed_write_keeps_last_valid_generation_and_discovery_falls_back() {
         let t = Temp::new();
         let id = new_id().unwrap();

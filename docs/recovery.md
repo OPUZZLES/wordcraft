@@ -79,3 +79,7 @@ options module, fixed-width Backstage and filename-aware Save As. The SIGKILL/re
 observations above belong to the original contribution, not a rerun on this branch. Current
 validation executes the focused lifecycle and preservation tests in temporary profiles and
 all repository CI gates; no daily-driver recovery folder or native app is operated.
+
+The desktop host chooses the private recovery profile. Recovery commands accept known
+snapshot IDs, never file paths or a profile override. This internal store is separate from
+the automation roots that constrain opening and saving user documents.

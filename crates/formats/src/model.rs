@@ -126,6 +126,22 @@ impl Para {
         }
         s
     }
+    /// [`Self::text`] as it reads on screen: text set in a symbol font (Symbol, Wingdings…) as
+    /// its Unicode equivalents ([`wordcraft_doc::symbol_fonts`]), for plain-text export.
+    pub fn shown_text(&self) -> String {
+        let mut s = String::new();
+        for i in &self.inlines {
+            match i {
+                Inline::Text(t, f) => match f.font.as_deref() {
+                    Some(font) if wordcraft_doc::symbol_fonts::is_symbol_font(font) => s.push_str(&wordcraft_doc::symbol_fonts::map_text(font, t)),
+                    _ => s.push_str(t),
+                },
+                Inline::Equation { linear: t, .. } => s.push_str(t),
+                Inline::Image(_) | Inline::Anchor(_) | Inline::Figure(_) => {}
+            }
+        }
+        s
+    }
     pub fn is_empty(&self) -> bool {
         self.inlines.iter().all(|i| matches!(i, Inline::Text(t, _) if t.is_empty()))
     }

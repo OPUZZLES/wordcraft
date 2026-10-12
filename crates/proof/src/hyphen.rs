@@ -13,6 +13,8 @@
 //! Kołodziejska, Bogusław Jackowski and Marek Ryćko, MIT licence option), then a Polish syllable
 //! heuristic for words with letters outside the Polish alphabet (`é`, `ü`…).
 //!
+//! **Bulgarian**: the Bulgarian syllable rules ([`crate::bg`]); no pattern file or word list.
+//!
 //! Then the paragraph's limits ([`Limits`]) are applied.
 
 pub use crate::dict;
@@ -29,6 +31,8 @@ static EN_US_DIC: &[u8] = include_bytes!("../../../assets/hyphenation/en-us.dic"
 static EN_US_PAT: &str = include_str!("../../../assets/hyphenation/en-us.pat");
 /// hyph-utf8's `hyph-pl.tex`, unmodified (its licence header is in the file).
 static PL_PAT: &str = include_str!("../../../assets/hyphenation/pl.pat");
+/// hyph-utf8's `hyph-pt.tex`, unmodified (its BSD 3-clause header is in the file).
+static PT_PAT: &str = include_str!("../../../assets/hyphenation/pt.pat");
 
 impl Dictionary {
     /// The bundled US English dictionary (decoded on first use).
@@ -58,6 +62,12 @@ impl Patterns {
         static P: OnceLock<Patterns> = OnceLock::new();
         P.get_or_init(|| Patterns::parse(PL_PAT))
     }
+
+    /// The bundled Portuguese patterns and exception words (parsed on first use).
+    pub fn pt() -> &'static Patterns {
+        static P: OnceLock<Patterns> = OnceLock::new();
+        P.get_or_init(|| Patterns::parse(PT_PAT))
+    }
 }
 
 /// Hyphenation limits from the paragraph's Hyphenation settings.
@@ -81,6 +91,8 @@ pub enum Source {
     Dictionary,
     Patterns,
     Heuristic,
+    /// A language's syllable rules (Bulgarian, [`crate::bg`]).
+    Rules,
     None,
 }
 
@@ -100,6 +112,14 @@ fn core_breaks(core: &[char], lang: ProofLang) -> (Vec<usize>, Source) {
     }
     if lang == ProofLang::Pl {
         return core_breaks_pl(core);
+    }
+    // Bulgarian words follow the Bulgarian syllable rules; Latin-script words in a Bulgarian run
+    // (`WordCraft`, `email`) are hyphenated as English, as in any other language.
+    if lang == ProofLang::Bg && core.iter().all(|&c| crate::bg::is_letter(c)) {
+        return (crate::bg::points(core), Source::Rules);
+    }
+    if lang == ProofLang::Pt {
+        return core_breaks_pt(core);
     }
     let dict = Dictionary::en_us();
     let s: String = core.iter().collect();
@@ -138,6 +158,21 @@ fn core_breaks_pl(core: &[char]) -> (Vec<usize>, Source) {
         return (p, Source::Patterns);
     }
     (heuristic_points_pl(core), Source::Heuristic)
+}
+
+/// [`core_breaks_pl`] for Portuguese: the bundled patterns, then the generic heuristic.
+fn core_breaks_pt(core: &[char]) -> (Vec<usize>, Source) {
+    let pats = Patterns::pt();
+    let s: String = core.iter().collect();
+    if let Some(p) = pats.exception(&s) {
+        return (p.to_vec(), Source::Dictionary);
+    }
+    if !pats.is_empty()
+        && let Some(p) = pats.points(core)
+    {
+        return (p, Source::Patterns);
+    }
+    (heuristic_points(core), Source::Heuristic)
 }
 
 /// Unrestricted break points of an English `word` ([`word_breaks_in`] with [`ProofLang::En`]).
@@ -455,16 +490,37 @@ mod tests {
         assert!(hyphen_points("typography", &lim).is_empty());
     }
 
-    /// The fastest of three timings of `f`, after a warm-up.
-    fn fastest(f: impl Fn()) -> f64 {
+    /// The CPU time `f` takes on this thread, in seconds. On Linux it is the scheduler's count of the
+    /// time the thread actually ran, so the time it waits while other work on a busy machine has the
+    /// CPU is left out; elsewhere, wall-clock time.
+    fn cpu_cost(f: &mut impl FnMut()) -> f64 {
+        let ran = || {
+            let s = std::fs::read_to_string("/proc/thread-self/schedstat").ok()?;
+            s.split_whitespace().next()?.parse::<u64>().ok()
+        };
+        let (t, before) = (std::time::Instant::now(), ran());
         f();
-        (0..3)
-            .map(|_| {
-                let t = std::time::Instant::now();
-                f();
-                t.elapsed().as_secs_f64()
-            })
-            .fold(f64::INFINITY, f64::min)
+        match (before, ran()) {
+            (Some(a), Some(b)) => b.saturating_sub(a) as f64 * 1e-9,
+            _ => t.elapsed().as_secs_f64(),
+        }
+    }
+
+    /// How much more `big` costs than `small`, for `big` an input `scale` times the size of `small`'s:
+    /// (small, big, big / small), ~`scale` when linear and ~`scale`² when quadratic. Each is the
+    /// cheapest of several runs after a warm-up, the runs alternating so a busy spell slows both sizes
+    /// alike; `small` is timed `scale` times over per run, so both timings are long against the clock's
+    /// resolution.
+    fn cost_ratio(scale: usize, mut small: impl FnMut(), mut big: impl FnMut()) -> (f64, f64, f64) {
+        small();
+        big();
+        let mut small_scaled = || (0..scale).for_each(|_| small());
+        let (mut t1, mut tk) = (f64::INFINITY, f64::INFINITY);
+        for _ in 0..5 {
+            t1 = t1.min(cpu_cost(&mut small_scaled) / scale as f64);
+            tk = tk.min(cpu_cost(&mut big));
+        }
+        (t1, tk, tk / t1.max(1e-9))
     }
 
     /// `hyphen_points`' limit checks as first written (a rescan of the letter run per point): the
@@ -598,7 +654,7 @@ mod tests {
 
     #[test]
     fn hyphenating_a_long_word_is_linear() {
-        // A word of n letters against one of 4n: linear ~4x the time, the old rescans ~16x. One in
+        // A word of n letters against one of 8n: linear ~8x the cost, the old rescans ~64x. One in
         // the pattern alphabet, one outside it (the syllable heuristic).
         let pattern = |k: usize| "hyphenation".repeat(k);
         let heuristic = |k: usize| "smørrebrød".repeat(k);
@@ -607,17 +663,16 @@ mod tests {
         let ratios: Vec<(String, f64)> = [(pattern as fn(usize) -> String, 20), (heuristic, 40)]
             .into_iter()
             .map(|(word, repeat)| {
-                let (small, big) = (word(400), word(1600));
-                let time = |w: &str| fastest(|| (0..repeat).for_each(|_| drop(hyphen_points(w, &Limits::default()))));
-                let (t1, t4) = (time(&small), time(&big));
-                let ratio = t4 / t1.max(1e-9);
-                let what = format!("{}…: t(n) {t1:.4} s, t(4n) {t4:.4} s, ratio {ratio:.1}", word(1).chars().take(10).collect::<String>());
+                let (small, big) = (word(400), word(8 * 400));
+                let time = |w: &str| (0..repeat).for_each(|_| drop(hyphen_points(w, &Limits::default())));
+                let (t1, t8, ratio) = cost_ratio(8, || time(&small), || time(&big));
+                let what = format!("{}…: t(n) {t1:.4} s, t(8n) {t8:.4} s, ratio {ratio:.1}", word(1).chars().take(10).collect::<String>());
                 eprintln!("{what}");
                 (what, ratio)
             })
             .collect();
         for (what, ratio) in ratios {
-            assert!(ratio < 8.0, "4x the letters, not linear: {what}");
+            assert!(ratio < 24.0, "8x the letters, not linear: {what}");
         }
     }
 
@@ -645,6 +700,40 @@ mod tests {
         assert!(p.len() > 4000, "{}", p.len());
         assert_eq!(p.exception_count(), 20);
         assert_eq!(p.exception("nigdy"), Some(&[2][..]));
+    }
+
+    fn pt(w: &str) -> String {
+        hyphenate_word_in(w, &Limits::default(), ProofLang::Pt)
+    }
+
+    #[test]
+    fn portuguese_patterns_load() {
+        let p = Patterns::pt();
+        assert!(p.len() > 300, "{}", p.len());
+        // `hard-ware`, `soft-ware` — and the file's last pattern line, a bare `1-`, which the
+        // reader counts as a (never-matching) exception because it contains a hyphen.
+        assert_eq!(p.exception_count(), 3);
+        assert_eq!(p.exception("hardware"), Some(&[4][..]));
+        assert_eq!(p.exception("software"), Some(&[4][..]));
+    }
+
+    #[test]
+    fn portuguese_words_hyphenate_by_portuguese_rules() {
+        for (w, want) in [
+            ("problema", "pro-ble-ma"),
+            ("coração", "co-ra-ção"),
+            ("paralelepípedo", "pa-ra-le-le-pí-pe-do"),
+            ("computador", "com-pu-ta-dor"),
+            ("escrever", "es-cre-ver"),
+            ("saudade", "sau-da-de"),
+            ("extraordinário", "ex-tra-or-di-ná-rio"),
+            ("automático", "au-to-má-ti-co"),
+            // One syllable: no break.
+            ("flor", "flor"),
+            ("bem", "bem"),
+        ] {
+            assert_eq!(pt(w), want, "{w}");
+        }
     }
 
     #[test]
@@ -696,6 +785,21 @@ mod tests {
     fn languages_without_patterns_keep_the_english_ones() {
         for w in ["hyphenation", "typography", "internationalization"] {
             assert_eq!(hyphen_points_in(w, &Limits::default(), ProofLang::Other), hyphen_points(w, &Limits::default()), "{w}");
+        }
+    }
+
+    #[test]
+    fn bulgarian_words_follow_the_bulgarian_rules() {
+        let bg = |w: &str| hyphenate_word_in(w, &Limits::default(), ProofLang::Bg);
+        assert_eq!(bg("сричкопренасяне"), "срич-ко-пре-на-ся-не");
+        assert_eq!(bg("Таблица"), "Та-бли-ца");
+        // A single letter is never left on a line (the paragraph limits): България, not Бъл-га-ри-я.
+        assert_eq!(bg("България"), "Бъл-га-рия");
+        assert_eq!(bg("„шофьор“,"), "„шо-фьор“,");
+        assert_eq!(word_breaks_in("таблица", ProofLang::Bg).1, Source::Rules);
+        // Latin words in a Bulgarian run are hyphenated as English.
+        for w in ["publication", "WordCraft"] {
+            assert_eq!(hyphen_points_in(w, &Limits::default(), ProofLang::Bg), hyphen_points(w, &Limits::default()), "{w}");
         }
     }
 }

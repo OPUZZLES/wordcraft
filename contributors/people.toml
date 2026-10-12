@@ -51,14 +51,22 @@ sync_github_name = false
 [people.henno]
 sync_github_name = true
 
-[people.GhostMitra]
+[people.yeniufuklar-com]
+real_name = "Ufuk Efe"
+display_name = "Ufuk Efe"
 sync_github_name = true
+
+[people.GhostMitra]
 [people.DevCoderMax]
 real_name = "Gleyson do Nascimento Carvalho"
 display_name = "Gleyson Carvalho"
 sync_github_name = false
 [people.alexanderalber]
 real_name = "Alexander Alber"
-
 [people.edurbs]
-sync_github_name = true
+[people.manucarcor]
+real_name = "Manuel Carmona"
+display_name = "manucarcor"
+sync_github_name = false
+
+[people.odedigo]

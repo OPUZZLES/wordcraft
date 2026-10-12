@@ -16,7 +16,7 @@ const POLL: Duration = Duration::from_secs(4);
 /// there is no session bus or no portal to ask (a bare X server, a container), so the caller
 /// keeps whatever it chose itself.
 pub fn prefers_dark() -> Option<bool> {
-    read(&mut Bus::default())
+    read(&mut Bus::new())
 }
 
 /// Watches the desktop and reports its choice when it changes. [`prefers_dark`] covers the
@@ -38,7 +38,7 @@ impl DesktopTheme {
         let started = std::thread::Builder::new().name("wordcraft-desktop-theme".into()).spawn(move || {
             // One session-bus connection for the life of the watcher, opened again only after
             // it fails.
-            let mut bus = Bus::default();
+            let mut bus = Bus::new();
             let mut last = read(&mut bus);
             if tx.send(last).is_err() {
                 return;
@@ -81,12 +81,26 @@ impl DesktopTheme {
 
 /// The watcher's session-bus connection, kept between polls.
 #[cfg(target_os = "linux")]
-#[derive(Default)]
 struct Bus(Option<zbus::blocking::Connection>);
 
+#[cfg(target_os = "linux")]
+impl Bus {
+    /// No connection yet: the first read opens one.
+    fn new() -> Self {
+        Bus(None)
+    }
+}
+
+/// Elsewhere there is no session bus to keep.
 #[cfg(not(target_os = "linux"))]
-#[derive(Default)]
-struct Bus {}
+struct Bus;
+
+#[cfg(not(target_os = "linux"))]
+impl Bus {
+    fn new() -> Self {
+        Bus
+    }
+}
 
 /// Ask the portal once, over `bus`'s connection (opened when there is none). D-Bus calls
 /// block, so this belongs off the UI thread. A connection whose calls all fail is dropped, so
