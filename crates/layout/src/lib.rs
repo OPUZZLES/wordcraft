@@ -779,12 +779,19 @@ fn layout_box(
                 let label = ctx.next_label(p);
                 let mut pl = ctx.para_labelled(p, width, table, &[], label.clone());
                 let ctxl = pl.rp.contextual_spacing;
-                let same = prev_style.as_ref().is_some_and(|(s, c)| *s == pl.rp.style && (*c || ctxl));
-                let before = if same && ctxl { 0.0 } else { pl.rp.space_before };
-                if same && ctxl {
-                    y -= prev_after;
+                let mut before = pl.rp.space_before;
+                if let Some((style, previous_contextual)) = &prev_style
+                    && *style == pl.rp.style
+                {
+                    if *previous_contextual {
+                        y -= prev_after;
+                        before = (before - prev_after).max(0.0);
+                    }
+                    if ctxl {
+                        before = 0.0;
+                    }
                 }
-                // Word: space between paragraphs is before + after (no collapsing).
+                // The previous paragraph's after-space is already included in y.
                 y += if i == 0 { before } else { before.max(0.0) };
                 // Floating objects anchored here: place them, then wrap the text around them.
                 // One left out of the layout (hidden, or deleted in the final text) takes no room.
@@ -816,7 +823,7 @@ fn layout_box(
                     items.extend(front);
                 }
                 y += pl.height + pl.rp.space_after;
-                prev_after = if same && ctxl { 0.0 } else { pl.rp.space_after };
+                prev_after = pl.rp.space_after;
                 prev_style = Some((pl.rp.style.clone(), ctxl));
             }
             Block::Table(t) => {
@@ -2418,7 +2425,8 @@ fn place_para(ctx: &mut Ctx, pb: &mut PageBuilder, p: &Paragraph, block: usize, 
     if pl.rp.page_break_before && !pb.at_top() && !pb.web {
         pb.new_page(block, body_top);
     }
-    // Contextual spacing: no space between paragraphs of the same style when either asks for it.
+    // Same-style contextual spacing removes this paragraph's before-space, or subtracts the
+    // previous paragraph's after-space from the merged gap (ISO/IEC 29500-1 §17.3.1.9).
     let mut before = pl.rp.space_before;
     if let Some((style, ctxl, after)) = pb.prev.take()
         && style == pl.rp.style
@@ -2426,6 +2434,7 @@ fn place_para(ctx: &mut Ctx, pb: &mut PageBuilder, p: &Paragraph, block: usize, 
     {
         if ctxl {
             pb.y -= after;
+            before = (before - after).max(0.0);
         }
         if pl.rp.contextual_spacing {
             before = 0.0;

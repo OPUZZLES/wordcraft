@@ -8,6 +8,129 @@ fn lay(doc: &Document) -> DocLayout {
     layout(doc, &mut c, &LayoutOptions::default())
 }
 
+fn contextual_gap(after: f32, before: f32, first: bool, second: bool, different_style: bool, header: bool) -> f32 {
+    use wordcraft_doc::props::LineSpacing;
+    let mut d = Document::new();
+    for id in ["SpacingA", "SpacingB"] {
+        d.styles.upsert(wordcraft_doc::Style { id: id.into(), name: id.into(), ..Default::default() });
+    }
+    let chr = wordcraft_doc::CharProps { font: Some("Source Sans 3".into()), size: Some(12.0), ..Default::default() };
+    let props = ParaProps {
+        style: Some("SpacingA".into()),
+        space_before: Some(0.0),
+        space_after: Some(0.0),
+        line_spacing: Some(LineSpacing::Exactly(24.0)),
+        ..Default::default()
+    };
+    let mut a = wordcraft_doc::Paragraph::with_text("Alpha probe", chr.clone());
+    a.props = ParaProps { space_after: Some(after), contextual_spacing: Some(first), ..props.clone() };
+    let mut b = wordcraft_doc::Paragraph::with_text("Beta probe", chr);
+    b.props = ParaProps {
+        style: Some(if different_style { "SpacingB" } else { "SpacingA" }.into()),
+        space_before: Some(before),
+        contextual_spacing: Some(second),
+        ..props
+    };
+    let paragraphs = vec![wordcraft_doc::para_block(a), wordcraft_doc::para_block(b)];
+    if header {
+        let id = d.add_part(wordcraft_doc::PartKind::Header, paragraphs);
+        d.last_section.headers.default = Some(id);
+    } else {
+        d.body = paragraphs;
+    }
+    let l = lay(&d);
+    let items = if header { &l.pages[0].header } else { &l.pages[0].items };
+    let baselines: Vec<_> =
+        items.iter().filter_map(|i| if let Placed::Lines { para, y, .. } = i { Some(y + para.lines[0].baseline) } else { None }).collect();
+    assert_eq!(baselines.len(), 2);
+    baselines[1] - baselines[0] - 24.0
+}
+
+// Original two-paragraph probes measured in Word for Mac 16.113.3, build 26092714.
+// Exactly 24 pt spacing isolates the extra gap from font-dependent line height.
+#[test]
+fn contextual_after_removes_a_smaller_before_gap() {
+    for header in [false, true] {
+        let gap = contextual_gap(12.0, 8.0, true, false, false, header);
+        assert!(gap.abs() < 0.01, "header={header}: gap={gap}, expected 0 pt");
+    }
+}
+
+#[test]
+fn contextual_after_keeps_only_the_residual_before_gap() {
+    // ISO/IEC 29500-1 §17.3.1.9's worked example: max(10, 12) - 10 = 2 pt.
+    for header in [false, true] {
+        let gap = contextual_gap(10.0, 12.0, true, false, false, header);
+        assert!((gap - 2.0).abs() < 0.01, "header={header}: gap={gap}, expected 2 pt");
+    }
+}
+
+#[test]
+fn contextual_spacing_preserves_each_side_and_style_identity() {
+    for header in [false, true] {
+        for (after, before, first, second, different, expected) in [
+            (12.0, 8.0, false, true, false, 12.0),
+            (12.0, 8.0, true, true, false, 0.0),
+            (12.0, 0.0, true, true, true, 12.0),
+            (12.0, 0.0, false, false, false, 12.0),
+        ] {
+            let gap = contextual_gap(after, before, first, second, different, header);
+            assert!(
+                (gap - expected).abs() < 0.01,
+                "header={header}, first={first}, second={second}, different={different}: gap={gap}, expected {expected}"
+            );
+        }
+    }
+}
+
+#[test]
+fn contextual_spacing_removes_every_gap_in_a_four_paragraph_run() {
+    use wordcraft_doc::props::LineSpacing;
+    for table in [false, true] {
+        let mut doc = Document::new();
+        doc.styles.upsert(wordcraft_doc::Style { id: "SpacingA".into(), name: "SpacingA".into(), ..Default::default() });
+        let paragraphs = ["One", "Two", "Three", "Four"]
+            .into_iter()
+            .map(|text| {
+                let mut p = wordcraft_doc::Paragraph::with_text(
+                    text,
+                    wordcraft_doc::CharProps { font: Some("Source Sans 3".into()), size: Some(12.0), ..Default::default() },
+                );
+                p.props = ParaProps {
+                    style: Some("SpacingA".into()),
+                    space_before: Some(6.0),
+                    space_after: Some(6.0),
+                    contextual_spacing: Some(true),
+                    line_spacing: Some(LineSpacing::Exactly(24.0)),
+                    ..Default::default()
+                };
+                wordcraft_doc::para_block(p)
+            })
+            .collect::<Vec<_>>();
+        if table {
+            let mut cell = Table::new(1, 1, 400.0);
+            cell.rows[0].cells[0].blocks = paragraphs;
+            doc.body = vec![Arc::new(Block::Table(cell))];
+        } else {
+            doc.body = paragraphs;
+        }
+        let layout = lay(&doc);
+        let baselines = layout.pages[0]
+            .items
+            .iter()
+            .filter_map(|item| match item {
+                Placed::Lines { para, y, .. } => Some(y + para.lines[0].baseline),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(baselines.len(), 4);
+        // Every same-style contextual boundary has zero extra space, including after paragraph two.
+        for pair in baselines.windows(2) {
+            assert!((pair[1] - pair[0] - 24.0).abs() < 0.01, "table={table}: {baselines:?}");
+        }
+    }
+}
+
 fn lines_of(l: &DocLayout) -> usize {
     l.pages.iter().flat_map(|p| p.items.iter()).map(|it| if let Placed::Lines { l0, l1, .. } = it { l1 - l0 } else { 0 }).sum()
 }
