@@ -174,6 +174,7 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 | 2026-10-11 | Phonetic Guide (#288): ruby text over base text, `w:ruby` round trip |
 | 2026-10-11 | Customize Ribbon and the Quick Access Toolbar: custom tabs and groups, hide and reorder tabs, add or remove toolbar commands (right-click any button, or the toolbar's … menu); kept between runs (#379, #376) |
 | 2026-10-11 | Customize Keyboard: assign, remove and reset keyboard shortcuts; custom keys override built-ins and are kept between runs (#368) |
+| 2026-10-12 | Native saves use exclusively created sibling temporary files, synchronize before replacement and clean up on failure; existing temporary-name files/links and original files on failed saves are protected. Synthetic CLI and focused tests on macOS; no new Word parity or readiness claim. |
 | 2026-10-11 | Field codes like Word's field keys (#339): show codes (Alt+F9, Shift+F9), edit, unlink, lock and step through fields |
 | 2026-10-11 | Word's common keyboard shortcuts (#330): 101 → 125 of ~250 |
 | 2026-10-11 | Turkish (`tr`) interface: all 1,307 catalog entries, `tr-TR`/`tr-CY` system locales and a saved language choice; command search keeps Turkish dotted and dotless I apart (`italik` finds İtalik); locale, catalog, search and bundled-font tests; no Turkish proofing resources |
@@ -223,6 +224,7 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 | 2026-10-11 | trivial | Progress log: Customize Ribbon and the Quick Access Toolbar (#379) |
 | 2026-10-11 | trivial | Omitted `w:pPrDefault` stays omitted across saves; explicit empty/default properties and later spacing edits remain writable. Synthetic preservation checks only; readiness estimates unchanged |
 | 2026-10-11 | trivial | Progress log: Customize Keyboard (#368) |
+| 2026-10-12 | trivial | Native saves protect existing temporary-name entries and originals on pre-replacement failure; synthetic macOS evidence, explicit durability/platform limits; readiness unchanged |
 | 2026-10-11 | trivial | Word's common keyboard shortcuts (#330): 125 of ~250 |
 | 2026-10-11 | trivial | Collapsed duplicate rows left by parallel merges |
 | 2026-10-11 | trivial | Turkish interface (`tr`): progress log and shipped languages |

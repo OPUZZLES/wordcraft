@@ -1,6 +1,6 @@
 # File-format parity with Microsoft Word
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-11 · **Change:** trivial (Print Markup: comments in PDF/print/copies, #589; previously trivial: SmartArt written from WordCraft's model, #497; previously trivial: import/export fixes for TXT, RTF, ODT, HTML and LaTeX, #433–#440; previously major: first version; every format Word reads or writes, measured from the readers and writers on origin/main) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4, plus Word for Windows' extra formats
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-12 · **Change:** trivial (native save temporary-file ownership and failure protection; previously trivial: Print Markup: comments in PDF/print/copies, #589; previously trivial: SmartArt written from WordCraft's model, #497; previously trivial: import/export fixes for TXT, RTF, ODT, HTML and LaTeX, #433–#440; previously major: first version; every format Word reads or writes, measured from the readers and writers on origin/main) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4, plus Word for Windows' extra formats
 
 Every format Word opens or saves, what WordCraft does with it, and how it's tested. Fidelity is the
 share of a typical real-world file's content and formatting that survives (read: shows correctly;
@@ -99,6 +99,14 @@ The [public OOXML reference](https://learn.microsoft.com/en-us/dotnet/api/docume
 describes omission as leaving paragraph defaults application-defined. Real-world corpus
 coverage and WordCraft layout matching remain separate gaps.
 
+## Native save-path guarantees
+
+Native `io::save_path_with` serializes (and, for password-protected DOCX, encrypts) before creating an exclusively owned sibling temporary file. It writes and synchronizes that file, closes it, then replaces the destination. Failed preparation or replacement keeps the original bytes; cleanup removes only the save's temporary file, on a best-effort basis. Existing `<name>.tmp` files, directories and links are untouched. A new document gets the default mode (`0666` less the umask). When replacing an existing regular file, the Unix temporary file starts with mode `0600` and then takes the existing file's basic permissions. Serialization and format support are unchanged.
+
+Synthetic CLI cases and `engine/tests/safe_save.rs` cover occupied names, links, blocked replacement, missing directories, Save As session state, password-protected saves and original-file protection on macOS. Unit tests inject preparation errors and interleave two prepared saves. Independent saves use separate files; the last successful replacement wins. This is not document locking or conflict detection.
+
+Windows/Linux runtime behavior, ACLs and extended metadata, real disk-full conditions, power loss and network filesystems are not verified by these tests. The containing directory is not explicitly synchronized. Cleanup can fail when storage or permissions change, and process termination can leave a temporary file. No Word observation was needed for this filesystem change; it makes no new format-fidelity claim.
+
 ## What decides beta for formats
 
 1. A **real-world DOCX corpus** opened, rendered and round-tripped, compared page by page with
@@ -134,6 +142,7 @@ coverage and WordCraft layout matching remain separate gaps.
 | 2026-10-10 | trivial | Right-to-left tables (`w:bidiVisual`) read and written (#362) |
 | 2026-10-10 | trivial | Drawing canvas (`wpc:wpc`) read and written (#344); group shapes row brought up to date (#267) |
 | 2026-10-11 | trivial | Spreadsheets (.xlsx/.xlsm/.ods) read as mail-merge recipient lists (#334) |
+| 2026-10-11 | trivial | Native saves protect existing temporary-name entries and originals on pre-replacement failure; synthetic macOS evidence, explicit durability/platform limits; readiness unchanged |
 | 2026-10-11 | trivial | Import/export fixes (#433–#440): TXT opens through the encoding-sniffing reader (Windows-1252, unmarked UTF-16) and saves list labels; RTF `\uN` in document info, bookmark names and field instructions; ODT common paragraph styles' text formatting and table-cell background colours; HTML borderless tables export without cell borders and `white-space:pre` keeps edge spaces; LaTeX brace groups scope `\centering`/`\raggedleft`/`\raggedright` |
 | 2026-10-11 | trivial | `.doc` import fixes per [MS-DOC]: piece Prm0/Prm1 decoding (#458), section-break kinds (#459), explicit orientation (#460), negative `sprmPIlfo` list references (#461), zero-based `istdBase` style inheritance (#462), font-table entries with alternate names (#463) |
 | 2026-10-11 | trivial | Formatting revisions (`w:rPrChange`, `w:pPrChange`, table, row, cell, section and numbering changes) read and written (#41) |
