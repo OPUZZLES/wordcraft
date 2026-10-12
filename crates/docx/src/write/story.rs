@@ -1488,7 +1488,7 @@ const TOC_SDT_OPEN: &str =
     r#"<w:sdt><w:sdtPr><w:docPartObj><w:docPartGallery w:val="Table of Contents"/><w:docPartUnique/></w:docPartObj></w:sdtPr><w:sdtContent>"#;
 
 fn is_toc(instr: &str) -> bool {
-    instr.trim_start().get(..3).is_some_and(|k| k.eq_ignore_ascii_case("TOC"))
+    instr.split_whitespace().next().is_some_and(|k| k.eq_ignore_ascii_case("TOC"))
 }
 
 /// The engine's TOC: a paragraph holding an empty `TOC` field, then its TOC-styled entries.

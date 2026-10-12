@@ -447,8 +447,8 @@ pub enum InlineObject {
         code: bool,
     },
     /// The start of a field whose result is ordinary content — formatted, possibly spanning
-    /// paragraphs — up to the matching [`InlineObject::FieldEnd`]. Citation managers' `ADDIN`
-    /// fields (Zotero, Mendeley, EndNote) are kept this way; `instr` is the field code. See
+    /// paragraphs — up to the matching [`InlineObject::FieldEnd`]. Imported TOCs and citation
+    /// managers' `ADDIN` fields are kept this way; `instr` is the field code. See
     /// [`crate::fields`].
     FieldStart {
         instr: String,
