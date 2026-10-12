@@ -70,7 +70,7 @@ Measured by grepping `crates/docx/src/read` and `src/write` for the OOXML elemen
 | Word ink (`w14:contentPart`, InkML), 3D models | ❌ | ❌ | Dropped on read, not preserved on save |
 | Equations (OMML `m:oMath`) | ✅ | ✅ | #191; manual breaks (`m:brk`) and the settings' `m:mathPr` wrapping options (#326) |
 | Themes, font table, settings, compatibility mode | ✅ | ✅ | Embedded fonts (`w:embedRegular`) not read; attached template (`w:attachedTemplate` and its external relationship) and `w:linkStyles` round-trip (#377). The template path comes from the file, so opening never reads it: styles update from it only on an explicit Update Styles |
-| Custom XML parts, document properties, bibliography sources | 🟡 | 🟡 | Custom properties round-trip; bibliography sources pending (#169) |
+| Custom XML parts, document properties, bibliography sources | 🟡 | 🟡 | Custom XML stores reached from the package/main document preserve opaque data, properties and relationships; binding evaluation remains absent. Custom properties round-trip; bibliography model I/O remains separate (#532 open) |
 | Section text direction (`w:textDirection` in `w:sectPr`, §17.6.20) | ✅ | ✅ | `tbRl`, `btLr` (and `tbRlV`/`tbLrV`, read as `tbRl`); `lrTbV` and unknown values read as horizontal (#491) |
 | Ruby (`w:ruby`: `w:rubyPr`, `w:rt`, `w:rubyBase`) | ✅ | ✅ | #288; base and ruby text with their run formatting, alignment, sizes, raise, language |
 | Document grid (`w:docGrid`: type, line pitch, `w:charSpace`), paragraph `w:snapToGrid` | ✅ | ✅ | #391; run-level `w:snapToGrid` not read |
@@ -98,6 +98,25 @@ These checks cover preservation on Word reopen, not WordCraft pagination parity.
 The [public OOXML reference](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.wordprocessing.paragraphpropertiesdefault?view=openxml-3.0.1)
 describes omission as leaving paragraph defaults application-defined. Real-world corpus
 coverage and WordCraft layout matching remain separate gaps.
+
+## Custom XML store preservation
+
+A reduced original bound-control DOCX loses its backing data, item properties and relationship
+on main, both without editing and after unrelated edits. Main's content-control support (#381)
+preserves control metadata, including binding attributes, while this custom XML path keeps the
+backing store through the bounded opaque part graph: payload bytes, content types and
+related-part IDs survive two edited save/reopen cycles.
+
+The public [dataBinding contract](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.wordprocessing.databinding?view=openxml-3.0.1)
+maps a control to a custom XML data part; its [item properties](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.customxmldataproperties.datastoreitem?view=openxml-3.0.1)
+identify the store. Keeping displayed text alone does not preserve that mapping. This change
+preserves stores without evaluating XPath or synchronizing control edits into XML.
+
+Focused original tests cover package/main roots, multiple/shared stores, cycles, external schema
+references, missing parts, UTF-16 payloads, strict relationship types and reserved filenames.
+The bibliography names used by #532 are reserved; bibliography already loaded into the source
+model belongs to its writer. Word-derived files are not fixtures. No readiness estimate rises
+from these synthetic package checks, and native Word rendering/binding behavior remains untested.
 
 ## What decides beta for formats
 
@@ -134,6 +153,7 @@ coverage and WordCraft layout matching remain separate gaps.
 | 2026-10-10 | trivial | Right-to-left tables (`w:bidiVisual`) read and written (#362) |
 | 2026-10-10 | trivial | Drawing canvas (`wpc:wpc`) read and written (#344); group shapes row brought up to date (#267) |
 | 2026-10-11 | trivial | Spreadsheets (.xlsx/.xlsm/.ods) read as mail-merge recipient lists (#334) |
+| 2026-10-12 | minor | Preserve opaque custom XML stores and related properties; bindings and control support remain separate |
 | 2026-10-11 | trivial | Import/export fixes (#433–#440): TXT opens through the encoding-sniffing reader (Windows-1252, unmarked UTF-16) and saves list labels; RTF `\uN` in document info, bookmark names and field instructions; ODT common paragraph styles' text formatting and table-cell background colours; HTML borderless tables export without cell borders and `white-space:pre` keeps edge spaces; LaTeX brace groups scope `\centering`/`\raggedleft`/`\raggedright` |
 | 2026-10-11 | trivial | `.doc` import fixes per [MS-DOC]: piece Prm0/Prm1 decoding (#458), section-break kinds (#459), explicit orientation (#460), negative `sprmPIlfo` list references (#461), zero-based `istdBase` style inheritance (#462), font-table entries with alternate names (#463) |
 | 2026-10-11 | trivial | Formatting revisions (`w:rPrChange`, `w:pPrChange`, table, row, cell, section and numbering changes) read and written (#41) |

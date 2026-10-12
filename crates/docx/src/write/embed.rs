@@ -13,7 +13,9 @@ use wordcraft_doc::graphic::Embedded;
 use wordcraft_doc::para::Float;
 
 use super::PartRels;
-use crate::package::{EMBEDDED_PARTS, EmbeddedManifest, MAX_EMBEDDED_PARTS, VBA_PROJECT_PART, VBA_RELATED, relative};
+use crate::package::{
+    CUSTOM_XML_ROOTS, EMBEDDED_PARTS, EmbeddedManifest, MAX_EMBEDDED_PARTS, MAX_EMBEDDED_RELS, VBA_PROJECT_PART, VBA_RELATED, rel_is, relative, rt,
+};
 use crate::units::emu;
 use crate::xml::{self, El, MAX_DEPTH};
 
@@ -64,6 +66,10 @@ impl<'d> EmbedWriter<'d> {
         .map(|s| s.to_string())
         .collect();
         taken.insert(VBA_PROJECT_PART.to_ascii_lowercase());
+        // The bibliography writer uses these names when sources are present (#532).
+        if !doc.sources.is_empty() {
+            taken.extend(["customxml/item1.xml".into(), "customxml/itemprops1.xml".into()]);
+        }
         // The macro project's parts keep their names (see `write_as`).
         if let Some(m) = doc.passthrough.get(VBA_RELATED) {
             for line in String::from_utf8_lossy(m).lines() {
@@ -101,6 +107,9 @@ impl<'d> EmbedWriter<'d> {
 
     /// A free part name for (a copy of) `orig`: `orig` itself if free, else `stem_N.ext`.
     fn alloc(&mut self, orig: &str) -> String {
+        // Suffixes cannot escape reserved directories or a .rels extension. Such a kept
+        // part needs a different base name, otherwise every candidate would be reserved.
+        let orig = if Self::reserved(&orig.to_ascii_lowercase()) { "word/embeddings/part.xml" } else { orig };
         let lower = orig.to_ascii_lowercase();
         if !Self::reserved(&lower) && self.taken.insert(lower) {
             return orig.to_string();
@@ -155,6 +164,25 @@ impl<'d> EmbedWriter<'d> {
     /// Can part `name` be written (bytes and manifest entry both kept)?
     fn available(&self, name: &str) -> bool {
         self.manifest.parts.contains_key(name) && self.passthrough.contains_key(name)
+    }
+
+    /// Reattach implicit custom XML roots, sharing their kept parts across both owners.
+    pub fn custom_xml_rels(&mut self, owner: &str, rels: &mut PartRels) {
+        let Some(roots) = self.passthrough.get(CUSTOM_XML_ROOTS).cloned() else { return };
+        let mut memo = std::mem::take(&mut self.first);
+        let mut written = Vec::new();
+        for line in String::from_utf8_lossy(&roots).lines().take(MAX_EMBEDDED_RELS * 2) {
+            let fields: Vec<&str> = line.split('\t').collect();
+            let [source, kind, target] = fields.as_slice() else { continue };
+            if *source != owner || !rel_is(kind, rt::CUSTOM_XML) {
+                continue;
+            }
+            if let Some(name) = self.copy_tree(target, &mut memo, &mut written) {
+                let source_part = if owner == "P" { "" } else { STORY_PART };
+                rels.add(kind, &relative(source_part, &name), false);
+            }
+        }
+        self.first = memo;
     }
 
     /// What copying the parts reached from `roots` costs against the copy budget.
