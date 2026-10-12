@@ -5,7 +5,7 @@
 //! agents get the same result without them. Shown through [`crate::dialogs::Dialog::Review`] and
 //! [`crate::panes`].
 
-use egui::{Color32, Ui, vec2};
+use egui::{Ui, vec2};
 use serde::Serialize;
 use serde_json::{Value, json};
 use wordcraft_engine::Password;
@@ -71,8 +71,7 @@ fn buttons(ui: &mut Ui, ok_enabled: bool) -> (bool, bool) {
             if ui.button(tl!("Cancel")).clicked() || ui.input(|i| i.key_pressed(egui::Key::Escape)) {
                 r.1 = true;
             }
-            let okb =
-                ui.add_enabled(ok_enabled, egui::Button::new(egui::RichText::new(tl!("OK")).color(Color32::WHITE)).fill(crate::theme::APP_COLOR));
+            let okb = ui.add_enabled(ok_enabled, crate::widgets::primary_button(ui, tl!("OK")));
             if okb.clicked() {
                 r.0 = true;
             }
@@ -337,9 +336,11 @@ impl AutoCorrectForm {
         let o = &self.options;
         json!({
             "replaceText": o.replace_text,
+            "twoInitialCaps": o.two_initial_caps,
             "capSentences": o.cap_sentences,
             "capCells": o.cap_cells,
             "capDays": o.cap_days,
+            "capsLock": o.caps_lock,
             "smartQuotes": o.smart_quotes,
             "fractions": o.fractions,
             "ordinals": o.ordinals,
@@ -411,6 +412,7 @@ fn autocorrect_ui(app: &mut WordApp, ui: &mut Ui, f: &mut AutoCorrectForm) -> bo
 
 fn autocorrect_tab(app: &mut WordApp, ui: &mut Ui, f: &mut AutoCorrectForm) {
     let o = &mut f.options;
+    ui.checkbox(&mut o.two_initial_caps, tl!("Correct TWo INitial CApitals"));
     ui.checkbox(&mut o.cap_sentences, tl!("Capitalize first letter of sentences"));
     ui.horizontal(|ui| {
         ui.add_space(18.0);
@@ -424,6 +426,7 @@ fn autocorrect_tab(app: &mut WordApp, ui: &mut Ui, f: &mut AutoCorrectForm) {
     let o = &mut f.options;
     ui.checkbox(&mut o.cap_cells, tl!("Capitalize first letter of table cells"));
     ui.checkbox(&mut o.cap_days, tl!("Capitalize names of days"));
+    ui.checkbox(&mut o.caps_lock, tl!("Correct accidental usage of cAPS LOCK key"));
     ui.checkbox(&mut o.replace_text, tl!("Replace text as you type"));
     egui::Grid::new("ac_boxes").num_columns(2).spacing(vec2(8.0, 2.0)).show(ui, |ui| {
         ui.label(tl!("Replace:"));

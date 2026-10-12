@@ -104,6 +104,7 @@
 	Color: {color}	Boja: {color}
 	Compress punctuation at the start of a line	Sažmi interpunkciju na početku reda
 	Confirm password:	Potvrdite lozinku:
+	Couldn't make WordCraft the default: {error}	WordCraft nije mogao da postane podrazumevana aplikacija: {error}
 	Custom dictionary	Prilagođeni rečnik
 	Dark page (white text on black)	Tamna stranica (beo tekst na crnom)
 	Drag a rectangle to draw a table, or a line across cells to split them. Esc stops.	Prevucite pravougaonik da nacrtate tabelu ili liniju preko ćelija da ih podelite. Esc završava.
@@ -148,6 +149,10 @@
 	Number format	Format broja
 	Number style for this level:	Stil broja za ovaj nivo:
 	Outside border	Spoljna ivica
+	In Default apps, choose WordCraft for the document types you want it to open.	U podrazumevanim aplikacijama izaberite WordCraft za vrste dokumenata koje želite da otvara.
+	Make WordCraft the default for Word documents…	Postavi WordCraft kao podrazumevanu aplikaciju za Word dokumente…
+	Opens .docx, .doc, .rtf and .odt files and Word templates with WordCraft from now on.	Od sada će se .docx, .doc, .rtf i .odt datoteke i Word šabloni otvarati u WordCraft-u.
+	Opens Settings › Default apps, where you choose WordCraft for .docx and the other document types.	Otvara Podešavanja › Podrazumevane aplikacije, gde birate WordCraft za .docx i druge vrste dokumenata.
 	Overtype	Prepisivanje
 	Overtype (typing replaces the characters after the caret)	Prepisivanje (otkucano zamenjuje znakove posle kursora)
 	Page display	Prikaz strane
@@ -199,6 +204,7 @@
 	Preview	Pregled
 	Remove Password	Ukloni lozinku
 	Save documents	Čuvanje dokumenata
+	Search	Pretraga
 	Shadow, glow and soft edges	Senka, sjaj i meke ivice
 	Shape Effects	Efekti oblika
 	Show all revisions inline	Prikaži sve izmene u tekstu
@@ -250,6 +256,7 @@
 	Page Border	Ivica strane
 	Apply to:	Primeni na:
 	These marks show even when Show/Hide ¶ is off.	Ove oznake se prikazuju i kada je Prikaži/sakrij ¶ isključeno.
+	Title Bar	Naslovna traka
 	Typing replaces selected text	Otkucano zamenjuje izabrani tekst
 	Update fields before printing	Ažuriraj polja pre štampanja
 	Use the Insert key to switch overtype on and off	Taster Insert uključuje i isključuje prepisivanje
@@ -367,6 +374,8 @@
 	Delete Style	Obriši stil
 	Delete Table	Obriši tabelu
 	Design	Dizajn
+	To open Word documents with WordCraft by default: select one in Finder, choose File › Get Info, pick WordCraft under Open with, then click Change All.	Da bi se Word dokumenti podrazumevano otvarali u WordCraft-u: izaberite jedan u Finder-u, izaberite Datoteka › Prikaži informacije, pod „Otvori pomoću” izaberite WordCraft, pa kliknite „Promeni sve”.
+	WordCraft is now the default app for Word documents.	WordCraft je sada podrazumevana aplikacija za Word dokumente.
 	development build	razvojna verzija
 	Diagonal	Dijagonalno
 	Diamond	Dijamant
@@ -510,6 +519,7 @@
 	Insert Above	Umetni iznad
 	Insert Below	Umetni ispod
 	Insert Caption	Umetni natpis
+	Insert Caption…	Umetni natpis…
 	Insert Citation	Umetni citat
 	Insert Endnote	Umetni endnotu
 	Insert Footnote	Umetni fusnotu
@@ -905,6 +915,7 @@
 	Table of Contents	Sadržaj
 	Table of\nContents	Sadržaj
 	Table Properties	Svojstva tabele
+	Table Properties…	Svojstva tabele…
 	Table Row Height	Visina reda tabele
 	Table style	Stil tabele
 	Table Style Options	Opcije stila tabele
@@ -959,6 +970,10 @@
 	Underline Words Only	Podvuci samo reči
 	Undo	Opozovi
 	Undo {action}	Opozovi {action}
+	Undo Actions	Opozovi radnje
+	Undo History	Istorija opozivanja
+	Undo 1 Action	Opozovi 1 radnju
+	Undo {n} Actions	Opozovi radnje: {n}
 	Ungroup	Razgrupisanje
 	Up	Gore
 	Update Field	Ažuriraj polje
@@ -1132,6 +1147,8 @@
 	Keeps the fonts and formatting of the copied text.	Zadržava fontove i formatiranje kopiranog teksta.
 	Reads the clipboard's rich text and keeps its formatting.	Čita obogaćeni tekst (RTF) iz ostave i zadržava njegovo formatiranje.
 	Reads the clipboard's web content and keeps its formatting.	Čita veb sadržaj iz ostave i zadržava njegovo formatiranje.
+	Picture	Slika
+	Pastes the clipboard's picture.	Lepi sliku iz ostave.
 	Drops all formatting and pastes plain text.	Uklanja sve formatiranje i lepi običan tekst.
 	Advanced Find	Napredna pretraga
 	Advanced Find…	Napredna pretraga…
@@ -1431,6 +1448,8 @@
 	Border lines	Linije ivica
 	Capitalize first letter of sentences	Veliko prvo slovo rečenice
 	Capitalize first letter of table cells	Veliko prvo slovo u ćelijama tabele
+	Correct TWo INitial CApitals	Ispravi DVa POčetna velika slova
+	Correct accidental usage of cAPS LOCK key	Ispravi slučajno uključen cAPS LOCK
 	Capitalize names of days	Veliko slovo u nazivima dana
 	Case changes	Promene veličine slova
 	Character level	Nivo znaka
@@ -1635,6 +1654,12 @@
 	Enlarge symbol	Uvećaj simbol
 	Enclosure	Okvir
 	Circle	Krug
+	Numerals:	Brojevi:
+	Numerals	Brojevi
+	Arabic	Arapski
+	Hindi	Hindi
+	Context	Kontekst
+	System	Sistem
 	Templates	Šabloni
 	Templates and Add-ins	Šabloni i dodaci
 	Attach Template	Priloži šablon
@@ -1688,6 +1713,7 @@
 	Middle	Sredina
 	Click the empty text box the text should continue in (Esc cancels)	Kliknite prazno polje za tekst u kom tekst treba da se nastavi (Esc otkazuje)
 	Not linked: click a text box	Nije povezano: kliknite polje za tekst
+	Show KeyTips (Alt or F10)	Prikaži savete za tastere (Alt ili F10)
 	Location	Lokacija
 	Endnotes	Endnote
 	Below text	Ispod teksta
@@ -1700,6 +1726,13 @@
 	Continuous numbering	Neprekidna numeracija
 	Apply	Primeni
 	Convert Notes	Pretvori napomene
+	Reading	Čitanje
+	Reading Column Width	Širina kolone za čitanje
+	Reading Line Spacing	Proređenost pri čitanju
+	Reading Text Size	Veličina teksta za čitanje
+	English (United Kingdom)	Engleski (Velika Britanija)
+	Polish	Poljski
+	Do Not Check Spelling or Grammar	Ne proveravaj pravopis i gramatiku
 
 # Built-in file browser when the system file dialog is unavailable (#576)
 	Documents	Dokumenti
@@ -1977,7 +2010,6 @@
 	Add line numbering	Dodaj brojeve redova
 	Add to Document	Dodaj u dokument
 	Address labels	Adresne nalepnice
-	Arabic	Arapski
 	Auto	Automatski
 	Automatically hyphenate document	Automatski deli reči u dokumentu
 	Chinese (Simplified)	Kineski (pojednostavljeni)
@@ -1990,7 +2022,6 @@
 	Detect language automatically	Automatski prepoznaj jezik
 	Do not check spelling or grammar	Ne proveravaj pravopis ni gramatiku
 	Dutch	Holandski
-	English (United Kingdom)	Engleski (Ujedinjeno Kraljevstvo)
 	Envelope size:	Veličina koverte:
 	Estonian	Estonski
 	Finnish	Finski
@@ -2019,7 +2050,6 @@
 	Numbering:	Numerisanje:
 	Omit	Izostavi
 	One label per recipient	Jedna nalepnica po primaocu
-	Polish	Poljski
 	Portuguese (Brazil)	Portugalski (Brazil)
 	Portuguese (Portugal)	Portugalski (Portugalija)
 	Return address labels	Nalepnice sa adresom pošiljaoca
@@ -2045,3 +2075,13 @@
 	Your system has animation effects turned on.	U sistemu su efekti animacije uključeni.
 	Your system has animation effects turned off.	U sistemu su efekti animacije isključeni.
 	Your system doesn't report an animation setting, so animation effects stay on.	Sistem ne prijavljuje podešavanje animacije, pa efekti animacije ostaju uključeni.
+	Select Column	Izaberi kolonu
+	Select Table Cells by Clicking	Izbor ćelija tabele klikom
+	Insert Row or Column by Clicking	Umetanje reda ili kolone klikom
+	Move Table by Dragging	Premeštanje tabele prevlačenjem
+	AutoFit Column by Double-Clicking	Automatsko uklapanje kolone dvostrukim klikom
+	Region:	Region:
+	Automatic ({region})	Automatski ({region})
+	Start-up	Pokretanje
+	Show the Start screen when WordCraft starts	Prikaži početni ekran pri pokretanju programa WordCraft
+	On: WordCraft opens on File › Home, with a blank document, the templates and your recent documents. Off: it opens a blank document.	Uključeno: WordCraft se otvara na Fajl › Početak, sa praznim dokumentom, šablonima i nedavnim dokumentima. Isključeno: otvara prazan dokument.

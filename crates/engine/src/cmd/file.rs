@@ -119,7 +119,15 @@ fn new(s: &mut Session, v: &Value) -> CmdResult {
         "letter" => crate::sample::letter(),
         "resume" => crate::sample::resume(),
         "report" => crate::sample::report(),
-        _ => Document::new(),
+        // The Normal template: the region's paper (#838), written in the editing language (the
+        // templates' text is English).
+        _ => {
+            let mut d = s.blank_document();
+            if let Some(lang) = &s.editing_lang {
+                d.styles.default_chr.lang = Some(lang.clone());
+            }
+            d
+        }
     };
     s.set_document(doc);
     s.path = None;
@@ -132,12 +140,19 @@ fn open(s: &mut Session, v: &Value) -> CmdResult {
         return sel_result(s);
     };
     let password = p::str(v, "password");
-    let (doc, encrypted) = if let Some(data) = p::str(v, "data") {
+    let (mut doc, encrypted) = if let Some(data) = p::str(v, "data") {
         let bytes = super::insert::base64_decode(data).ok_or_else(|| CmdError::Params("bad base64".into()))?;
         crate::io::open_bytes_with(path, &bytes, password).map_err(CmdError::Failed)?
     } else {
         crate::io::open_path_with(std::path::Path::new(path), password).map_err(CmdError::Failed)?
     };
+    // Plain text and Markdown carry no language: they are in the editing language.
+    let ext = std::path::Path::new(path).extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
+    if let Some(lang) = &s.editing_lang
+        && matches!(ext.as_str(), "txt" | "text" | "md" | "markdown")
+    {
+        doc.styles.default_chr.lang = Some(lang.clone());
+    }
     s.set_document(doc);
     s.path = Some(path.into());
     // Like Word, a document opened with a password is saved with it again.
@@ -219,8 +234,7 @@ fn export_png(s: &mut Session, v: &Value) -> CmdResult {
     let pg = l.pages.get(page).ok_or_else(|| CmdError::Params(format!("no page {}", page + 1)))?;
     let img = wordcraft_render::render_page(&s.doc, pg, scale, &Default::default());
     let png = img.to_png();
-    #[cfg(not(target_arch = "wasm32"))]
-    std::fs::write(path, &png).map_err(|e| CmdError::Failed(format!("{path}: {e}")))?;
+    crate::io::write_file(path, &png).map_err(CmdError::Failed)?;
     Ok(json!({"path": path, "width": img.width, "height": img.height, "bytes": png.len()}))
 }
 

@@ -720,7 +720,13 @@ fn lines(
                         text.push_str(s);
                         shown = Some(r);
                     } else if let Some(p) = para {
-                        text.push_str(p.text.get(c.start..c.end).unwrap_or(""));
+                        let t = p.text.get(c.start..c.end).unwrap_or("");
+                        // Symbol-font characters (Wingdings…) read as the Unicode symbols drawn.
+                        if wordcraft_doc::symbol_fonts::is_symbol_font(&st.rc.font) {
+                            text.push_str(&wordcraft_doc::symbol_fonts::map_text(&st.rc.font, t));
+                        } else {
+                            text.push_str(t);
+                        }
                     }
                     let b = text.len();
                     let cg = pl.glyphs.get(c.g0 as usize..c.g1 as usize).unwrap_or(&[]);
@@ -1487,7 +1493,7 @@ pub(crate) fn inline_rect(obj: Option<&InlineObject>, cx: f32, base: f32, adv: f
     let [l, t, r, b] = frame.map_or([0.0; 4], |(_, _, float)| float.effect_extent());
     let room = Rect::new(cx + l, base - obj_h + t, (adv - l - r).max(0.0), (obj_h - t - b).max(0.0));
     let Some((w, h, float)) = frame.filter(|(_, _, f)| f.rot != 0.0) else { return room };
-    // The room is the rotated bounds of the (possibly scaled-down) frame: undo the rotation.
+    // The room is the rotated bounds of the frame: undo the rotation.
     let (w, h) = (wordcraft_geom::finite(w).clamp(1.0, 4000.0), wordcraft_geom::finite(h).clamp(1.0, 4000.0));
     let (bw, _) = float.spin().extent(w, h);
     let k = if bw > 0.0 { room.w / bw } else { 1.0 };

@@ -189,6 +189,8 @@
 	Delete Style	Удалить стиль
 	Delete Table	Удалить таблицу
 	Design	Дизайн
+	Search	Поиск
+	Title Bar	Строка заголовка
 	development build	сборка для разработки
 	Diagonal	Диагональ
 	Diamond	Ромб
@@ -341,6 +343,7 @@
 	Insert Above	Вставить сверху
 	Insert Below	Вставить снизу
 	Insert Caption	Вставить подпись
+	Insert Caption…	Вставить подпись…
 	Insert Citation	Вставить ссылку на источник
 	Insert Endnote	Вставить концевую сноску
 	Insert Footnote	Вставить сноску
@@ -728,6 +731,7 @@
 	Table of Figures	Список иллюстраций
 	Table of\nContents	Оглавление
 	Table Properties	Свойства таблицы
+	Table Properties…	Свойства таблицы…
 	Table Row Height	Высота строки таблицы
 	Table Style Options	Параметры стилей таблиц
 	Table Styles	Стили таблиц
@@ -778,6 +782,10 @@ preview	Title	Пример
 	Underline Words Only	Подчёркивать только слова
 	Undo	Отменить
 	Undo {action}	Отменить: {action}
+	Undo Actions	Отменить действия
+	Undo History	Журнал отмены
+	Undo 1 Action	Отменить действие
+	Undo {n} Actions	Отменить действий: {n}
 	Up	Вверх
 	Update Field	Обновить поле
 	Update Index	Обновить указатель
@@ -965,6 +973,8 @@ preview	Title	Пример
 	Keeps the fonts and formatting of the copied text.	Сохраняет шрифты и форматирование скопированного текста.
 	Reads the clipboard's rich text and keeps its formatting.	Берёт RTF-текст из буфера обмена и сохраняет его форматирование.
 	Reads the clipboard's web content and keeps its formatting.	Берёт веб-содержимое из буфера обмена и сохраняет его форматирование.
+	Picture	Рисунок
+	Pastes the clipboard's picture.	Вставляет рисунок из буфера обмена.
 	Drops all formatting and pastes plain text.	Убирает всё форматирование и вставляет обычный текст.
 	Advanced Find	Расширенный поиск
 	Advanced Find…	Расширенный поиск…
@@ -1998,6 +2008,19 @@ preview	Title	Пример
 	Search icons	Поиск значков
 	No icons match your search.	Нет значков, соответствующих поиску.
 	Recolor a one-color picture, such as an icon	Перекрасить одноцветный рисунок, например значок
+	Numerals:	Цифры:
+	Numerals	Цифры
+	Arabic	Арабские
+	Hindi	Хинди
+	Context	Контекст
+	System	Системные
+	Couldn't make WordCraft the default: {error}	Не удалось сделать WordCraft приложением по умолчанию: {error}
+	In Default apps, choose WordCraft for the document types you want it to open.	В разделе «Приложения по умолчанию» выберите WordCraft для нужных типов документов.
+	Make WordCraft the default for Word documents…	Сделать WordCraft приложением по умолчанию для документов Word…
+	Opens .docx, .doc, .rtf and .odt files and Word templates with WordCraft from now on.	Отныне файлы .docx, .doc, .rtf и .odt и шаблоны Word будут открываться в WordCraft.
+	Opens Settings › Default apps, where you choose WordCraft for .docx and the other document types.	Открывает «Параметры» › «Приложения по умолчанию», где можно выбрать WordCraft для .docx и других типов документов.
+	To open Word documents with WordCraft by default: select one in Finder, choose File › Get Info, pick WordCraft under Open with, then click Change All.	Чтобы открывать документы Word в WordCraft по умолчанию: выберите документ в Finder, выберите «Файл» › «Свойства», укажите WordCraft в разделе «Открывать в программе» и нажмите «Изменить все».
+	WordCraft is now the default app for Word documents.	WordCraft теперь приложение по умолчанию для документов Word.
 	Templates	Шаблоны
 	Templates and Add-ins	Шаблоны и надстройки
 	Attach Template	Присоединить шаблон
@@ -2024,6 +2047,8 @@ preview	Title	Пример
 	Border lines	Линии границ
 	Capitalize first letter of sentences	Делать первые буквы предложений прописными
 	Capitalize first letter of table cells	Делать первые буквы ячеек таблиц прописными
+	Correct TWo INitial CApitals	Исправлять ДВе ПРописные буквы в начале слова
+	Correct accidental usage of cAPS LOCK key	Устранять последствия случайного нажатия cAPS LOCK
 	Capitalize names of days	Названия дней с прописной буквы
 	Case changes	Изменения регистра
 	Character level	На уровне символов
@@ -2123,6 +2148,7 @@ preview	Title	Пример
 	Middle	По центру
 	Click the empty text box the text should continue in (Esc cancels)	Щёлкните пустую надпись, в которой должен продолжиться текст (Esc — отмена)
 	Not linked: click a text box	Не связано: щёлкните надпись
+	Show KeyTips (Alt or F10)	Показывать подсказки клавиш (Alt или F10)
 	Location	Расположение
 	Endnotes	Концевые сноски
 	Below text	Под текстом
@@ -2135,6 +2161,13 @@ preview	Title	Пример
 	Continuous numbering	Сквозная нумерация
 	Apply	Применить
 	Convert Notes	Преобразовать сноски
+	Reading	Чтение
+	Reading Column Width	Ширина столбца в режиме чтения
+	Reading Line Spacing	Межстрочный интервал в режиме чтения
+	Reading Text Size	Размер текста в режиме чтения
+	Do Not Check Spelling or Grammar	Не проверять орфографию и грамматику
+	English (United Kingdom)	Английский (Великобритания)
+	Polish	Польский
 
 # Built-in file browser (#576).
 	Documents	Документы
@@ -2313,7 +2346,6 @@ preview	Title	Пример
 	Add line numbering	Добавить нумерацию строк
 	Add to Document	Добавить в документ
 	Address labels	Адресные наклейки
-	Arabic	Арабский
 	Auto	Авто
 	Automatically hyphenate document	Автоматически расставлять переносы в документе
 	Chinese (Simplified)	Китайский (упрощённый)
@@ -2326,7 +2358,6 @@ preview	Title	Пример
 	Detect language automatically	Определять язык автоматически
 	Do not check spelling or grammar	Не проверять орфографию и грамматику
 	Dutch	Нидерландский
-	English (United Kingdom)	Английский (Великобритания)
 	Envelope size:	Размер конверта:
 	Estonian	Эстонский
 	Finnish	Финский
@@ -2355,7 +2386,6 @@ preview	Title	Пример
 	Numbering:	Нумерация:
 	Omit	Пропустить
 	One label per recipient	Одна наклейка на получателя
-	Polish	Польский
 	Portuguese (Brazil)	Португальский (Бразилия)
 	Portuguese (Portugal)	Португальский (Португалия)
 	Return address labels	Наклейки с обратным адресом
@@ -2427,3 +2457,20 @@ preview	Title	Пример
 	Your system has animation effects turned on.	В системе эффекты анимации включены.
 	Your system has animation effects turned off.	В системе эффекты анимации выключены.
 	Your system doesn't report an animation setting, so animation effects stay on.	Система не сообщает о настройке анимации, поэтому эффекты анимации остаются включёнными.
+	Select Column	Выделить столбец таблицы
+	Select Table Cells by Clicking	Выделить ячейки таблицы щелчком
+	Insert Row or Column by Clicking	Вставить строку или столбец щелчком
+	Move Table by Dragging	Переместить таблицу перетаскиванием
+	AutoFit Column by Double-Clicking	Автоподбор ширины столбца двойным щелчком
+	Region:	Регион:
+	Automatic ({region})	Автоматически ({region})
+	Start-up	Запуск
+	Show the Start screen when WordCraft starts	Показывать начальный экран при запуске WordCraft
+	On: WordCraft opens on File › Home, with a blank document, the templates and your recent documents. Off: it opens a blank document.	Вкл.: WordCraft открывается на странице Файл › Главная с пустым документом, шаблонами и недавними документами. Выкл.: открывается пустой документ.
+	Typing	Ввод
+	Level 4	Уровень 4
+	Level 5	Уровень 5
+	Level 6	Уровень 6
+	Level 7	Уровень 7
+	Level 8	Уровень 8
+	Level 9	Уровень 9

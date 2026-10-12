@@ -27,20 +27,40 @@ fn qat_button(ui: &mut Ui, app: &mut WordApp, icon: &str, tip: &str, id: &str, e
 const QAT_MENU: [&str; 10] =
     ["file.new", "file.open", "file.save", "file.print", "edit.undo", "edit.redo", "edit.repeat", "review.spelling", "view.readMode", "insert.table"];
 
+/// Match the toolbar's enabled state for keyboard activation too.
+pub(crate) fn qat_enabled(app: &WordApp, id: &str) -> bool {
+    match id {
+        "edit.undo" => app.session.can_undo(),
+        "edit.redo" => app.session.can_redo(),
+        "file.save" => true,
+        _ => crate::widgets::enabled(app, id),
+    }
+}
+
 /// The Quick Access Toolbar (#379): the user's commands (Save, Undo, Redo until customized), each
 /// with a right-click menu, then the menu button that customizes it (#376).
 fn quick_access(ui: &mut Ui, app: &mut WordApp) {
     let ids: Vec<String> = app.session.ribbon.qat().into_iter().map(str::to_string).collect();
-    for id in &ids {
+    for (index, id) in ids.iter().enumerate() {
         let id = id.as_str();
-        let (tip, enabled) = match id {
-            "edit.undo" => (crate::i18n::prefixed("Undo", app.session.undo_label().unwrap_or("")), app.session.can_undo()),
-            "edit.redo" => (tl!("Redo").to_string(), app.session.can_redo()),
-            "file.save" => (tl!("Save").to_string(), true),
-            _ => (app.session.registry.get(id).map(|s| tl!(s.label).to_string()).unwrap_or_default(), crate::widgets::enabled(app, id)),
+        let tip = match id {
+            "edit.undo" => crate::i18n::prefixed("Undo", app.session.undo_label().unwrap_or("")),
+            "edit.redo" => tl!("Redo").to_string(),
+            "file.save" => tl!("Save").to_string(),
+            _ => app.session.registry.get(id).map(|s| tl!(s.label).to_string()).unwrap_or_default(),
         };
+        let enabled = qat_enabled(app, id);
         let resp = qat_button(ui, app, crate::widgets::command_icon(id), &tip, id, enabled);
+        if app.ui.keytips == crate::keytips::Phase::Tabs && ui.is_rect_visible(resp.rect) {
+            let label = crate::keytips::qat_label(index, ids.len());
+            if label.starts_with(&app.ui.keytip_prefix) {
+                app.keytip_rects.push((resp.rect, label));
+            }
+        }
         crate::widgets::command_menu(&resp, app, id);
+        if id == "edit.undo" {
+            undo_list_button(ui, app, enabled);
+        }
     }
     let t = Tokens::get(ui.ctx());
     let (r, _) = ui.allocate_exact_size(vec2(26.0, 24.0), Sense::hover());
@@ -54,6 +74,85 @@ fn quick_access(ui: &mut Ui, app: &mut WordApp) {
         ui.set_min_width(220.0);
         qat_menu(ui, app);
     });
+}
+
+/// The Undo button's drop-down arrow (#701), which opens [`undo_list`].
+pub(crate) fn undo_list_button_id() -> egui::Id {
+    egui::Id::new("qat_undo_list")
+}
+
+/// Row `i` of the Undo list (0 = the newest step).
+fn undo_list_row_id(i: usize) -> egui::Id {
+    undo_list_button_id().with(("row", i))
+}
+
+/// The Undo list's rows, newest first: each step named as the Undo button's tooltip names it.
+pub(crate) fn undo_list_rows(app: &WordApp) -> Vec<String> {
+    app.session.undo_history().into_iter().map(|l| tl!(l).to_string()).collect()
+}
+
+/// The Undo list's footer: how many steps a click undoes, or Cancel while none is highlighted.
+pub(crate) fn undo_list_footer(n: usize) -> String {
+    match n {
+        0 => tl!("Cancel").to_string(),
+        1 => tl!("Undo 1 Action").to_string(),
+        n => crate::i18n::fmt(tl!("Undo {n} Actions"), &[("n", &n.to_string())]),
+    }
+}
+
+/// The small arrow beside Undo: opens the list of steps to undo several at once.
+fn undo_list_button(ui: &mut Ui, app: &mut WordApp, enabled: bool) {
+    let t = Tokens::get(ui.ctx());
+    let (r, _) = ui.allocate_exact_size(vec2(12.0, 24.0), Sense::hover());
+    let resp = ui.interact(r, undo_list_button_id(), if enabled { Sense::click() } else { Sense::hover() });
+    if resp.hovered() && enabled {
+        ui.painter().rect_filled(r, 4.0, t.hover);
+    }
+    let c = if enabled { t.icon } else { t.text_disabled };
+    icons::paint(ui.painter(), Rect::from_center_size(r.center(), vec2(9.0, 9.0)), "dropdown", c, c);
+    let resp = resp.on_hover_text(tl!("Undo History"));
+    egui::Popup::menu(&resp).show(|ui| undo_list(ui, app));
+}
+
+/// The Undo list (#701): recent steps, newest first. Hovering a row highlights it and every newer
+/// one; clicking it undoes them all in one go (`edit.undoTo`).
+fn undo_list(ui: &mut Ui, app: &mut WordApp) {
+    const W: f32 = 210.0;
+    const ROW: f32 = 20.0;
+    let t = Tokens::get(ui.ctx());
+    let rows = undo_list_rows(app);
+    ui.set_width(W);
+    let (mut hovered, mut clicked) = (None, None);
+    egui::ScrollArea::vertical().max_height(ROW * 18.0).auto_shrink([false, true]).show(ui, |ui| {
+        ui.spacing_mut().item_spacing.y = 0.0;
+        let rects: Vec<Rect> = (0..rows.len())
+            .map(|i| {
+                let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), ROW), Sense::hover());
+                let resp = ui.interact(r, undo_list_row_id(i), Sense::click());
+                if resp.hovered() {
+                    hovered = Some(i);
+                }
+                if resp.clicked() {
+                    clicked = Some(i);
+                }
+                r
+            })
+            .collect();
+        for (i, (r, label)) in rects.iter().zip(&rows).enumerate() {
+            if hovered.is_some_and(|h| i <= h) {
+                ui.painter().rect_filled(*r, 0.0, t.selection);
+            }
+            // Clipped to its row: a long label never runs into the scroll bar.
+            ui.painter_at(r.shrink2(vec2(6.0, 0.0))).text(pos2(r.min.x + 6.0, r.center().y), Align2::LEFT_CENTER, label, regular(12.0), t.text);
+        }
+    });
+    ui.separator();
+    let footer = undo_list_footer(hovered.map_or(0, |h| h + 1));
+    ui.vertical_centered(|ui| ui.label(egui::RichText::new(footer).font(regular(12.0)).color(t.text)));
+    if let Some(i) = clicked {
+        let _ = app.run("edit.undoTo", json!({"count": i + 1}));
+        ui.close();
+    }
 }
 
 /// The Quick Access Toolbar's menu button (…), which opens [`qat_menu`].
@@ -166,25 +265,15 @@ pub fn title_bar(app: &mut WordApp, ui: &mut Ui) {
                     ui.add_space(8.0);
                     if app.ui.show_discord {
                         let (r, resp) = ui.allocate_exact_size(vec2(84.0, 22.0), Sense::click());
-                        ui.painter().rect_filled(
-                            r,
-                            11.0,
-                            if resp.hovered() { egui::Color32::from_rgb(0x47, 0x52, 0xC4) } else { egui::Color32::from_rgb(0x58, 0x65, 0xF2) },
-                        );
+                        ui.painter().rect_filled(r, 11.0, if resp.hovered() { t.accent_text } else { t.accent });
                         icons::paint(
                             ui.painter(),
                             Rect::from_center_size(pos2(r.min.x + 13.0, r.center().y), vec2(14.0, 14.0)),
                             "discord",
-                            egui::Color32::WHITE,
-                            egui::Color32::WHITE,
+                            t.on_accent,
+                            t.on_accent,
                         );
-                        ui.painter().text(
-                            pos2(r.min.x + 24.0, r.center().y),
-                            Align2::LEFT_CENTER,
-                            tl!("Discord"),
-                            medium(11.5),
-                            egui::Color32::WHITE,
-                        );
+                        ui.painter().text(pos2(r.min.x + 24.0, r.center().y), Align2::LEFT_CENTER, tl!("Discord"), medium(11.5), t.on_accent);
                         if resp.on_hover_text(tl!("Join the ArtCraft community on Discord")).clicked() {
                             let _ = app.run("ui.discord", json!({}));
                         }
@@ -212,8 +301,15 @@ pub fn title_bar(app: &mut WordApp, ui: &mut Ui) {
                         ptrack,
                         t.text_dim,
                     );
-                    if resp.clicked() {
-                        let _ = app.run("ui.dialog", json!({"name": "commands"}));
+                    if app.ui.keytips == crate::keytips::Phase::Tabs {
+                        app.keytip_rects.push((r, crate::keytips::SEARCH_LETTER.to_string()));
+                    }
+                    let tip = match crate::widgets::shortcut_text(app, "tools.search") {
+                        k if k.is_empty() => tl!("Search").to_string(),
+                        k => format!("{} ({k})", tl!("Search")),
+                    };
+                    if resp.on_hover_text(tip).clicked() {
+                        let _ = app.run("tools.search", json!({}));
                     }
                     right_start = ui.min_rect().min.x;
                 });
@@ -291,7 +387,13 @@ pub fn status_bar(app: &mut WordApp, ui: &mut Ui) {
                 if app.session.sel.focus.story != StoryRef::Body && !crate::canvas::in_text_box(app) {
                     st(ui, tl!("Editing header/footer"));
                 }
-                st(ui, tl!("English (United States)"));
+                // The language at the caret; a click sets the proofing language (Review › Language).
+                let lang = crate::ribbon::caret_language(app);
+                let resp = st(ui, &lang).on_hover_text(tl!("Language"));
+                egui::Popup::menu(&resp).show(|ui| {
+                    ui.set_min_width(200.0);
+                    crate::ribbon::language_menu(ui, app);
+                });
                 if app.session.doc.settings.track_changes {
                     st(ui, tl!("Track Changes: On"));
                 }
@@ -308,28 +410,38 @@ pub fn status_bar(app: &mut WordApp, ui: &mut Ui) {
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.spacing_mut().item_spacing = vec2(4.0, 0.0);
-                    let z = (app.canvas.scale / crate::canvas::PX_PER_PT * 100.0).round();
+                    let reading = app.session.view.read_mode;
+                    let z = (if reading { app.session.view.read_zoom } else { app.canvas.scale / crate::canvas::PX_PER_PT } * 100.0).round();
                     let ztxt = format!("{z}%");
                     let zfont = TypeRung::Caption.regular();
                     let ztrack = TypeRung::Caption.tracking();
                     let zw = text_width(ui.painter(), &ztxt, &zfont, ztrack, t.text_dim);
                     let (zr, zresp) = ui.allocate_exact_size(vec2(zw + 1.0, TypeRung::Caption.line_height()), Sense::click());
                     paint_text(ui.painter(), pos2(zr.min.x, zr.min.y), Align2::LEFT_TOP, &ztxt, &zfont, ztrack, t.text_dim);
-                    if zresp.clicked() {
+                    if zresp.clicked() && !reading {
                         let _ = app.run("ui.dialog", json!({ "name": "zoom" }));
                     }
                     if small_icon(ui, "plus", tl!("Zoom In")) {
-                        let _ = app.run("view.zoomIn", json!({}));
+                        if reading {
+                            let _ = app.run("view.readTextSize", json!({"value": (z + 10.0).min(150.0)}));
+                        } else {
+                            let _ = app.run("view.zoomIn", json!({}));
+                        }
                     }
-                    // Zoom slider (10%–500%, 100% in the middle).
-                    let mut v = app.canvas.scale / crate::canvas::PX_PER_PT;
-                    let slider = egui::Slider::new(&mut v, 0.1..=5.0).logarithmic(true).show_value(false);
+                    // Reading zoom changes only reading presentation, never the normal view zoom.
+                    let mut v = if reading { app.session.view.read_zoom } else { app.canvas.scale / crate::canvas::PX_PER_PT };
+                    let slider = egui::Slider::new(&mut v, if reading { 0.75..=1.5 } else { 0.1..=5.0 }).logarithmic(!reading).show_value(false);
                     ui.spacing_mut().slider_width = 110.0;
                     if ui.add(slider).changed() {
-                        let _ = app.run("view.zoom", json!({"value": (v * 100.0).round()}));
+                        let command = if reading { "view.readTextSize" } else { "view.zoom" };
+                        let _ = app.run(command, json!({"value": (v * 100.0).round()}));
                     }
                     if small_icon(ui, "minus", tl!("Zoom Out")) {
-                        let _ = app.run("view.zoomOut", json!({}));
+                        if reading {
+                            let _ = app.run("view.readTextSize", json!({"value": (z - 10.0).max(75.0)}));
+                        } else {
+                            let _ = app.run("view.zoomOut", json!({}));
+                        }
                     }
                     ui.add_space(10.0);
                     let mode = app.session.view.mode;
@@ -402,6 +514,63 @@ impl WordApp {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn ctx() -> egui::Context {
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts(&ctx);
+        crate::theme::apply(&ctx, crate::theme::Appearance::Light);
+        ctx.run_ui(egui::RawInput::default(), |_| {}).drop_without_applying_deltas();
+        ctx
+    }
+
+    fn frame(ctx: &egui::Context, n: &mut u32, events: Vec<egui::Event>, a: &mut WordApp) {
+        *n += 1;
+        let input = egui::RawInput { time: Some(f64::from(*n) / 60.0), predicted_dt: 1.0 / 60.0, events, ..Default::default() };
+        ctx.run_ui(input, |ui| title_bar(a, ui)).drop_without_applying_deltas();
+    }
+
+    fn click(ctx: &egui::Context, n: &mut u32, pos: egui::Pos2, a: &mut WordApp) {
+        let button = |pressed| egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() };
+        frame(ctx, n, vec![egui::Event::PointerMoved(pos), button(true)], a);
+        frame(ctx, n, vec![button(false)], a);
+    }
+
+    /// #701: the arrow beside Undo lists the session's undo steps, newest first; clicking the third
+    /// row undoes three steps at once.
+    #[test]
+    fn undo_list_matches_the_session_and_undoes_up_to_the_clicked_row() {
+        let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), crate::Services::default());
+        a.run("text.insert", json!({"text": "Hello"})).unwrap();
+        a.run("select.all", json!({})).unwrap();
+        a.run("format.bold", json!({})).unwrap();
+        a.run("format.italic", json!({})).unwrap();
+        a.run("caret.docEnd", json!({})).unwrap();
+        a.run("text.insert", json!({"text": " world"})).unwrap();
+        let session: Vec<String> = a.session.undo_history().into_iter().map(str::to_string).collect();
+        assert_eq!(session, ["Typing", "Italic", "Bold", "Typing"]);
+        assert_eq!(undo_list_rows(&a), session);
+        assert_eq!(undo_list_footer(0), "Cancel");
+        assert_eq!(undo_list_footer(1), "Undo 1 Action");
+        assert_eq!(undo_list_footer(3), "Undo 3 Actions");
+
+        let (ctx, mut n) = (ctx(), 0);
+        frame(&ctx, &mut n, vec![], &mut a);
+        let arrow = ctx.read_response(undo_list_button_id()).unwrap();
+        let popup = egui::Popup::default_response_id(&arrow);
+        click(&ctx, &mut n, arrow.rect.center(), &mut a);
+        assert!(egui::Popup::is_id_open(&ctx, popup), "the arrow opens the Undo list");
+        frame(&ctx, &mut n, vec![], &mut a);
+        for i in 0..4 {
+            assert!(ctx.read_response(undo_list_row_id(i)).is_some(), "row {i} is drawn");
+        }
+        assert!(ctx.read_response(undo_list_row_id(4)).is_none(), "one row per step");
+        let third = ctx.read_response(undo_list_row_id(2)).unwrap();
+        click(&ctx, &mut n, third.rect.center(), &mut a);
+        assert_eq!(a.session.undo_history(), ["Typing"], "three steps undone in one go");
+        assert_eq!(a.session.doc.plain_text(wordcraft_doc::StoryRef::Body), "Hello");
+        frame(&ctx, &mut n, vec![], &mut a);
+        assert!(!egui::Popup::is_id_open(&ctx, popup), "the list closes");
+    }
 
     #[test]
     fn mac_title_bar_centres_and_clears_the_traffic_lights() {
