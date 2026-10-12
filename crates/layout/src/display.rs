@@ -276,8 +276,11 @@ named! {
 named! {
     /// What the markup area beside the page shows.
     BalloonMode {
-        /// Deletions, formatting and comments in balloons (drawn like `CommentsAndFormatting`
-        /// for now: revisions stay inline).
+        /// Deletions, formatting and comments in balloons; insertions stay inline. Where the
+        /// editor shows balloons, deleted body text leaves the layout (`deletions_in_balloons`)
+        /// and the editor draws a "Deleted: …" balloon at its place; elsewhere (no markup area,
+        /// PDF, and headers, footers, notes and text boxes, which get no balloons) it is drawn
+        /// inline as in `CommentsAndFormatting`.
         Revisions = "revisions",
         /// Everything inline, no markup area.
         Inline = "inline",

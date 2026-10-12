@@ -1298,6 +1298,22 @@ pub fn paint(p: &Painter, r: Rect, name: &str, c: Color32, accent: Color32) {
             }
         }
 
+        // The built-in file browser (#576): a folder, a file and the home folder.
+        "folder" => {
+            pen.frect(2.5, 4.5, 8.5, 7.0, yellow);
+            pen.frect(2.5, 6.5, 17.5, 16.0, yellow);
+            pen.closed(&[(2.5, 4.5), (8.0, 4.5), (9.5, 6.5), (17.5, 6.5), (17.5, 16.0), (2.5, 16.0)], c);
+        }
+        "file" => {
+            pen.page(4.5, 2.0, 15.5, 18.0);
+            pen.lines(7.0, 13.0, &[9.0, 12.0, 15.0]);
+        }
+        "homeFolder" => {
+            pen.closed(&[(3.0, 9.5), (10.0, 3.5), (17.0, 9.5)], c);
+            pen.closed(&[(5.0, 8.5), (5.0, 17.0), (15.0, 17.0), (15.0, 8.5)], c);
+            pen.frect(8.5, 12.0, 11.5, 17.0, a);
+        }
+
         // Outlining tab: arrows moving a paragraph between outline levels and along the outline.
         "outlinePromote" | "outlineDemote" => {
             pen.lines(9.0, 17.0, &[6.0, 10.0, 14.0]);
