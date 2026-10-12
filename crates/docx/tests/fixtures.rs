@@ -98,6 +98,29 @@ fn paras(d: &Document) -> Vec<&Paragraph> {
 }
 
 #[test]
+fn single_entry_toc_keeps_formatted_result_and_nested_page_field() {
+    let d = read_body(
+        r#"
+<w:p><w:pPr><w:pStyle w:val="TOCHeading"/></w:pPr><w:r><w:t>Contents</w:t></w:r></w:p>
+<w:p><w:pPr><w:pStyle w:val="TOC1"/></w:pPr>
+ <w:r><w:fldChar w:fldCharType="begin" w:fldLock="true"/></w:r>
+ <w:r><w:instrText> TOC \o "1-1" \h </w:instrText></w:r>
+ <w:r><w:fldChar w:fldCharType="separate"/></w:r>
+ <w:hyperlink w:anchor="_Toc1"><w:r><w:rPr><w:b/></w:rPr><w:t>Intro</w:t></w:r>
+ <w:r><w:tab/></w:r><w:fldSimple w:instr=" PAGEREF _Toc1 \h "><w:r><w:t>1</w:t></w:r></w:fldSimple></w:hyperlink>
+ <w:r><w:fldChar w:fldCharType="end"/></w:r>
+</w:p>"#,
+    );
+    let p = paras(&d);
+    assert_eq!(p[0].plain_text(), "Contents");
+    assert_eq!(p[0].objects, vec![InlineObject::Field { instr: r#"TOC \o "1-1" \h"#.into(), result: String::new(), locked: true, code: false }]);
+    assert_eq!(p[1].plain_text(), "Intro\t1");
+    assert_eq!(p[1].props_of_char(0).bold, Some(true));
+    assert_eq!(p[1].props_of_char(0).link.as_deref(), Some("#_Toc1"));
+    assert_eq!(p[1].objects, vec![InlineObject::Field { instr: r#"PAGEREF _Toc1 \h"#.into(), result: "1".into(), locked: false, code: false }]);
+}
+
+#[test]
 fn toc_complex_field_spanning_paragraphs() {
     let body = r#"
 <w:p><w:pPr><w:pStyle w:val="TOC1"/></w:pPr>
@@ -112,13 +135,13 @@ fn toc_complex_field_spanning_paragraphs() {
     let p = paras(&d);
     assert_eq!(p.len(), 5);
     assert_eq!(p[0].text, "\u{FFFC}Intro\t\u{FFFC}");
-    assert_eq!(p[0].objects[0], InlineObject::Field { instr: r#"TOC \o "1-3" \h \z \u"#.into(), result: String::new(), locked: false, code: false });
+    assert_eq!(p[0].objects[0], InlineObject::FieldStart { instr: r#"TOC \o "1-3" \h \z \u"#.into(), locked: false });
     assert_eq!(p[0].objects[1], InlineObject::Field { instr: r#"PAGEREF _Toc1 \h"#.into(), result: "1".into(), locked: false, code: false });
     assert_eq!(p[0].props_of_char(3).link.as_deref(), Some("#_Toc1"));
     assert_eq!(p[0].props.style.as_deref(), Some("TOC1"));
     assert_eq!(p[1].text, "Body\t2");
     assert_eq!(p[1].props_of_char(0).link.as_deref(), Some("#_Toc2"));
-    assert_eq!(p[2].text, "");
+    assert_eq!(p[2].objects, vec![InlineObject::FieldEnd]);
     assert_eq!(p[3].objects, vec![InlineObject::BookmarkStart { name: "_Toc1".into() }, InlineObject::BookmarkEnd { name: "_Toc1".into() }]);
     assert_eq!(p[4].plain_text(), "Page 7");
     assert_eq!(p[4].objects[0], InlineObject::Field { instr: "PAGE".into(), result: "7".into(), locked: false, code: false });
