@@ -30,6 +30,11 @@ fn system_locales_map_to_languages() {
     assert_eq!(lang_from_tag("sr-Cyrl-RS"), Some(lang("sr")));
     assert_eq!(lang_from_tag("sr-Latn-RS"), Some(lang("sr-latn")));
     assert_eq!(lang_from_tag("sr-Latn"), Some(lang("sr-latn")));
+    assert_eq!(lang_from_tag("de"), Some(lang("de")));
+    assert_eq!(lang_from_tag("de-DE"), Some(lang("de")));
+    assert_eq!(lang_from_tag("de_AT.UTF-8"), Some(lang("de")));
+    assert_eq!(lang_from_tag("de-CH"), Some(lang("de")));
+    assert_eq!(lang_from_tag("DE_de.UTF-8@euro"), Some(lang("de")));
 }
 
 #[test]
@@ -37,7 +42,8 @@ fn the_first_supported_preferred_language_wins() {
     // Windows and macOS list several preferred languages in order.
     assert_eq!(first_supported(["fr-FR", "zh-Hant-TW", "en-US"]), Some(lang("zh-hant")));
     assert_eq!(first_supported(["en-US", "ja-JP"]), Some(Lang::EN));
-    assert_eq!(first_supported(["fr-FR", "de-DE"]), None);
+    assert_eq!(first_supported(["fr-FR", "de-DE"]), Some(lang("de")));
+    assert_eq!(first_supported(["fr-FR", "nl-NL"]), None);
     assert_eq!(first_supported([]), None);
 }
 
@@ -645,4 +651,112 @@ fn bundled_interface_fonts_cover_turkish_without_system_fallbacks() {
         }
     }
     assert!(!lang("tr").uses_cjk());
+}
+
+#[test]
+fn german_locales_and_saved_preference_keep_document_content() {
+    let de = lang("de");
+    for tag in ["de", "de-DE", "de-AT", "de-CH", "DE_de.UTF-8", "de_DE.UTF-8@euro", "de-Latn-DE"] {
+        assert_eq!(lang_from_tag(tag), Some(de), "{tag}");
+    }
+    assert_eq!(first_supported(["fr-FR", "de-AT", "en-US"]), Some(de));
+    assert_eq!(normalize_pref("DE"), Some("de"));
+    assert_eq!(de.name(), "Deutsch");
+    let mut app = crate::WordApp::new(wordcraft_engine::Session::new(wordcraft_engine::sample::sample_document()), Default::default());
+    let before = serde_json::to_value(&app.session.doc).unwrap();
+    let result = app.run("ui.language", serde_json::json!({"value": "DE"})).unwrap();
+    assert_eq!(result["effective"], "de");
+    assert_eq!(app.ui.language, "de");
+    assert_eq!(serde_json::to_value(&app.session.doc).unwrap(), before);
+    let saved = serde_json::to_string(&app.ui).unwrap();
+    let restored: crate::UiState = serde_json::from_str(&saved).unwrap();
+    assert_eq!(Lang::from_pref(&restored.language), de);
+}
+
+#[test]
+fn german_covers_the_interface_catalog_and_keeps_count_labels_neutral() {
+    use std::collections::HashSet;
+    let keys = |source| parse_entries(source).0.into_iter().map(|e| e.source).collect::<HashSet<_>>();
+    let de = lang("de");
+    assert_eq!(keys(de.0.source), keys(lang("zh-hans").0.source));
+    assert_eq!(tr(de, "Home"), "Start");
+    assert_eq!(tr(de, "Save"), "Speichern");
+    assert_eq!(tr(de, "Spelling & Grammar"), "Rechtschreibung und Grammatik");
+    assert_eq!(tr(de, "unknown future label"), "unknown future label");
+    assert_eq!(fmt(tr(de, "Exported {path}"), &[("path", "draft-{words}.docx")]), "Exportiert: draft-{words}.docx");
+    // Count-neutral wording is grammatical for every count: `Wörter: 21`, `Wörter: 21; ausgewählt: 1`.
+    for count in [0, 1, 2, 11, 21, 101] {
+        let words = count.to_string();
+        assert_eq!(fmt(tr(de, "{words} words"), &[("words", &words)]), format!("Wörter: {count}"));
+        assert_eq!(fmt(tr(de, "{selected} of {words} words"), &[("selected", "1"), ("words", &words)]), format!("Wörter: {count}; ausgewählt: 1"));
+    }
+}
+
+#[test]
+fn bundled_interface_fonts_cover_german_letters() {
+    let db = wordcraft_fonts::FontDb::with_font_dirs(Vec::new());
+    for (family, style) in [("Inter", "Regular"), ("Inter", "Medium"), ("Inter", "SemiBold"), ("JetBrains Mono", "Regular")] {
+        let face = db.face(family, style);
+        assert_eq!(face.family, family, "must use the bundled interface face");
+        for ch in "ÄäÖöÜüß".chars() {
+            assert_ne!(face.glyph_for(ch), 0, "{family} {style} lacks {ch}");
+        }
+    }
+}
+
+#[test]
+fn italian_locales_and_saved_preference_keep_document_content() {
+    let it = lang("it");
+    for tag in ["it", "it-IT", "it_IT.UTF-8", "it-CH", "it_IT.UTF-8@euro"] {
+        assert_eq!(lang_from_tag(tag), Some(it), "{tag}");
+    }
+    assert_eq!(first_supported(["fr-FR", "it-IT", "en-US"]), Some(it));
+    assert_eq!(normalize_pref("IT"), Some("it"));
+    assert_eq!(it.name(), "Italiano");
+    let mut app = crate::WordApp::new(wordcraft_engine::Session::new(wordcraft_engine::sample::sample_document()), Default::default());
+    let before = serde_json::to_value(&app.session.doc).unwrap();
+    let result = app.run("ui.language", serde_json::json!({"value": "IT"})).unwrap();
+    assert_eq!(result["effective"], "it");
+    assert_eq!(app.ui.language, "it");
+    assert_eq!(serde_json::to_value(&app.session.doc).unwrap(), before);
+    let saved = serde_json::to_string(&app.ui).unwrap();
+    let restored: crate::UiState = serde_json::from_str(&saved).unwrap();
+    assert_eq!(Lang::from_pref(&restored.language), it);
+}
+
+#[test]
+fn italian_covers_the_entire_existing_interface_catalog_and_keeps_count_labels_neutral() {
+    use std::collections::HashSet;
+    let keys = |source| parse_entries(source).0.into_iter().map(|e| e.source).collect::<HashSet<_>>();
+    let it = lang("it");
+    for other in ["es", "tr", "et", "zh-hans"] {
+        assert!(keys(lang(other).0.source).is_subset(&keys(it.0.source)), "{other} has keys Italian lacks");
+    }
+    assert_eq!(tr(it, "Good morning"), "Buongiorno");
+    assert_eq!(tr(it, "Save"), "Salva");
+    assert_eq!(tr(it, "Insert"), "Inserisci");
+    assert_eq!(tr(it, "Spelling & Grammar"), "Ortografia e grammatica");
+    assert_eq!(tr(it, "unknown future label"), "unknown future label");
+    // The Review tab's group and its toggle keep different names.
+    assert_ne!(tr(it, "Changes"), tr(it, "Track Changes"));
+    // Italian nouns agree with the number, so count labels put the noun first and read right at 1.
+    for count in [0, 1, 2, 11, 21, 101] {
+        let n = count.to_string();
+        assert_eq!(fmt(tr(it, "{words} words"), &[("words", &n)]), format!("Parole: {count}"));
+        assert_eq!(fmt(tr(it, "{selected} of {words} words"), &[("selected", "1"), ("words", &n)]), format!("Parole: {count}; selezionate: 1"));
+        assert_eq!(fmt(tr(it, "{n} lines"), &[("n", &n)]), format!("Righe: {count}"));
+        assert_eq!(fmt(tr(it, "{count} items highlighted"), &[("count", &n)]), format!("Elementi evidenziati: {count}"));
+    }
+}
+
+#[test]
+fn bundled_interface_fonts_cover_italian_letters() {
+    let db = wordcraft_fonts::FontDb::with_font_dirs(Vec::new());
+    for (family, style) in [("Inter", "Regular"), ("Inter", "Medium"), ("Inter", "SemiBold"), ("JetBrains Mono", "Regular")] {
+        let face = db.face(family, style);
+        assert_eq!(face.family, family, "must use the bundled interface face");
+        for ch in "ÀàÈèÉéÌìÒòÙù".chars() {
+            assert_ne!(face.glyph_for(ch), 0, "{family} {style} lacks {ch}");
+        }
+    }
 }
