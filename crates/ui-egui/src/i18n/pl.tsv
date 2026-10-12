@@ -612,6 +612,13 @@
 	Rules	Reguły
 	Résumé	Życiorys
 	Save	Zapisz
+
+# Save conflict dialog (#813).
+	Save conflict	Konflikt zapisu
+	The file changed or is unavailable	Plik został zmieniony lub jest niedostępny
+	Your edits are still here. Save them to a different file to keep both versions.	Twoje zmiany są nadal zachowane. Zapisz je w innym pliku, aby zachować obie wersje.
+	Keep editing	Kontynuuj edycję
+	Save copy…	Zapisz kopię…
 	Save As	Zapisz jako
 	Save a copy in another format. Printing goes through a PDF you can print from any viewer.	Zapisz kopię w innym formacie. Drukowanie odbywa się przez plik PDF, który można wydrukować w dowolnej przeglądarce.
 	Save as Template	Zapisz jako szablon
@@ -2053,10 +2060,10 @@
 	{name} already exists. Choose Save again to replace it.	Plik {name} już istnieje. Wybierz ponownie Zapisz, aby go zastąpić.
 	{name} wasn't found.	Nie znaleziono: {name}.
 	“{text}” ({row}, {series}) isn't a number.	„{text}” ({row}, {series}) nie jest liczbą.
-
-# Save conflict dialog (#813).
-	Save conflict	Konflikt zapisu
-	The file changed or is unavailable	Plik został zmieniony lub jest niedostępny
-	Your edits are still here. Save them to a different file to keep both versions.	Twoje zmiany są nadal zachowane. Zapisz je w innym pliku, aby zachować obie wersje.
-	Keep editing	Kontynuuj edycję
-	Save copy…	Zapisz kopię…
+	Couldn't make WordCraft the default: {error}	Nie udało się ustawić WordCraft jako domyślnego: {error}
+	In Default apps, choose WordCraft for the document types you want it to open.	W Aplikacjach domyślnych wybierz WordCraft dla typów dokumentów, które ma otwierać.
+	Make WordCraft the default for Word documents…	Ustaw WordCraft jako domyślny dla dokumentów Word…
+	Opens .docx, .doc, .rtf and .odt files and Word templates with WordCraft from now on.	Od teraz pliki .docx, .doc, .rtf i .odt oraz szablony Word otwierają się w WordCraft.
+	Opens Settings › Default apps, where you choose WordCraft for .docx and the other document types.	Otwiera Ustawienia › Aplikacje domyślne, gdzie wybierasz WordCraft dla .docx i innych typów dokumentów.
+	To open Word documents with WordCraft by default: select one in Finder, choose File › Get Info, pick WordCraft under Open with, then click Change All.	Aby otwierać dokumenty Word domyślnie w WordCraft: zaznacz jeden w Finderze, wybierz Plik › Pokaż info, wybierz WordCraft w „Otwórz za pomocą”, a następnie kliknij „Zmień wszystkie”.
+	WordCraft is now the default app for Word documents.	WordCraft jest teraz domyślną aplikacją dla dokumentów Word.

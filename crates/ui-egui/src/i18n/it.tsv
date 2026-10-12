@@ -689,6 +689,13 @@
 	Rules	Regole
 	Résumé	Curriculum
 	Save	Salva
+
+# Save conflict dialog (#813).
+	Save conflict	Conflitto di salvataggio
+	The file changed or is unavailable	Il file è stato modificato o non è disponibile
+	Your edits are still here. Save them to a different file to keep both versions.	Le modifiche sono ancora presenti. Salvale in un altro file per conservare entrambe le versioni.
+	Keep editing	Continua a modificare
+	Save copy…	Salva copia…
 	Save As	Salva con nome
 	Save a copy in another format. Printing goes through a PDF you can print from any viewer.	Salva una copia in un altro formato. La stampa passa attraverso un PDF che puoi stampare da qualsiasi visualizzatore.
 	Save as Template	Salva come modello
@@ -2420,10 +2427,10 @@
 	✓ None	✓ Nessuno
 preview	Title	Esempio
 	Do Not Check Spelling or Grammar	Non controllare ortografia e grammatica
-
-# Save conflict dialog (#813).
-	Save conflict	Conflitto di salvataggio
-	The file changed or is unavailable	Il file è stato modificato o non è disponibile
-	Your edits are still here. Save them to a different file to keep both versions.	Le modifiche sono ancora presenti. Salvale in un altro file per conservare entrambe le versioni.
-	Keep editing	Continua a modificare
-	Save copy…	Salva copia…
+	Couldn't make WordCraft the default: {error}	Impossibile rendere WordCraft l'app predefinita: {error}
+	In Default apps, choose WordCraft for the document types you want it to open.	In App predefinite, scegli WordCraft per i tipi di documento che deve aprire.
+	Make WordCraft the default for Word documents…	Rendi WordCraft l'app predefinita per i documenti Word…
+	Opens .docx, .doc, .rtf and .odt files and Word templates with WordCraft from now on.	D'ora in poi i file .docx, .doc, .rtf e .odt e i modelli di Word si aprono con WordCraft.
+	Opens Settings › Default apps, where you choose WordCraft for .docx and the other document types.	Apre Impostazioni › App predefinite, dove scegli WordCraft per .docx e gli altri tipi di documento.
+	To open Word documents with WordCraft by default: select one in Finder, choose File › Get Info, pick WordCraft under Open with, then click Change All.	Per aprire i documenti Word con WordCraft per impostazione predefinita: selezionane uno nel Finder, scegli Archivio › Ottieni informazioni, scegli WordCraft in «Apri con», quindi fai clic su «Modifica tutto».
+	WordCraft is now the default app for Word documents.	WordCraft è ora l'app predefinita per i documenti Word.

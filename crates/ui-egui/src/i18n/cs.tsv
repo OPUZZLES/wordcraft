@@ -947,6 +947,13 @@
 	Rules	Pravidla
 	Résumé	Životopis
 	Save	Uložit
+
+# Save conflict dialog (#813).
+	Save conflict	Konflikt při ukládání
+	The file changed or is unavailable	Soubor byl změněn nebo není dostupný
+	Your edits are still here. Save them to a different file to keep both versions.	Vaše úpravy jsou stále zachované. Uložte je do jiného souboru, aby zůstaly zachovány obě verze.
+	Keep editing	Pokračovat v úpravách
+	Save copy…	Uložit kopii…
 	Save a copy in another format. Printing goes through a PDF you can print from any viewer.	Uloží kopii v jiném formátu. Tisk probíhá prostřednictvím souboru PDF, který vytisknete v libovolném prohlížeči.
 	Save As	Uložit jako
 	Save as Template	Uložit jako šablonu
@@ -2041,10 +2048,10 @@
 	Your system has animation effects turned off.	Efekty animace jsou v systému vypnuté.
 	Your system doesn't report an animation setting, so animation effects stay on.	Systém neuvádí žádné nastavení animací, proto efekty animace zůstávají zapnuté.
 	Do Not Check Spelling or Grammar	Nekontrolovat pravopis ani gramatiku
-
-# Save conflict dialog (#813).
-	Save conflict	Konflikt při ukládání
-	The file changed or is unavailable	Soubor byl změněn nebo není dostupný
-	Your edits are still here. Save them to a different file to keep both versions.	Vaše úpravy jsou stále zachované. Uložte je do jiného souboru, aby zůstaly zachovány obě verze.
-	Keep editing	Pokračovat v úpravách
-	Save copy…	Uložit kopii…
+	Couldn't make WordCraft the default: {error}	WordCraft se nepodařilo nastavit jako výchozí: {error}
+	In Default apps, choose WordCraft for the document types you want it to open.	Ve Výchozích aplikacích vyberte WordCraft pro typy dokumentů, které má otevírat.
+	Make WordCraft the default for Word documents…	Nastavit WordCraft jako výchozí pro dokumenty Word…
+	Opens .docx, .doc, .rtf and .odt files and Word templates with WordCraft from now on.	Soubory .docx, .doc, .rtf a .odt a šablony Wordu se od teď otevírají ve WordCraftu.
+	Opens Settings › Default apps, where you choose WordCraft for .docx and the other document types.	Otevře Nastavení › Výchozí aplikace, kde zvolíte WordCraft pro .docx a další typy dokumentů.
+	To open Word documents with WordCraft by default: select one in Finder, choose File › Get Info, pick WordCraft under Open with, then click Change All.	Chcete-li dokumenty Word otevírat ve WordCraftu jako výchozí: vyberte jeden ve Finderu, zvolte Soubor › Informace, v části „Otevřít v aplikaci“ vyberte WordCraft a klikněte na „Změnit vše“.
+	WordCraft is now the default app for Word documents.	WordCraft je nyní výchozí aplikací pro dokumenty Word.
