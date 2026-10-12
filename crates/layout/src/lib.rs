@@ -743,6 +743,12 @@ fn footnote_pages(doc: &Document, pages: &[Page]) -> HashMap<u32, usize> {
     m
 }
 
+/// Cell identity is independent of optional table-style formatting.
+enum BoxContext<'a> {
+    Other,
+    Cell(Option<&'a para::CellText>),
+}
+
 /// Lay out a block list into a free-standing box of `width` (no page breaks): table cells,
 /// headers, footers, notes, text boxes. Returns items relative to (0, 0) and the height. `frame`
 /// says where the box sits on its page, for floating objects positioned relative to the page or
@@ -754,13 +760,20 @@ fn layout_box(
     blocks: &Blocks,
     prefix: &[u32],
     width: f32,
-    table: Option<&para::CellText>,
+    context: BoxContext<'_>,
     depth: usize,
     frame: Option<PageFrame>,
 ) -> BoxLayout {
     // Deletions in balloons leave the body's text only: a header, note or text box keeps its own
     // inline (restored for the story around this box when it's done).
     let outer_hide = std::mem::replace(&mut ctx.hide_deleted, ctx.opts.hides_deleted(story));
+    let (table, in_cell) = match context {
+        BoxContext::Other => (None, false),
+        BoxContext::Cell(table) => (table, true),
+    };
+    // Word 16.113.3: the override applies in modes 11/12/14, but not mode 15.
+    let allow_same_style_space =
+        in_cell && ctx.doc.settings.allow_space_of_same_style_in_table && matches!(ctx.doc.settings.compat_mode, 11 | 12 | 14);
     let mut items = Vec::new();
     // Pictures behind the text go first; `behind` counts them.
     let mut behind = 0;
@@ -778,7 +791,7 @@ fn layout_box(
             Block::Para(p) => {
                 let label = ctx.next_label(p);
                 let mut pl = ctx.para_labelled(p, width, table, &[], label.clone());
-                let ctxl = pl.rp.contextual_spacing;
+                let ctxl = pl.rp.contextual_spacing && !allow_same_style_space;
                 let same = prev_style.as_ref().is_some_and(|(s, c)| *s == pl.rp.style && (*c || ctxl));
                 let before = if same && ctxl { 0.0 } else { pl.rp.space_before };
                 if same && ctxl {
@@ -1113,7 +1126,7 @@ impl NoteSeps {
 
 /// A note separator or continuation notice story (`blocks`) laid out `width` wide.
 fn sep_box(ctx: &mut Ctx, blocks: &Blocks, width: f32) -> SepBox {
-    let bl = layout_box(ctx, DECOR_STORY, blocks, &[], width, None, 0, None);
+    let bl = layout_box(ctx, DECOR_STORY, blocks, &[], width, BoxContext::Other, 0, None);
     let mut items = bl.items;
     items.extend(separator_rules(blocks, &items));
     (items, bl.height)
@@ -2005,7 +2018,7 @@ fn place_endnotes(ctx: &mut Ctx, pb: &mut PageBuilder, ids: Vec<u32>, block: usi
     for id in ids {
         let Some(part) = ctx.doc.parts.get(&id) else { continue };
         let blocks = part.blocks.clone();
-        let BoxLayout { items, height: h, .. } = layout_box(ctx, StoryRef::Part(id), &blocks, &[], pb.col_w(), None, 0, None);
+        let BoxLayout { items, height: h, .. } = layout_box(ctx, StoryRef::Part(id), &blocks, &[], pb.col_w(), BoxContext::Other, 0, None);
         // A note longer than the room left continues at a line break in the next column or on
         // a new page (Word). Each page takes at least a line, so this ends; the page cap is a
         // backstop (the rest then runs off the last page).
@@ -2063,7 +2076,7 @@ fn body_top_for(ctx: &mut Ctx, sect: &SectionProps, header: Option<u32>) -> f32 
     // Placed as `headers_footers` draws it, so page-relative floats wrap the same way.
     let frame = PageFrame { sect, origin: (sect.margin_left + sect.gutter, sect.header) };
     let track = std::mem::replace(&mut ctx.track_totals, false);
-    let h = layout_box(ctx, StoryRef::Part(id), &blocks, &[], sect.text_width(), None, 0, Some(frame)).height;
+    let h = layout_box(ctx, StoryRef::Part(id), &blocks, &[], sect.text_width(), BoxContext::Other, 0, Some(frame)).height;
     ctx.track_totals = track;
     // Word starts the body right below a header that reaches past the top margin, no gap.
     sect.margin_top.max(sect.header + h)
@@ -2076,7 +2089,7 @@ fn foot_top_for(ctx: &mut Ctx, sect: &SectionProps, footer: Option<u32>) -> f32 
     // A page total in the footer is filled in after pagination, like the header's: it doesn't
     // make the body lay out again.
     let track = std::mem::replace(&mut ctx.track_totals, false);
-    let h = layout_box(ctx, StoryRef::Part(id), &blocks, &[], sect.text_width(), None, 0, None).height;
+    let h = layout_box(ctx, StoryRef::Part(id), &blocks, &[], sect.text_width(), BoxContext::Other, 0, None).height;
     ctx.track_totals = track;
     sect.page_h - sect.footer - h
 }
@@ -2471,7 +2484,7 @@ fn place_para(ctx: &mut Ctx, pb: &mut PageBuilder, p: &Paragraph, block: usize, 
                     {
                         let blocks = part.blocks.clone();
                         let BoxLayout { items, height: h, .. } =
-                            layout_box(ctx, StoryRef::Part(*id), &blocks, &[], pb.sect.text_width(), None, 0, None);
+                            layout_box(ctx, StoryRef::Part(*id), &blocks, &[], pb.sect.text_width(), BoxContext::Other, 0, None);
                         line_notes.push(NoteBox { id: *id, items, h, cont: false });
                     }
                 }
@@ -2821,7 +2834,7 @@ fn table_notes(ctx: &mut Ctx, pb: &mut PageBuilder, items: &[Placed]) {
     for id in ids {
         let Some(part) = ctx.doc.parts.get(&id).filter(|p| p.kind == wordcraft_doc::PartKind::Footnote) else { continue };
         let blocks = part.blocks.clone();
-        let BoxLayout { items, height: h, .. } = layout_box(ctx, StoryRef::Part(id), &blocks, &[], pb.sect.text_width(), None, 0, None);
+        let BoxLayout { items, height: h, .. } = layout_box(ctx, StoryRef::Part(id), &blocks, &[], pb.sect.text_width(), BoxContext::Other, 0, None);
         pb.notes.push(NoteBox { id, items, h, cont: false });
     }
     pb.bottom -= pb.notes_h() - before;
@@ -2967,7 +2980,7 @@ fn headers_footers(ctx: &mut Ctx, pages: &mut [Page], sections: &[(usize, &Secti
         {
             let blocks = part.blocks.clone();
             let frame = PageFrame { sect, origin: (x, sect.header) };
-            let mut items = layout_box(ctx, StoryRef::Part(id), &blocks, &[], w, None, 0, Some(frame)).items;
+            let mut items = layout_box(ctx, StoryRef::Part(id), &blocks, &[], w, BoxContext::Other, 0, Some(frame)).items;
             for it in &mut items {
                 it.translate(x, sect.header);
             }
@@ -2979,9 +2992,9 @@ fn headers_footers(ctx: &mut Ctx, pages: &mut [Page], sections: &[(usize, &Secti
         {
             let blocks = part.blocks.clone();
             // The footer's height fixes where it sits, which page-relative floats need.
-            let h = layout_box(ctx, StoryRef::Part(id), &blocks, &[], w, None, 0, None).height;
+            let h = layout_box(ctx, StoryRef::Part(id), &blocks, &[], w, BoxContext::Other, 0, None).height;
             let frame = PageFrame { sect, origin: (x, sect.page_h - sect.footer - h) };
-            let mut items = layout_box(ctx, StoryRef::Part(id), &blocks, &[], w, None, 0, Some(frame)).items;
+            let mut items = layout_box(ctx, StoryRef::Part(id), &blocks, &[], w, BoxContext::Other, 0, Some(frame)).items;
             for it in &mut items {
                 it.translate(x, sect.page_h - sect.footer - h);
             }

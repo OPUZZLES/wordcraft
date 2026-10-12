@@ -8,6 +8,79 @@ fn lay(doc: &Document) -> DocLayout {
     layout(doc, &mut c, &LayoutOptions::default())
 }
 
+#[derive(Clone, Copy)]
+enum SpacingLocation {
+    Cell,
+    Body,
+    Header,
+}
+
+fn legacy_table_gap(mode: u32, allow: bool, location: SpacingLocation) -> f32 {
+    let mut d = Document::new();
+    d.settings.compat_mode = mode;
+    d.settings.allow_space_of_same_style_in_table = allow;
+    let chr = wordcraft_doc::CharProps { font: Some("Source Sans 3".into()), size: Some(12.0), ..Default::default() };
+    let mut a = wordcraft_doc::Paragraph::with_text("Alpha probe", chr.clone());
+    a.props = ParaProps {
+        space_before: Some(0.0),
+        space_after: Some(12.0),
+        line_spacing: Some(wordcraft_doc::props::LineSpacing::Exactly(24.0)),
+        contextual_spacing: Some(true),
+        ..Default::default()
+    };
+    let mut b = wordcraft_doc::Paragraph::with_text("Beta probe", chr);
+    b.props = ParaProps { space_after: Some(0.0), ..a.props.clone() };
+    let blocks = vec![wordcraft_doc::para_block(a), wordcraft_doc::para_block(b)];
+    match location {
+        SpacingLocation::Cell => {
+            let mut table = Table::new(1, 1, 468.0);
+            // Cell identity must not depend on whether table-style formatting exists.
+            table.props.style = None;
+            table.props.cell_margins = Some([0.0; 4]);
+            table.rows[0].cells[0].blocks = blocks;
+            d.body = vec![std::sync::Arc::new(wordcraft_doc::Block::Table(table))];
+        }
+        SpacingLocation::Body => d.body = blocks,
+        SpacingLocation::Header => {
+            let id = d.add_part(wordcraft_doc::PartKind::Header, blocks);
+            d.last_section.headers.default = Some(id);
+        }
+    }
+    let l = lay(&d);
+    let items = if matches!(location, SpacingLocation::Header) { &l.pages[0].header } else { &l.pages[0].items };
+    let baselines: Vec<_> = items
+        .iter()
+        .filter_map(|i| match i {
+            Placed::Lines { para, y, .. } => Some(y + para.lines[0].baseline),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(baselines.len(), 2);
+    baselines[1] - baselines[0] - 24.0
+}
+
+#[test]
+fn legacy_table_contextual_spacing_flag_keeps_after_space() {
+    // Original Word for Mac 16.113.3 probe: after 12 pt, before 0 pt, both contextual.
+    // Zero before-space keeps the compatibility rule independent of ordinary overlap.
+    for mode in [11, 12, 14] {
+        let gap = legacy_table_gap(mode, true, SpacingLocation::Cell);
+        assert!((gap - 12.0).abs() < 0.01, "mode={mode}: gap={gap}, expected 12 pt");
+    }
+}
+
+#[test]
+fn legacy_table_contextual_spacing_flag_is_scoped_to_cells_and_legacy_mode() {
+    for (mode, allow) in [(11, false), (12, false), (14, false), (15, false), (15, true)] {
+        assert!(legacy_table_gap(mode, allow, SpacingLocation::Cell).abs() < 0.01);
+    }
+    for mode in [14, 15] {
+        for location in [SpacingLocation::Body, SpacingLocation::Header] {
+            assert!(legacy_table_gap(mode, true, location).abs() < 0.01);
+        }
+    }
+}
+
 fn lines_of(l: &DocLayout) -> usize {
     l.pages.iter().flat_map(|p| p.items.iter()).map(|it| if let Placed::Lines { l0, l1, .. } = it { l1 - l0 } else { 0 }).sum()
 }

@@ -439,6 +439,9 @@ pub struct Settings {
     /// 2013 and later, which places a table's border at the margin rather than its text and lets
     /// justified lines shrink their spaces to fit more text.
     pub compat_mode: u32,
+    /// Keep contextual paragraph spacing inside legacy table cells (`allowSpaceOfSameStyleInTable`).
+    /// Word ignores the layout override in compatibility mode 15, but the flag still round-trips.
+    pub allow_space_of_same_style_in_table: bool,
     /// Drawing grid spacing in points, across and down (View › Gridlines); ECMA-376's default is 1/8 inch.
     pub grid_h: f32,
     pub grid_v: f32,
@@ -526,6 +529,7 @@ impl Default for Settings {
             protect_formatting: false,
             protect_hash: Vec::new(),
             compat_mode: COMPAT_MODE_CURRENT,
+            allow_space_of_same_style_in_table: false,
             grid_h: DEFAULT_GRID,
             grid_v: DEFAULT_GRID,
             math: None,

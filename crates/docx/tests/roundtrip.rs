@@ -1131,6 +1131,28 @@ fn rotated_drawing_canvas_round_trips() {
 }
 
 #[test]
+fn table_contextual_spacing_compatibility_flag_round_trips() {
+    for mode in [11, 12, 14, 15] {
+        for allow in [false, true] {
+            let mut d = Document::new();
+            d.settings.compat_mode = mode;
+            d.settings.allow_space_of_same_style_in_table = allow;
+            let r = rt(&d);
+            assert_eq!(r.settings.allow_space_of_same_style_in_table, allow);
+            assert_eq!(r.settings.compat_mode, mode);
+            if allow {
+                let bytes = wordcraft_docx::write(&d).unwrap();
+                let mut zip = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
+                let mut xml = String::new();
+                std::io::Read::read_to_string(&mut zip.by_name("word/settings.xml").unwrap(), &mut xml).unwrap();
+                // CT_Compat requires the boolean option before compatSetting.
+                assert!(xml.find("<w:allowSpaceOfSameStyleInTable").unwrap() < xml.find("<w:compatSetting").unwrap());
+            }
+        }
+    }
+}
+
+#[test]
 fn compatibility_mode_round_trips() {
     // New documents are Word 2013+ documents; an older file keeps its mode, so saving it doesn't
     // change how Word lays it out.

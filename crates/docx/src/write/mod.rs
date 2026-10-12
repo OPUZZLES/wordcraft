@@ -961,6 +961,9 @@ fn settings_xml(doc: &Document, footnotes: bool, endnotes: bool, template_rel: O
         w.close(tag);
     }
     w.open("w:compat", &[]);
+    if s.allow_space_of_same_style_in_table {
+        w.empty("w:allowSpaceOfSameStyleInTable", &[]);
+    }
     let mode = doc.settings.compat_mode.clamp(11, 15).to_string();
     w.empty("w:compatSetting", &[("w:name", "compatibilityMode"), ("w:uri", "http://schemas.microsoft.com/office/word"), ("w:val", &mode)]);
     w.close("w:compat");

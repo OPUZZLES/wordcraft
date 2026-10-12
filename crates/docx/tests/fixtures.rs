@@ -591,6 +591,20 @@ fn with_settings(settings: Option<&str>) -> Document {
 }
 
 #[test]
+fn table_contextual_spacing_compatibility_flag_is_read() {
+    assert!(!with_settings(None).settings.allow_space_of_same_style_in_table);
+    for (flag, expected) in [
+        ("", false),
+        (r#"<w:allowSpaceOfSameStyleInTable w:val="0"/>"#, false),
+        (r#"<w:allowSpaceOfSameStyleInTable/>"#, true),
+        (r#"<w:allowSpaceOfSameStyleInTable w:val="1"/>"#, true),
+    ] {
+        let settings = format!("<w:compat>{flag}</w:compat>");
+        assert_eq!(with_settings(Some(&settings)).settings.allow_space_of_same_style_in_table, expected, "{flag}");
+    }
+}
+
+#[test]
 fn compatibility_mode_is_read_and_defaults_to_word_2007() {
     let compat = |v: &str| {
         format!(r#"<w:compat><w:compatSetting w:name="compatibilityMode" w:uri="http://schemas.microsoft.com/office/word" w:val="{v}"/></w:compat>"#)
