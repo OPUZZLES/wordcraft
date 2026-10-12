@@ -303,10 +303,10 @@ pub struct CharProps {
     /// inherit, then `font`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub font_ea: Option<String>,
-    /// Complex-script size, points (`w:szCs`). `None` = the same as `size` (see [`CharProps::overlay`]).
+    /// Complex-script size, points (`w:szCs`). `None` leaves the inherited value unchanged.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub size_cs: Option<f32>,
-    /// Complex-script bold / italic (`w:bCs`, `w:iCs`). `None` = the same as `bold` / `italic`.
+    /// Complex-script bold / italic (`w:bCs`, `w:iCs`). `None` leaves the inherited value unchanged.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bold_cs: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -390,26 +390,14 @@ impl CharProps {
 
     /// Apply every `Some` field of `patch` on top of `self`.
     ///
-    /// Size, bold and italic come in pairs with their complex-script values (Word's own buttons
-    /// set both): a patch that sets the plain value and leaves the complex-script one `None` sets
-    /// both, so a run's size or bold isn't overridden for its Persian/Arabic characters by an
-    /// inherited `w:szCs` / `w:bCs`. The complex-script font inherits on its own (Word often
-    /// sets only the Latin font and lets complex-script text keep the style's).
+    /// Plain and complex-script properties inherit independently. Commands that intend to
+    /// format both scripts must set both values explicitly.
     pub fn overlay(&mut self, patch: &CharProps) {
         overlay_fields!(self, patch; style, font, size, bold, italic, underline, underline_color, strike, double_strike, color, highlight,
             shading, border, vert_align, caps, small_caps, hidden, spacing, scale, position, kern, outline, shadow, emboss, engrave, lang, no_proof, rtl,
             cs, font_cs, font_ea, size_cs, bold_cs, italic_cs, lang_bidi, link, ins, del, fmt_change);
         if let Some(p) = &patch.text_effects {
             self.text_effects.get_or_insert_with(Default::default).overlay(p);
-        }
-        if patch.size.is_some() && patch.size_cs.is_none() {
-            self.size_cs = None;
-        }
-        if patch.bold.is_some() && patch.bold_cs.is_none() {
-            self.bold_cs = None;
-        }
-        if patch.italic.is_some() && patch.italic_cs.is_none() {
-            self.italic_cs = None;
         }
     }
     pub fn overlaid(mut self, patch: &CharProps) -> CharProps {
@@ -638,6 +626,33 @@ pub struct NumRef {
     pub level: u8,
 }
 
+/// A text frame's placement (`w:framePr`, ECMA-376 §17.3.1.11), in points. Offsets apply when
+/// the matching alignment is unset; anchors and the wrap keep OOXML's names.
+#[derive(Clone, Debug, PartialEq, Default, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct TextFrame {
+    /// Width; `None` fits the text.
+    pub w: Option<f32>,
+    /// Height, with `h_exact` exact rather than at least; `None` fits the text.
+    pub h: Option<f32>,
+    pub h_exact: bool,
+    pub x: f32,
+    pub y: f32,
+    /// `left`, `center`, `right`, `inside`, `outside`.
+    pub x_align: Option<String>,
+    /// `top`, `center`, `bottom`, `inside`, `outside` (`inline` is no alignment).
+    pub y_align: Option<String>,
+    /// `text` (the column), `margin` or `page`.
+    pub h_anchor: String,
+    /// `text` (the paragraph), `margin` or `page`.
+    pub v_anchor: String,
+    /// `around`, `auto`, `notBeside`, `none`, `tight` or `through`.
+    pub wrap: String,
+    /// Distance from the text left and right, and above and below.
+    pub h_space: f32,
+    pub v_space: f32,
+}
+
 /// Paragraph formatting. `None` = inherit.
 #[derive(Clone, Debug, PartialEq, Default, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
@@ -671,6 +686,13 @@ pub struct ParaProps {
     pub space_before: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub space_after: Option<f32>,
+    /// HTML-style automatic space before (`w:beforeAutospacing`): 14 pt, none at the top of the
+    /// document or of a table cell, and collapsing with the space after the paragraph above.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub space_before_auto: Option<bool>,
+    /// HTML-style automatic space after (`w:afterAutospacing`): 14 pt, none at the end of a cell.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub space_after_auto: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub line_spacing: Option<LineSpacing>,
     /// Ignore space before/after between paragraphs of the same style.
@@ -709,6 +731,10 @@ pub struct ParaProps {
     /// Drop cap: lines to drop (0 = none) — applies to the first character(s).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub drop_cap: Option<u8>,
+    /// A text frame (`w:framePr` other than a drop cap): the paragraph is placed apart from the
+    /// text, which may wrap around it — a footer's page number in a frame, for instance.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub frame: Option<TextFrame>,
     /// Asian typography (`w:kinsoku`): East Asian line-breaking rules — no line starts with
     /// closing punctuation such as 、。」 or ends with opening punctuation such as 「（.
     /// Unset = on.
@@ -743,9 +769,9 @@ pub struct ParaProps {
 
 impl ParaProps {
     pub fn overlay(&mut self, patch: &ParaProps) {
-        overlay_fields!(self, patch; style, align, indent_left, indent_right, indent_first, indent_left_chars, indent_right_chars, indent_first_chars, space_before, space_after, line_spacing,
+        overlay_fields!(self, patch; style, align, indent_left, indent_right, indent_first, indent_left_chars, indent_right_chars, indent_first_chars, space_before, space_after, space_before_auto, space_after_auto, line_spacing,
             contextual_spacing, mirror_indents, keep_next, keep_lines, page_break_before, widow_control, outline_level, numbering, tabs, shading, borders,
-            suppress_hyphens, suppress_line_numbers, bidi, drop_cap, kinsoku, word_wrap, overflow_punct, top_line_punct, auto_space_de, auto_space_dn,
+            suppress_hyphens, suppress_line_numbers, bidi, drop_cap, frame, kinsoku, word_wrap, overflow_punct, top_line_punct, auto_space_de, auto_space_dn,
             snap_to_grid);
     }
     pub fn overlaid(mut self, patch: &ParaProps) -> ParaProps {
@@ -1025,6 +1051,10 @@ pub struct CellProps {
     /// Which way the cell's text runs.
     pub text_direction: TextDirection,
     pub no_wrap: bool,
+    /// The cell's last paragraph takes no room when it is empty (`w:hideMark`): a row of such
+    /// empty cells shrinks to its borders.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub hide_mark: bool,
     /// Tracked formatting change (`w:tcPrChange`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fmt_change: Option<Box<PropChange<CellProps>>>,

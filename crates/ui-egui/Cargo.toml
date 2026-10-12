@@ -22,8 +22,9 @@ serde_json = { workspace = true }
 log = { workspace = true }
 # Pictures pasted from the system clipboard arrive as pixels and are inserted as PNG (#45).
 image = { workspace = true }
-# The system's preferred interface languages (#8). Native: OS APIs; wasm: none (English).
-sys-locale = "0.3"
+# The system's preferred interface languages (#8) and region (#838). Native: OS APIs; wasm:
+# the browser's languages (`js`).
+sys-locale = { version = "0.3", features = ["js"] }
 
 # Linux only, where winit reports no system theme: the desktop portal's light/dark answer (see
 # `desktop_theme.rs`). Already in the tree, with these features, through egui's own accessibility

@@ -119,9 +119,10 @@ fn new(s: &mut Session, v: &Value) -> CmdResult {
         "letter" => crate::sample::letter(),
         "resume" => crate::sample::resume(),
         "report" => crate::sample::report(),
+        // The Normal template: the region's paper (#838), written in the editing language (the
+        // templates' text is English).
         _ => {
-            // A blank document is written in the editing language (the templates' text is English).
-            let mut d = Document::new();
+            let mut d = s.blank_document();
             if let Some(lang) = &s.editing_lang {
                 d.styles.default_chr.lang = Some(lang.clone());
             }
@@ -273,8 +274,7 @@ fn export_png(s: &mut Session, v: &Value) -> CmdResult {
     let pg = l.pages.get(page).ok_or_else(|| CmdError::Params(format!("no page {}", page + 1)))?;
     let img = wordcraft_render::render_page(&s.doc, pg, scale, &Default::default());
     let png = img.to_png();
-    #[cfg(not(target_arch = "wasm32"))]
-    std::fs::write(path, &png).map_err(|e| CmdError::Failed(format!("{path}: {e}")))?;
+    crate::io::write_file(path, &png).map_err(CmdError::Failed)?;
     Ok(json!({"path": path, "width": img.width, "height": img.height, "bytes": png.len()}))
 }
 

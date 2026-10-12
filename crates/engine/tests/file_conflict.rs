@@ -34,6 +34,56 @@ fn original(d: &Scratch) -> PathBuf {
     io::save_path(&p, &Document::from_text("Original A")).unwrap();
     p
 }
+
+#[test]
+fn versioned_open_keeps_the_automation_read_boundary() {
+    use wordcraft_engine::file_access::{AutomationRoots, confine};
+    let d = Scratch::new();
+    let path = original(&d);
+    let input = d.path("input");
+    std::fs::create_dir(&input).unwrap();
+    let allowed = input.join("allowed.docx");
+    std::fs::copy(&path, &allowed).unwrap();
+    let roots = AutomationRoots::new(Some(&input), None).unwrap().unwrap();
+    let mut s = Session::new(Document::from_text("Unsaved draft"));
+    confine(Some(&roots), || {
+        let result = s.run("file.open", &json!({"path": path}));
+        assert!(result.is_err_and(|e| e.to_string().contains("outside the read root")));
+        assert_eq!(s.doc.plain_text(StoryRef::Body), "Unsaved draft");
+        assert!(s.path.is_none());
+        s.run("file.open", &json!({"path": allowed})).unwrap();
+        assert_eq!(s.doc.plain_text(StoryRef::Body), "Original A");
+    });
+}
+
+#[test]
+fn versioned_save_keeps_the_automation_write_boundary() {
+    use wordcraft_engine::file_access::{AutomationRoots, confine};
+    let d = Scratch::new();
+    let path = original(&d);
+    let before = std::fs::read(&path).unwrap();
+    let mut s = open(&path);
+    let core = s.doc.core.clone();
+    let output = d.path("output");
+    std::fs::create_dir(&output).unwrap();
+    let copy = output.join("copy.docx");
+    let roots = AutomationRoots::new(None, Some(&output)).unwrap().unwrap();
+    confine(Some(&roots), || {
+        let result = s.run("file.save", &json!({}));
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        assert!(result.is_err_and(|e| e.to_string().contains("outside the write root")));
+        assert!(s.dirty);
+        assert_eq!(s.path.as_ref(), Some(&path));
+        assert_eq!(s.doc.core, core);
+        assert_eq!(s.doc.plain_text(StoryRef::Body), "Local edit");
+        s.run("file.saveAs", &json!({"path": copy})).unwrap();
+        assert!(!s.dirty);
+        assert_eq!(s.path.as_ref(), Some(&copy));
+    });
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+    assert_eq!(io::open_path(&copy).unwrap().plain_text(StoryRef::Body), "Local edit");
+}
+
 fn conflict(s: &mut Session, path: &Path, expected: Option<&[u8]>) {
     let core = s.doc.core.clone();
     let password = s.password.clone();
