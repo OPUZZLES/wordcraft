@@ -54,6 +54,8 @@ pub(crate) enum AfterPick {
     Picture,
     /// Save the document there, then carry on.
     SaveAs(AfterSave),
+    /// A conflict copy belongs to the document that opened its picker.
+    SaveCopy { document: u64 },
     /// Save a copy there in this format (`pdf`, `docx`, `png`…).
     Export { ext: String },
     /// Write the PDF of these print settings there (File › Print › Save these pages as PDF).
@@ -230,6 +232,13 @@ impl WordApp {
                     self.status(crate::i18n::fmt(tl!("Exported {path}"), &[("path", &path)]));
                 }
                 r
+            }
+            AfterPick::SaveCopy { document } => {
+                if document != self.session.document_id() {
+                    return Err("the document for this copy has been replaced".into());
+                }
+                let Some(path) = picked else { return Ok(json!({"saved": false})) };
+                self.run("file.saveAs", json!({"path": path}))
             }
             AfterPick::SaveAs(after) => {
                 let saved = picked.is_some_and(|path| {

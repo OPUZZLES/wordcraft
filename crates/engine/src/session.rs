@@ -231,6 +231,9 @@ pub struct Session {
     /// Formatting picked with a collapsed caret, applied to the next typed text.
     pub pending: Option<CharProps>,
     pub path: Option<std::path::PathBuf>,
+    /// Identity of this session's native file; never part of document JSON or undo history.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) file_version: Option<crate::io::FileVersion>,
     pub dirty: bool,
     pub clipboard: Option<Fragment>,
     /// A tracked cut the next paste can turn into a move (see `cmd::moves`).
@@ -421,6 +424,8 @@ impl Session {
             view: ViewState::default(),
             pending: None,
             path: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            file_version: None,
             dirty: false,
             clipboard: None,
             pending_move: None,
@@ -644,12 +649,23 @@ impl Session {
     /// when it has none) the way Word does on every save. `file.save` calls it, and so does any
     /// front end that writes the bytes itself (the web build's download, #262).
     pub fn stamp_save(&mut self) {
-        let core = &mut self.doc.core;
+        Self::stamp_core(&mut self.doc, &self.author);
+    }
+
+    /// Stamping a candidate keeps failed saves from changing the live document's metadata.
+    pub(crate) fn document_for_save(&self) -> Document {
+        let mut doc = self.doc.clone();
+        Self::stamp_core(&mut doc, &self.author);
+        doc
+    }
+
+    fn stamp_core(doc: &mut Document, author: &str) {
+        let core = &mut doc.core;
         core.modified = crate::cmd::now_iso();
         if core.created.is_empty() {
             core.created = core.modified.clone();
         }
-        core.last_modified_by = self.author.clone();
+        core.last_modified_by = author.to_string();
         core.revision = core.revision.saturating_add(1);
     }
     /// Close an open typing group (caret moved, other command).
@@ -720,6 +736,10 @@ impl Session {
         self.doc = doc;
         self.doc.ensure_nonempty();
         self.password = None;
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.file_version = None;
+        }
         self.sel = Selection::caret(self.doc.start_of(StoryRef::Body));
         self.pending = None;
         self.also_selected.clear();
@@ -757,6 +777,8 @@ impl Session {
             view: _,
             pending: _,
             path: _,
+            #[cfg(not(target_arch = "wasm32"))]
+                file_version: _,
             dirty,
             clipboard: _,
             // Like the clipboard: what the next paste can make a move of.

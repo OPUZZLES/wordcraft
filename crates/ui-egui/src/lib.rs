@@ -343,6 +343,8 @@ pub struct WordApp {
     /// there. A file that was merely opened isn't rewritten until the user saves it: saving drops
     /// whatever WordCraft can't represent (content controls, charts, macros…).
     autosave_path: Option<std::path::PathBuf>,
+    /// Typed native error kept long enough for the user command to offer Save Copy.
+    save_conflict: Option<wordcraft_engine::io::FileConflict>,
     /// The file dialog the host is showing, and what its answer is for ([`file_dialogs`]).
     file_dialog: Option<file_dialogs::PendingDialog>,
     /// The built-in file browser, when it is open, and the folder it showed last (#576).
@@ -416,6 +418,7 @@ impl WordApp {
             read_aloud_at: None,
             read_aloud_error: None,
             autosave_path: None,
+            save_conflict: None,
             change_picture_target: None,
             recipient_list_pending: false,
             font_generation: wordcraft_fonts::FontDb::global().generation(),
@@ -605,12 +608,20 @@ impl WordApp {
             return Ok(json!({"downloaded": name, "bytes": bytes.len()}));
         }
         let document = self.session.document_id();
-        let r = self.session.run(id, &params).map_err(|e| e.to_string());
+        let result = self.session.run(id, &params);
+        self.save_conflict = match &result {
+            Err(wordcraft_engine::CmdError::FileConflict(conflict)) => Some(conflict.clone()),
+            _ => None,
+        };
+        if self.save_conflict.is_some() {
+            self.autosave_path = None;
+        }
+        let r = result.map_err(|e| e.to_string());
         // When the document has been replaced (not when Open only showed its picker), a pending
         // "Save changes?" and AutoSave's go-ahead were both about the old one.
         if self.session.document_id() != document {
             self.autosave_path = None;
-            if matches!(self.dialog, Some(dialogs::Dialog::SaveChanges { .. })) {
+            if matches!(self.dialog, Some(dialogs::Dialog::SaveChanges { .. } | dialogs::Dialog::SaveConflict { .. })) {
                 self.dialog = None;
             }
         }
@@ -704,6 +715,9 @@ impl WordApp {
     pub(crate) fn execute_user(&mut self, id: &str, params: Value) -> Result<Value, String> {
         let retry = (id == "file.open").then(|| params.clone());
         let r = self.execute(id, params);
+        if r.is_err() {
+            self.show_save_conflict();
+        }
         if let (Err(e), Some(params)) = (&r, retry)
             && wordcraft_engine::io::needs_password(e)
         {
@@ -715,6 +729,40 @@ impl WordApp {
         r
     }
 
+    fn show_save_conflict(&mut self) {
+        if let Some(conflict) = self.save_conflict.take() {
+            let name = conflict.path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| conflict.path.display().to_string());
+            self.dialog = Some(dialogs::Dialog::SaveConflict { name, document: self.session.document_id() });
+        }
+    }
+
+    fn answer_save_conflict(&mut self, answer: &str) -> Result<Value, String> {
+        if !matches!(answer, "copy" | "cancel") {
+            return Err("`answer` must be copy or cancel".into());
+        }
+        let Some(dialogs::Dialog::SaveConflict { document, .. }) = self.dialog.as_ref() else {
+            return Err("no save conflict dialog is open".into());
+        };
+        let document = *document;
+        if document != self.session.document_id() {
+            self.dialog = None;
+            return Err("the document has been replaced".into());
+        }
+        self.dialog = None;
+        if answer == "cancel" {
+            return Ok(json!({"saved": false}));
+        }
+        let name = self.default_save_name();
+        let path = std::path::Path::new(&name);
+        let stem = path.file_stem().map(|s| s.to_string_lossy()).unwrap_or_default();
+        let ext = path.extension().map(|s| s.to_string_lossy()).unwrap_or_default();
+        let name = format!("{stem} copy.{ext}");
+        match self.ask_file(file_dialogs::FileDialogRequest::Save { name }, file_dialogs::AfterPick::SaveCopy { document }) {
+            file_dialogs::Asked::Done(r) => r,
+            _ => Ok(json!({"pending": "saveCopy"})),
+        }
+    }
+
     /// Save before New/Open/Close (and the mailings that replace the document): true once the
     /// document is safely written. A save in a format that doesn't keep everything (a page
     /// image, plain text) writes a copy and leaves the document unsaved, so it doesn't count:
@@ -724,6 +772,7 @@ impl WordApp {
             Ok(v) => v.get("saved").and_then(Value::as_bool) == Some(true) || v.get("downloaded").is_some(),
             Err(_) => false,
         };
+        self.show_save_conflict();
         self.safely_saved(saved)
     }
 
@@ -935,6 +984,7 @@ impl WordApp {
                 let lang = i18n::Lang::from_pref(&self.ui.language);
                 json!({"language": self.ui.language, "effective": lang.code(), "available": i18n::Lang::all().map(|l| json!({"code": l.code(), "name": l.name()})).collect::<Vec<_>>()})
             }
+            "ui.saveConflict" => return Some(self.answer_save_conflict(s("answer").unwrap_or(""))),
             "ui.saveChanges" => {
                 let Some(choice) = s("answer").and_then(SaveChoice::parse) else {
                     return Some(Err("`answer` must be save, dontSave or cancel".into()));
@@ -1250,6 +1300,10 @@ impl WordApp {
             if let Err(e) = self.session.run("file.save", &json!({})) {
                 log::warn!("AutoSave failed: {e}");
                 self.autosave_path = None;
+                if let wordcraft_engine::CmdError::FileConflict(conflict) = &e {
+                    self.save_conflict = Some(conflict.clone());
+                    self.show_save_conflict();
+                }
                 self.status(i18n::fmt(tl!("AutoSave failed: {error}. Save the document to turn AutoSave back on."), &[("error", &e.to_string())]));
             }
         }
@@ -3431,3 +3485,6 @@ mod tests {
         assert_eq!(v["result"]["height"], 1, "{v}");
     }
 }
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod tests_file_conflict;

@@ -6,6 +6,11 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 pub(super) fn write(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    prepare(path, bytes)?.commit(path)
+}
+
+/// A completed sibling replacement, still owned until its destination is checked and committed.
+pub(super) fn prepare(path: &Path, bytes: &[u8]) -> io::Result<Temporary> {
     let permissions = match fs::metadata(path) {
         Ok(meta) if meta.is_file() => Some(meta.permissions()),
         Ok(_) => None,
@@ -15,24 +20,28 @@ pub(super) fn write(path: &Path, bytes: &[u8]) -> io::Result<()> {
     // A new document gets the usual mode (0666 less the umask); a replaced one keeps its own,
     // and its temporary file stays private until that mode is applied.
     let private = permissions.is_some();
-    replace_with(path, private, |file| {
+    let mut temp = Temporary::create(path, private)?;
+    {
+        let file = temp.file()?;
         file.write_all(bytes)?;
         if let Some(permissions) = permissions {
             file.set_permissions(permissions)?;
         }
         // Synchronize the prepared file before replacing the destination. Directory durability
         // and network-filesystem/power-loss guarantees are outside this operation's contract.
-        file.sync_all()
-    })
+        file.sync_all()?;
+    }
+    Ok(temp)
 }
 
+#[cfg(test)]
 fn replace_with(path: &Path, private: bool, prepare: impl FnOnce(&mut File) -> io::Result<()>) -> io::Result<()> {
     let mut temp = Temporary::create(path, private)?;
     prepare(temp.file()?)?;
     temp.commit(path)
 }
 
-struct Temporary {
+pub(super) struct Temporary {
     path: PathBuf,
     file: Option<File>,
     committed: bool,
@@ -72,7 +81,7 @@ impl Temporary {
         self.file.as_mut().ok_or_else(|| io::Error::other("save temporary file is closed"))
     }
 
-    fn commit(mut self, destination: &Path) -> io::Result<()> {
+    pub(super) fn commit(mut self, destination: &Path) -> io::Result<()> {
         // Close before replacement, including on Windows.
         drop(self.file.take());
         fs::rename(&self.path, destination)?;

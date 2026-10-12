@@ -2,7 +2,7 @@
 
 **Stage: alpha** · next: beta, ~15 points (60% → 75% ready for real work) and ~150–230 h away
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-11 · **Change:** trivial (table borders and the resize handle drag on the page, #217; previously trivial: formatting revisions landed, #41; previously trivial: Draw tab ink, #307, and Draw Table and Eraser, #303, landed: catalog 402/434; previously minor: readiness table with hours per audience; full number back to the additive weighted sum, 60%; mainstream and essentials numbers added; alpha gate checked; previously major: full re-measure against Word for Mac 16.113.4; restructured to the craftrules progress-docs standard) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-12 · **Change:** trivial (native save conflict protection after safe-save landed; readiness unchanged; previously trivial: table borders and the resize handle drag on the page, #217; previously trivial: formatting revisions landed, #41; previously trivial: Draw tab ink, #307, and Draw Table and Eraser, #303, landed: catalog 402/434; previously minor: readiness table with hours per audience; full number back to the additive weighted sum, 60%; mainstream and essentials numbers added; alpha gate checked; previously major: full re-measure against Word for Mac 16.113.4; restructured to the craftrules progress-docs standard) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
 
 WordCraft aims for complete parity with Microsoft Word, then goes further on speed, openness and
 agent control. This page is the summary; the assessment is
@@ -138,6 +138,7 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 | 2026-10-11 | Linux/BSD: Open, Save As, Export and Insert Picture work without a file chooser portal or zenity (labwc, sway…): WordCraft shows its own file browser and says how to get the system dialog; File › Open › Browse in WordCraft… is always there (#576) |
 | 2026-10-11 | Every measurement follows File › Options › Advanced › Measurement units (#755): the Line Numbers "From text" distance and the Hyphenation zone, still fixed in inches after #485, now convert like every other dialog |
 | 2026-10-11 | Review › Track Changes Options › Show revisions in balloons: tracked deletions in the body leave the text for "Deleted: …" balloons in the margin, joined to where they were (the option was saved but drew nothing new before) |
+| 2026-10-11 | Native save conflicts: content checks protect externally changed or deleted files; keep local edits and offer Save Copy; applies to explicit Save and idle AutoSave. No atomic multi-writer or network-filesystem guarantee |
 | 2026-10-11 | Security review fixes: `ui.render`/`ui.screenshot` without a `path` (and the MCP bridge's `render_page`/`screenshot`) return the PNG in the reply instead of writing a fixed name into the shared temporary folder; exported HTML/Markdown write `href` only for web, mail, bookmark and relative links, never `javascript:` and other schemes (one allow-list in `wordcraft_doc::link`) |
 | 2026-10-11 | Design tab: the style set gallery gets a box and gaps of its own, so it no longer runs into Colors and Fonts (#638) |
 | 2026-10-11 | File › Print: page preview, page range (all, current, selected, custom 1-3,5), odd/even, copies and collate go into the printed PDF (`file.printPdf`, `ui.print` params); printer, duplex and pages per sheet are still the system dialog's (#641, stage 1) |
@@ -208,6 +209,7 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 | 2026-10-11 | trivial | Progress log: tables resize with the mouse (#217) |
 | 2026-10-11 | trivial | Progress log: Animation effects setting |
 | 2026-10-11 | trivial | Progress log: built-in file browser when the system file dialog is unavailable (#576) |
+| 2026-10-11 | trivial | Native saves refuse pre-existing external changes without clearing edits; synthetic macOS checks, explicit race/platform limits; readiness unchanged |
 | 2026-10-11 | trivial | Progress log: security review fixes (temp files, exported link schemes) |
 | 2026-10-11 | trivial | Progress log: Find and Replace special characters and wildcards (#543) |
 | 2026-10-11 | trivial | Progress log: Windows DX12 shaders compiled with FXC (#603) |

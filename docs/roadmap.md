@@ -1,6 +1,6 @@
 # WordCraft roadmap: milestones and what's next
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-11 · **Change:** trivial (Draw: Lasso Select, Add Pen, Ink to Shape and Ink Replay landed, #395; previously trivial: M7: formatting revisions landed, #41; previously trivial: M5: Draw Table and Eraser landed, #303; previously minor: beta distance restated: ~15 points, ~150–230 h; previously: alpha gate checked: six core workflows pass; previously major: milestones moved here from ROADMAP.md; Current focus set from the re-measured gaps) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-12 · **Change:** trivial (native save conflict protection; refreshed main and #621; readiness unchanged; previously trivial: Draw: Lasso Select, Add Pen, Ink to Shape and Ink Replay landed, #395; previously trivial: M7: formatting revisions landed, #41; previously trivial: M5: Draw Table and Eraser landed, #303; previously minor: beta distance restated: ~15 points, ~150–230 h; previously: alpha gate checked: six core workflows pass; previously major: milestones moved here from ROADMAP.md; Current focus set from the re-measured gaps) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
 
 Forward-looking plan. The summary is [`ROADMAP.md`](../ROADMAP.md); the ranked work list is
 [`gaps.md`](gaps.md); the numbers are in [`target-app-parity.md`](target-app-parity.md). Hours are
@@ -17,7 +17,8 @@ Opus 5.5 agent wall-clock.
 3. **Preserve what we can't render** (gap #2, 10–15 h): charts, SmartArt, OLE, ink, group shapes
    survive a round trip and show their fallback pictures.
 4. **Stability sweep** (gap #3, 20–30 h): the open crash, hang and write-failure issues, plus an
-   autosave/recovery soak test.
+   autosave/recovery soak test. Native saves now refuse pre-existing external changes;
+   multi-writer atomicity, network filesystems and cross-platform runtime remain to qualify.
 5. **Pagination fidelity** (gap #4, 30–50 h): column balancing, footnote continuation, compat
    options, a local page-by-page comparison harness; an owner decision on an Aptos-metric font.
 6. **Formatting revisions and content controls** (gap #5, 12–18 h), **native printing** (gap #6,
@@ -72,6 +73,7 @@ languages, screen-reader access, ecosystem decisions (VBA, add-ins, cloud), an i
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-11 | trivial | Native saves refuse pre-existing external changes without clearing edits; synthetic macOS checks, explicit race/platform limits; readiness unchanged |
 | 2026-10-11 | trivial | M3: icons landed (#309) |
 | 2026-10-11 | trivial | M11: contour (Tight/Through) wrap done (#354) |
 | 2026-10-11 | trivial | M6: the eight missing bibliography styles landed (#383) |

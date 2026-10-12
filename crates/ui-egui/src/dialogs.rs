@@ -323,6 +323,12 @@ pub enum Dialog {
         tab: u8,
     },
     /// "Do you want to save changes?" before a user's New, Open, Close, Envelopes, Labels or
+    /// Native Save refused an external change. Neither choice overwrites the external version.
+    SaveConflict {
+        name: String,
+        #[serde(skip)]
+        document: u64,
+    },
     /// Finish & Merge replaces the document (see [`WordApp::run`]); `then` runs once it is
     /// answered (`ui.saveChanges`), and only while the document it asked about
     /// (`Session::document_id`) is still the one open.
@@ -864,6 +870,7 @@ impl Dialog {
             Dialog::Icons { .. } => "icons",
             Dialog::PasteSpecial { .. } => "pasteSpecial",
             Dialog::About { .. } => "about",
+            Dialog::SaveConflict { .. } => "saveConflict",
             Dialog::SaveChanges { .. } => "saveChanges",
             Dialog::RecipientList { .. } => "recipientList",
             Dialog::SelectTable { .. } => "selectTable",
@@ -909,6 +916,11 @@ impl Dialog {
     }
 
     pub fn open(name: &str, app: &mut WordApp) -> Option<Dialog> {
+        if name == "saveConflict" {
+            let conflict = app.save_conflict.take()?;
+            let name = conflict.path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| conflict.path.display().to_string());
+            return Some(Dialog::SaveConflict { name, document: app.session.document_id() });
+        }
         if let Some(d) = crate::dialogs_insert::open(name, app) {
             return Some(Dialog::Insert(Box::new(d)));
         }
@@ -1308,6 +1320,7 @@ pub fn show(app: &mut WordApp, ctx: &egui::Context) {
         Dialog::Icons { .. } => "Icons",
         Dialog::PasteSpecial { .. } => "Paste Special",
         Dialog::About { .. } => "About WordCraft",
+        Dialog::SaveConflict { .. } => "Save conflict",
         Dialog::SaveChanges { .. } => "WordCraft",
         Dialog::RecipientList { .. } => "Recipient List",
         Dialog::SelectTable { .. } => "Select Table",
@@ -2312,6 +2325,33 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
             }
             let (ok, cancel) = buttons(ui, tl!("Close"));
             ok || cancel
+        }
+        Dialog::SaveConflict { name, .. } => {
+            ui.label(egui::RichText::new(tl!("The file changed or is unavailable")).font(semibold(15.0)));
+            ui.label(tl!("Your edits are still here. Save them to a different file to keep both versions."));
+            ui.label(egui::RichText::new(&*name).strong());
+            ui.add_space(8.0);
+            let (keep, copy) = ui
+                .horizontal(|ui| {
+                    let keep = ui.button(tl!("Keep editing"));
+                    let copy =
+                        ui.add(egui::Button::new(egui::RichText::new(tl!("Save copy…")).color(egui::Color32::WHITE)).fill(crate::theme::APP_COLOR));
+                    (keep, copy)
+                })
+                .inner;
+            let answer = if keep.clicked() || ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                Some("cancel")
+            } else if copy.clicked() {
+                Some("copy")
+            } else {
+                None
+            };
+            if let Some(answer) = answer {
+                app.dialog = Some(d.clone());
+                let _ = app.run("ui.saveConflict", json!({"answer": answer}));
+                return true;
+            }
+            false
         }
         Dialog::SaveChanges { name, .. } => {
             ui.label(egui::RichText::new(crate::i18n::fmt(tl!("Do you want to save changes to {name}?"), &[("name", name)])).font(semibold(15.0)));

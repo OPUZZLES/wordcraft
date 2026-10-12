@@ -36,9 +36,8 @@ USAGE:
 ";
 
 fn open(path: &str) -> Result<Session, String> {
-    let doc = wordcraft_engine::io::open_path(std::path::Path::new(path))?;
-    let mut s = Session::new(doc);
-    s.path = Some(path.into());
+    let mut s = Session::new(wordcraft_doc::Document::new());
+    s.run("file.open", &json!({"path": path})).map_err(|e| e.to_string())?;
     Ok(s)
 }
 
@@ -427,5 +426,21 @@ mod tests {
         assert!(run(&args(&["run", "--author", "Claude", "--cmd", "review.trackChanges={\"value\":true}"])).is_ok());
         // The app's user name is the person's own; a bridge flag must not rewrite it.
         assert!(run(&args(&["mcp", "--connect", "127.0.0.1:9", "--author", "Claude"])).is_err_and(|e| e.to_string().contains("--author")));
+    }
+
+    #[test]
+    fn cli_open_retains_native_file_identity_for_saves() {
+        let dir = std::env::temp_dir().join(format!("wordcraft-cli-conflict-{}", std::process::id()));
+        std::fs::create_dir(&dir).unwrap();
+        let path = dir.join("input.docx");
+        wordcraft_engine::io::save_path(&path, &wordcraft_doc::Document::from_text("Original A")).unwrap();
+        let mut s = open(path.to_str().unwrap()).unwrap();
+        s.run("document.setText", &json!({"text": "Local edit"})).unwrap();
+        let external = wordcraft_engine::io::save_bytes("external.docx", &wordcraft_doc::Document::from_text("External B")).unwrap();
+        std::fs::write(&path, &external).unwrap();
+        assert!(matches!(s.run("file.save", &json!({})), Err(wordcraft_engine::CmdError::FileConflict(_))));
+        assert!(s.dirty);
+        assert_eq!(std::fs::read(&path).unwrap(), external);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 }

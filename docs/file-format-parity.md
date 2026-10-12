@@ -1,6 +1,6 @@
 # File-format parity with Microsoft Word
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-12 · **Change:** trivial (native save temporary-file ownership and failure protection; previously trivial: Print Markup: comments in PDF/print/copies, #589; previously trivial: SmartArt written from WordCraft's model, #497; previously trivial: import/export fixes for TXT, RTF, ODT, HTML and LaTeX, #433–#440; previously major: first version; every format Word reads or writes, measured from the readers and writers on origin/main) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4, plus Word for Windows' extra formats
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-12 · **Change:** trivial (native save conflict protection after safe-save landed; readiness unchanged; previously trivial: native save temporary-file ownership and failure protection; previously trivial: Print Markup: comments in PDF/print/copies, #589; previously trivial: SmartArt written from WordCraft's model, #497; previously trivial: import/export fixes for TXT, RTF, ODT, HTML and LaTeX, #433–#440; previously major: first version; every format Word reads or writes, measured from the readers and writers on origin/main) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4, plus Word for Windows' extra formats
 
 Every format Word opens or saves, what WordCraft does with it, and how it's tested. Fidelity is the
 share of a typical real-world file's content and formatting that survives (read: shows correctly;
@@ -120,8 +120,30 @@ from these synthetic package checks, and native Word rendering/binding behavior 
 
 ## Native save-path guarantees
 Native `io::save_path_with` serializes (and, for password-protected DOCX, encrypts) before creating an exclusively owned sibling temporary file. It writes and synchronizes that file, closes it, then replaces the destination. Failed preparation or replacement keeps the original bytes; cleanup removes only the save's temporary file, on a best-effort basis. Existing `<name>.tmp` files, directories and links are untouched. A new document gets the default mode (`0666` less the umask). When replacing an existing regular file, the Unix temporary file starts with mode `0600` and then takes the existing file's basic permissions. Serialization and format support are unchanged.
-Synthetic CLI cases and `engine/tests/safe_save.rs` cover occupied names, links, blocked replacement, missing directories, Save As session state, password-protected saves and original-file protection on macOS. Unit tests inject preparation errors and interleave two prepared saves. Independent saves use separate files; the last successful replacement wins. This is not document locking or conflict detection.
+
+Synthetic CLI cases and `engine/tests/safe_save.rs` cover occupied names, links, blocked replacement, missing directories, Save As session state, password-protected saves and original-file protection on macOS. Unit tests inject preparation errors and interleave two prepared saves. Standalone IO saves use separate files; the last successful replacement wins. Session-owned Save also applies the content check described below.
+
 Windows/Linux runtime behavior, ACLs and extended metadata, real disk-full conditions, power loss and network filesystems are not verified by these tests. The containing directory is not explicitly synchronized. Cleanup can fail when storage or permissions change, and process termination can leave a temporary file. No Word observation was needed for this filesystem change; it makes no new format-fidelity claim.
+
+## Native save protection
+
+Native `file.open` records a SHA-256 content identity from the same bytes parsed. Save compares
+current bytes after preparing an owned sibling replacement. Changed, missing or unreadable
+owned destinations return a typed conflict, retaining local edits, dirty state, password, path
+and save metadata. Successful saves advance the expected identity. Identical-byte replacement
+is benign; Save As to another file remains available, while path spellings, symlinks and hard
+links to the open file retain its protection. Identity belongs to each Session, is reset on
+new/open/recovery and is not serialized in the document. Password-protected files are compared
+as ciphertext; hashing creates no plaintext file.
+
+These checks run on open/save, not typing or dirty-state polling. The UI's existing AutoSave
+runs after an idle interval and pauses on failure. Browser-hosted bytes and standalone
+`io::save_path_with` exports have no native Session baseline. Save As to an unrelated existing
+file retains its explicit replacement behavior. There is a check-to-rename race, so this does
+not establish atomic multi-writer safety, network-filesystem locking or power-loss durability.
+The directory is not explicitly synchronized. Runtime tests use synthetic documents on macOS;
+Windows/Linux runtime and large-document latency remain unqualified.
+
 ## What decides beta for formats
 
 1. A **real-world DOCX corpus** opened, rendered and round-tripped, compared page by page with
@@ -135,6 +157,7 @@ Windows/Linux runtime behavior, ACLs and extended metadata, real disk-full condi
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-11 | trivial | Native saves refuse pre-existing external changes without clearing edits; synthetic macOS checks, explicit race/platform limits; readiness unchanged |
 | 2026-10-11 | trivial | Word XML Document (Flat OPC) read and written, Word 2003 XML read (#548) |
 | 2026-10-11 | trivial | #534: DOCX indents in characters read and written; `.doc` first-line indents (`sprmPDxaLeft1`, its two-byte operand, and `sprmPDxaLeft1_80`), indents in characters (`sprmPDxc*`) and exact/at-least line spacing (LSPD) read correctly |
 | 2026-10-11 | trivial | List and page number formats: all ST_NumberFormat values round-trip; Chinese, Japanese and Korean counting, legal and digit formats, stems/branches, kana, hangul, enclosed and full-width numbers drawn; unknown values are decimal; .doc number format codes mapped (#534) |
