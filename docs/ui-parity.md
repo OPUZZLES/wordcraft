@@ -1,6 +1,6 @@
 # UI parity with Microsoft Word
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-11 · **Change:** trivial (table borders and the resize handle drag on the page, #217; previously major: first version; ribbon, dialogs, shortcuts and on-canvas interaction measured from `crates/ui-egui` and the command registry) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-11 · **Change:** minor (status bar language follows the caret and sets the proofing language; Review › Language is a menu; previously trivial: Customize Ribbon and the Quick Access Toolbar, #379; previously: major, first version; ribbon, dialogs, shortcuts and on-canvas interaction measured from `crates/ui-egui` and the command registry) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
 
 How WordCraft looks and feels next to Word: ribbon, dialogs, panes, keyboard, mouse and touch.
 Typing behaviour has its own checklist ([`typing-parity.md`](typing-parity.md)). All assets are our
@@ -29,8 +29,8 @@ own (`AGENTS.md`: no Microsoft iconography, ever).
 | Selection: word/sentence/paragraph clicks, dragging after a double-click/triple-click/Ctrl+click extends by whole words/paragraphs/sentences (#549), Shift extend, F8 extend mode, column (Alt+drag, #237) | ✅ | ✅ | 90% | 1 |
 | Zoom: Ctrl+scroll, pinch (#179), zoom buttons (#232), pages side by side when zoomed out (#251) | ✅ | ✅ | 85% | — |
 | Touchpad smooth/inertial scroll | ✅ (#252) | ✅ | 90% | — |
+| Status bar (page x of y, words, language, view buttons, zoom slider) | ✅ (the language is the caret's; a click sets the proofing language) | ✅ | 85% | — |
 | Caret motion: keys and typing glide the caret to its new place (100 ms, `cubic-bezier(0, 0, 0, 1)`), the blink fades (530 ms on and off, 100 ms fades); clicks and scripted moves don't glide. File › Options › Advanced › Animation (`ui.caretAnimation`) turns it off | ✅ as measured from Word for Windows (`caret_glide.rs`); zoom levels other than 100%, modifier keys and off-screen moves not measured | ✅ on Windows; Word for Mac not measured | 90% | 1–2 |
-| Status bar (page x of y, words, language, view buttons, zoom slider) | ✅ | ✅ | 80% | — |
 | Interface themes (light, dark, system #249, follows OS changes live #311), dark page separate from the interface theme (#194, #312) | ✅ | ✅ | 90% | — |
 | Interface size (File › Options › General, 80–200 %, on top of the system display scale; `ui.interfaceSize`) (#475) | ✅ | system display scaling only | 100% | — |
 | Animation effects (File › Options › Accessibility: Use system setting, On, Off; `ui.animations`). Off: a wheel notch scrolls at once; Ctrl+wheel zooms in whole steps, each drawn finished in its own frame (a notch at once; touchpad pinches and high-resolution wheels in steps of about 10% rather than gliding); menus, buttons and the scroll to the caret neither fade nor glide | ✅ "Use system setting" reads Windows (Animation effects), macOS (Reduce motion), the Linux/BSD desktops (settings portal: the cross-desktop reduced-motion preference, GNOME's switch, KDE's animation speed; the GTK and KDE settings files where no portal answers) and browsers (`prefers-reduced-motion`), and follows a change while running. Run on Windows and against a stand-in portal on Linux; not yet tried on a Mac or a real GNOME or KDE session | not compared | 90% | 0.5–1 |
@@ -87,6 +87,7 @@ own (`AGENTS.md`: no Microsoft iconography, ever).
 | 2026-10-10 | trivial | System interface theme keeps following OS appearance changes (no longer pins the macOS window); Dark page no longer darkens the interface (#311, #312) |
 | 2026-10-11 | trivial | Insert › Icons picker: search, category chips, icons drawn live from the library's path data; Picture Format › Icon Color (#309) |
 | 2026-10-10 | trivial | AutoSave switch greyed out with a tooltip saying why where AutoSave can't save; Save As from it (#196, #176) |
+| 2026-10-10 | minor | Status bar language: the caret's language, a click opens the proofing-language menu (also Review › Language); context menu items translated |
 | 2026-10-10 | trivial | Table Properties dialog and Table Layout Height/Width boxes (#44) |
 | 2026-10-10 | minor | Merged main: Style Inspector, Column Selection, zoom buttons, inertial scrolling, File Info landed |
 | 2026-10-10 | major | First version: ribbon, dialog, shortcut and interaction inventory |

@@ -2135,6 +2135,9 @@ preview	Title	Пример
 	Continuous numbering	Сквозная нумерация
 	Apply	Применить
 	Convert Notes	Преобразовать сноски
+	Do Not Check Spelling or Grammar	Не проверять орфографию и грамматику
+	English (United Kingdom)	Английский (Великобритания)
+	Polish	Польский
 
 # Built-in file browser (#576).
 	Documents	Документы
@@ -2326,7 +2329,6 @@ preview	Title	Пример
 	Detect language automatically	Определять язык автоматически
 	Do not check spelling or grammar	Не проверять орфографию и грамматику
 	Dutch	Нидерландский
-	English (United Kingdom)	Английский (Великобритания)
 	Envelope size:	Размер конверта:
 	Estonian	Эстонский
 	Finnish	Финский
@@ -2355,7 +2357,6 @@ preview	Title	Пример
 	Numbering:	Нумерация:
 	Omit	Пропустить
 	One label per recipient	Одна наклейка на получателя
-	Polish	Польский
 	Portuguese (Brazil)	Португальский (Бразилия)
 	Portuguese (Portugal)	Португальский (Португалия)
 	Return address labels	Наклейки с обратным адресом

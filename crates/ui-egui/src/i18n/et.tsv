@@ -1667,6 +1667,9 @@
 	Continuous numbering	Pidev nummerdus
 	Apply	Rakenda
 	Convert Notes	Teisenda märkused
+	Do Not Check Spelling or Grammar	Ära kontrolli õigekirja ega grammatikat
+	English (United Kingdom)	Inglise (Ühendkuningriik)
+	Polish	Poola
 
 # Built-in file browser when the system file dialog is unavailable (#576)
 	Documents	Dokumendid
@@ -1990,7 +1993,6 @@
 	Detect language automatically	Tuvasta keel automaatselt
 	Do not check spelling or grammar	Ära kontrolli õigekirja ega grammatikat
 	Dutch	Hollandi
-	English (United Kingdom)	Inglise (Ühendkuningriik)
 	Envelope size:	Ümbriku suurus:
 	Estonian	Eesti
 	Finnish	Soome
@@ -2019,7 +2021,6 @@
 	Numbering:	Nummerdus:
 	Omit	Jäta välja
 	One label per recipient	Üks silt saaja kohta
-	Polish	Poola
 	Portuguese (Brazil)	Portugali (Brasiilia)
 	Portuguese (Portugal)	Portugali (Portugal)
 	Return address labels	Saatja aadressi sildid

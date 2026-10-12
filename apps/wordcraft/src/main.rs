@@ -288,6 +288,7 @@ fn main() -> eframe::Result {
             let (file_dialog, dialogs) = file_dialogs::hook(&cc.egui_ctx);
             let mut app = WordApp::new(Session::new(doc), services(file_dialog, &cc.egui_ctx));
             load_prefs(&mut app);
+            app.watch_desktop_theme(&cc.egui_ctx);
             app.ui.window = restored;
             app.integrated_titlebar = cfg!(target_os = "macos");
             let mut key_file = None;
