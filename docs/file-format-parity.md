@@ -1,6 +1,6 @@
 # File-format parity with Microsoft Word
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-12 · **Change:** trivial (native save temporary-file ownership and failure protection; previously trivial: Print Markup: comments in PDF/print/copies, #589; previously trivial: SmartArt written from WordCraft's model, #497; previously trivial: import/export fixes for TXT, RTF, ODT, HTML and LaTeX, #433–#440; previously major: first version; every format Word reads or writes, measured from the readers and writers on origin/main) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4, plus Word for Windows' extra formats
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-12 · **Change:** minor (imported TOC result boundaries preserved; native save temporary-file ownership and failure protection; previously trivial: Print Markup: comments in PDF/print/copies, #589; previously trivial: SmartArt written from WordCraft's model, #497; previously trivial: import/export fixes for TXT, RTF, ODT, HTML and LaTeX, #433–#440; previously major: first version; every format Word reads or writes, measured from the readers and writers on origin/main) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4, plus Word for Windows' extra formats
 
 Every format Word opens or saves, what WordCraft does with it, and how it's tested. Fidelity is the
 share of a typical real-world file's content and formatting that survives (read: shows correctly;
@@ -54,7 +54,7 @@ Measured by grepping `crates/docx/src/read` and `src/write` for the OOXML elemen
 | Tracked insertions and deletions (`w:ins`/`w:del`), paragraph-mark revisions | ✅ | ✅ | #125, #244 |
 | Formatting revisions (`w:rPrChange`, `w:pPrChange`, `w:sectPrChange`, `w:tblPrChange`, `w:trPrChange`, `w:tcPrChange`, `w:numberingChange`) | ✅ | ✅ | #41: kept on open and save, schema order (change element last); changes inside `styles.xml` are dropped. RTF/ODT ignore them |
 | Move tracking (`w:moveFrom`/`w:moveTo`, `w:moveFromRangeStart/End`, `w:moveToRangeStart/End`), moved paragraph marks | ✅ | ✅ | #400: both ends linked by the range name; ranges rewritten around each moved stretch (ids renumbered); a move missing an end or a range end opens as a plain deletion/insertion. RTF/ODT/PDF export the result (moved-away text hidden like deletions) |
-| Fields (`w:fldChar`, `w:fldSimple`), TOC, cross-references, `ADDIN` citations | ✅ | ✅ | Field codes Word supports but we don't evaluate keep their cached result. `EQ \o` (overstrike, enclosed characters) is drawn; enclosed characters are written as Word stores them, their style in the code's run sizes (#297); a cached picture (`INCLUDEPICTURE`) stays as the content of a range field (#465) |
+| Fields (`w:fldChar`, `w:fldSimple`), TOC, cross-references, `ADDIN` citations | ✅ | ✅ | Field codes Word supports but we don't evaluate keep their cached result. Imported TOCs preserve actual result boundaries, formatted entries and nested fields without relying on TOC styles. `EQ \o` (overstrike, enclosed characters) is drawn; enclosed characters are written as Word stores them, their style in the code's run sizes (#297); a cached picture (`INCLUDEPICTURE`) stays as the content of a range field (#465) |
 | Content controls (`w:sdt`) | ✅ | ✅ | Block, inline, row and cell level, nested; title, tag, id, lock, placeholder, temporary, rich/plain text, `w14:checkbox`, combo box, drop-down list, date, picture, building block gallery, `w15` repeating sections; other `w:sdtPr` children (data binding, appearance) kept verbatim (#381). A TOC's control is rebuilt by the TOC |
 | Restrict Editing (`w:documentProtection` edit/formatting/enforcement and password hash, `w:locked` styles, `w:permStart`/`w:permEnd` exceptions) | ✅ | ✅ | #412: SHA-512 hash with salt and spin count written; Word's legacy `w:cryptAlgorithmSid`/`w:hash` form (SHA-1/-256/-384/-512, ECMA-376 Part 4 §14.8.1) is kept and verified; MD2/MD4/MD5, `w:algIdExt` and other unsupported forms are refused, never unlocked; `w:colFirst`/`w:colLast` table-column ranges read as plain ranges |
 | Legacy form fields (`w:ffData`), check boxes, drop-downs | ❌ | ❌ | |
@@ -131,6 +131,27 @@ Windows/Linux runtime behavior, ACLs and extended metadata, real disk-full condi
 3. Move tracking (`w:moveFrom`/`w:moveTo`) read and written (formatting revisions: #41; content controls: #381).
 4. Encrypted `.docx` opens with a password.
 
+## Imported TOC result preservation
+
+Original synthetic TOCs without TOC paragraph styles lose their outer result range on main
+and #538. Main also flattens a nested page field in a single-paragraph result. Imported TOCs
+now use the existing range-field markers to retain the actual result boundaries, nested
+page-reference fields, formatting, links and locks through edited saves.
+
+The public [complex-field contract](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.wordprocessing.fieldchar?view=openxml-3.0.1)
+defines begin/separate/end delimiters and permits nested fields. Paragraph styles do not define
+those boundaries. A complete range is converted to the engine's styled TOC representation only
+when that writer can reproduce its exact extent; partial or custom-styled ranges stay explicit.
+
+Focused original regressions cover single/multiple paragraphs, partial ranges, adjacent styled
+text, multiple/simple fields, table cells, section breaks, missing ends and bounded nesting.
+The existing styled TOC write/read path remains supported. Update Table and Update Fields refresh
+unlocked top-level body TOC ranges in place through the engine's generator; one undo restores
+the imported range. Locked, nested and table-cell ranges remain preserved without regeneration.
+Preservation is separate from field evaluation. Native Word reopening and
+refresh, full schema validation and company documents remain untested. Synthetic checks do not
+raise readiness estimates. No Word-derived files are fixtures.
+
 ## Revision history
 
 | Date | Change | Summary |
@@ -159,6 +180,7 @@ Windows/Linux runtime behavior, ACLs and extended metadata, real disk-full condi
 | 2026-10-11 | trivial | Spreadsheets (.xlsx/.xlsm/.ods) read as mail-merge recipient lists (#334) |
 | 2026-10-12 | minor | Preserve opaque custom XML stores and related properties; bindings and control support remain separate |
 | 2026-10-11 | trivial | Native saves protect existing temporary-name entries and originals on pre-replacement failure; synthetic macOS evidence, explicit durability/platform limits; readiness unchanged |
+| 2026-10-11 | minor | Preserve imported TOC ranges independently of paragraph styles, with explicit evaluation limits |
 | 2026-10-11 | trivial | Import/export fixes (#433–#440): TXT opens through the encoding-sniffing reader (Windows-1252, unmarked UTF-16) and saves list labels; RTF `\uN` in document info, bookmark names and field instructions; ODT common paragraph styles' text formatting and table-cell background colours; HTML borderless tables export without cell borders and `white-space:pre` keeps edge spaces; LaTeX brace groups scope `\centering`/`\raggedleft`/`\raggedright` |
 | 2026-10-11 | trivial | `.doc` import fixes per [MS-DOC]: piece Prm0/Prm1 decoding (#458), section-break kinds (#459), explicit orientation (#460), negative `sprmPIlfo` list references (#461), zero-based `istdBase` style inheritance (#462), font-table entries with alternate names (#463) |
 | 2026-10-11 | trivial | Formatting revisions (`w:rPrChange`, `w:pPrChange`, table, row, cell, section and numbering changes) read and written (#41) |

@@ -83,9 +83,9 @@ fn enclosure(f: &FieldState) -> Option<wordcraft_doc::eq::Enclosure> {
 }
 
 /// Fields kept as ranges: those whose result another program writes, with formatting and often
-/// several paragraphs (citation managers' `ADDIN` fields: Zotero, Mendeley, EndNote).
+/// several paragraphs (TOCs and citation managers' `ADDIN` fields).
 fn is_range_instr(instr: &str) -> bool {
-    instr.trim_start().get(..5).is_some_and(|k| k.eq_ignore_ascii_case("ADDIN"))
+    super::is_toc(instr) || instr.trim_start().get(..5).is_some_and(|k| k.eq_ignore_ascii_case("ADDIN"))
 }
 
 /// The last paragraph of a block list: its last block, or inside a final table the last
