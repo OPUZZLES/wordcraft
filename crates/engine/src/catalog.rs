@@ -20,6 +20,7 @@ File|Backstage|Properties|file.properties
 File|Backstage|Export PDF|file.exportPdf
 File|Backstage|Export Image|file.exportPng
 File|Backstage|Options|file.options
+File|Options|Numerals|view.numeral
 File|Backstage|Share|file.share
 File|Backstage|Protect Document|file.protect
 File|Backstage|Inspect Document|file.inspect
@@ -30,9 +31,11 @@ File|Backstage|Recover Unsaved|file.recover
 File|Backstage|New from Template|file.newFromTemplate
 File|Backstage|Save as Template|file.saveTemplate
 Quick Access|Toolbar|Undo|edit.undo
+Quick Access|Toolbar|Undo List|edit.undoTo
 Quick Access|Toolbar|Redo|edit.redo
 Quick Access|Toolbar|Repeat|edit.repeat
 Quick Access|Toolbar|AutoSave|file.autosave
+Title Bar|Search|Search (Tell Me)|tools.search
 Home|Clipboard|Paste|edit.paste
 Home|Clipboard|Paste Keep Text Only|edit.pasteText
 Home|Clipboard|Paste Merge Formatting|edit.pasteMerge
@@ -355,6 +358,7 @@ Table Design|Borders|Borders|table.borders
 Table Design|Borders|Border Painter|table.borderPainter
 Table Layout|Table|Select Table|table.selectTable
 Table Layout|Table|Select Row|table.selectRow
+Table Layout|Table|Select Column|table.selectColumn
 Table Layout|Table|Select Cell|table.selectCell
 Table Layout|Table|View Gridlines|table.viewGridlines
 Table Layout|Table|Properties|table.properties

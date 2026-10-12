@@ -77,6 +77,7 @@
 	Click to switch back to inserting	クリックすると挿入モードに戻ります
 	Color only	色のみ
 	Compress punctuation at the start of a line	行頭の約物を詰める
+	Couldn't make WordCraft the default: {error}	WordCraft を既定のアプリにできませんでした: {error}
 	Custom dictionary	ユーザー辞書
 	Dark page (white text on black)	ダーク ページ (黒地に白い文字)
 	Drag a rectangle to draw a table, or a line across cells to split them. Esc stops.	四角形をドラッグして表を描くか、セルを横切る線を引いて分割します。Esc で終了します。
@@ -105,6 +106,7 @@
 	Inside:	内側:
 	Latin text font:	ラテン文字のフォント:
 	Left border	左罫線
+	In Default apps, choose WordCraft for the document types you want it to open.	既定のアプリで、WordCraft で開きたい文書の種類ごとに WordCraft を選んでください。
 	Left Margin	左余白
 	Indents and Spacing	インデントと間隔
 	Legal style numbering	正規形式で番号付け
@@ -125,6 +127,9 @@
 	Number format	番号書式
 	Number style for this level:	このレベルの番号の種類:
 	Outside border	外側の罫線
+	Make WordCraft the default for Word documents…	WordCraft を Word 文書の既定のアプリにする…
+	Opens .docx, .doc, .rtf and .odt files and Word templates with WordCraft from now on.	今後、.docx、.doc、.rtf、.odt ファイルと Word テンプレートを WordCraft で開きます。
+	Opens Settings › Default apps, where you choose WordCraft for .docx and the other document types.	設定 › 既定のアプリ を開きます。そこで .docx などの文書の種類ごとに WordCraft を選びます。
 	Overtype	上書き
 	Overtype (typing replaces the characters after the caret)	上書き (入力した文字がカーソルの後ろの文字を置き換えます)
 	Page display	ページの表示
@@ -150,6 +155,7 @@
 	Right (vertical)	右 (縦書き)
 	Ruby text:	ルビ文字:
 	Save documents	ドキュメントの保存
+	Search	検索
 	Search for templates	テンプレートを検索
 	Show all revisions inline	すべての変更履歴を本文中に表示
 	Show documents with their colours inverted, like View › Switch Modes. Saving, printing and PDFs are unchanged.	表示 › モードの切り替えと同様に、文書の色を反転して表示します。保存、印刷、PDF は変わりません。
@@ -193,6 +199,7 @@
 	Page Border	ページ罫線の設定
 	Apply to:	適用先:
 	These marks show even when Show/Hide ¶ is off.	これらの記号は、[編集記号の表示/非表示 ¶] がオフでも表示されます。
+	Title Bar	タイトル バー
 	Typing replaces selected text	入力時に選択文字列を置き換える
 	Update fields before printing	印刷前にフィールドを更新する
 	Use the Insert key to switch overtype on and off	Insert キーで上書きのオンとオフを切り替える
@@ -319,6 +326,8 @@
 	Delete Style	スタイルの削除
 	Delete Table	表の削除
 	Design	デザイン
+	To open Word documents with WordCraft by default: select one in Finder, choose File › Get Info, pick WordCraft under Open with, then click Change All.	Word 文書を既定で WordCraft で開くには: Finder で文書を選び、ファイル › 情報を見る を選んで、「このアプリケーションで開く」で WordCraft を選び、「すべてを変更」をクリックします。
+	WordCraft is now the default app for Word documents.	WordCraft が Word 文書の既定のアプリになりました。
 	development build	開発ビルド
 	Diagonal	対角線
 	Diamond	ひし形
@@ -462,6 +471,7 @@
 	Insert Above	上に行を挿入
 	Insert Below	下に行を挿入
 	Insert Caption	図表番号の挿入
+	Insert Caption…	図表番号の挿入…
 	Insert Citation	引用文献の挿入
 	Insert Endnote	文末脚注の挿入
 	Insert Footnote	脚注の挿入
@@ -851,6 +861,7 @@
 	Table of Contents	目次
 	Table of\nContents	目次
 	Table Properties	表のプロパティ
+	Table Properties…	表のプロパティ…
 	Table Row Height	表の行の高さ
 	Table Style Options	表スタイルのオプション
 	Table Styles	表のスタイル
@@ -900,6 +911,10 @@
 	Underline Words Only	単語のみ下線
 	Undo	元に戻す
 	Undo {action}	元に戻す: {action}
+	Undo Actions	複数の操作を元に戻す
+	Undo History	元に戻す履歴
+	Undo 1 Action	1 件の操作を元に戻す
+	Undo {n} Actions	{n} 件の操作を元に戻す
 	Ungroup	グループ解除
 	Up	上
 	Update Field	フィールドの更新
@@ -1066,6 +1081,8 @@
 	Keeps the fonts and formatting of the copied text.	コピーしたテキストのフォントと書式を保持します。
 	Reads the clipboard's rich text and keeps its formatting.	クリップボードの RTF を読み込み、書式を保持します。
 	Reads the clipboard's web content and keeps its formatting.	クリップボードの Web コンテンツを読み込み、書式を保持します。
+	Picture	画像
+	Pastes the clipboard's picture.	クリップボードの画像を貼り付けます。
 	Drops all formatting and pastes plain text.	書式をすべて取り除き、プレーン テキストとして貼り付けます。
 	Advanced Find	高度な検索
 	Advanced Find…	高度な検索…
@@ -1421,6 +1438,8 @@
 	Border lines	罫線
 	Capitalize first letter of sentences	文の先頭文字を大文字にする
 	Capitalize first letter of table cells	表のセルの先頭文字を大文字にする
+	Correct TWo INitial CApitals	先頭 2 文字の大文字を修正する
+	Correct accidental usage of cAPS LOCK key	Caps Lock キーの押し間違いを修正する
 	Capitalize names of days	曜日の先頭文字を大文字にする
 	Case changes	大文字/小文字の変更
 	Character level	文字単位
@@ -1625,6 +1644,12 @@
 	Enlarge symbol	記号を拡大
 	Enclosure	囲い
 	Circle	円
+	Numerals:	数字:
+	Numerals	数字
+	Arabic	アラビア
+	Hindi	ヒンディー
+	Context	コンテキスト
+	System	システム
 	Templates	テンプレート
 	Templates and Add-ins	テンプレートとアドイン
 	Attach Template	テンプレートの添付
@@ -1678,6 +1703,7 @@
 	Middle	中央
 	Click the empty text box the text should continue in (Esc cancels)	テキストの続きを入れる空のテキスト ボックスをクリックしてください (Esc でキャンセル)
 	Not linked: click a text box	リンクされていません: テキスト ボックスをクリックしてください
+	Show KeyTips (Alt or F10)	キー操作のヒントを表示（Alt または F10）
 	Location	場所
 	Endnotes	文末脚注
 	Below text	本文の直後
@@ -1690,6 +1716,13 @@
 	Continuous numbering	通し番号
 	Apply	適用
 	Convert Notes	注の変換
+	Reading	閲覧
+	Reading Column Width	閲覧時の列幅
+	Reading Line Spacing	閲覧時の行間
+	Reading Text Size	閲覧時の文字サイズ
+	English (United Kingdom)	英語（英国）
+	Polish	ポーランド語
+	Do Not Check Spelling or Grammar	スペル チェックと文章校正を行わない
 
 # Built-in file browser when the system file dialog is unavailable (#576)
 	Documents	ドキュメント
@@ -1967,7 +2000,6 @@
 	Add line numbering	行番号を追加する
 	Add to Document	文書に追加
 	Address labels	宛名ラベル
-	Arabic	アラビア語
 	Auto	自動
 	Automatically hyphenate document	文書を自動的にハイフネーションする
 	Chinese (Simplified)	中国語（簡体字）
@@ -1980,7 +2012,6 @@
 	Detect language automatically	言語を自動的に検出する
 	Do not check spelling or grammar	スペルチェックと文章校正を行わない
 	Dutch	オランダ語
-	English (United Kingdom)	英語（英国）
 	Envelope size:	封筒サイズ:
 	Estonian	エストニア語
 	Finnish	フィンランド語
@@ -2009,7 +2040,6 @@
 	Numbering:	番号の付け方:
 	Omit	省略
 	One label per recipient	宛先ごとに 1 枚のラベル
-	Polish	ポーランド語
 	Portuguese (Brazil)	ポルトガル語（ブラジル）
 	Portuguese (Portugal)	ポルトガル語（ポルトガル）
 	Return address labels	差出人ラベル
@@ -2035,3 +2065,13 @@
 	Your system has animation effects turned on.	システムのアニメーション効果はオンです。
 	Your system has animation effects turned off.	システムのアニメーション効果はオフです。
 	Your system doesn't report an animation setting, so animation effects stay on.	システムからアニメーションの設定を取得できないため、アニメーション効果はオンのままです。
+	Select Column	列の選択
+	Select Table Cells by Clicking	クリックで表のセルを選択
+	Insert Row or Column by Clicking	クリックで行または列を挿入
+	Move Table by Dragging	ドラッグで表を移動
+	AutoFit Column by Double-Clicking	ダブルクリックで列の幅を自動調整
+	Region:	地域:
+	Automatic ({region})	自動 ({region})
+	Start-up	起動
+	Show the Start screen when WordCraft starts	WordCraft の起動時にスタート画面を表示する
+	On: WordCraft opens on File › Home, with a blank document, the templates and your recent documents. Off: it opens a blank document.	オン: WordCraft は [ファイル] › [ホーム] で開き、白紙の文書、テンプレート、最近使った文書を表示します。オフ: 白紙の文書を開きます。

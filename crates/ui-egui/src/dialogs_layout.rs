@@ -6,7 +6,7 @@
 //! and agents get the same result without the dialog. Shown through
 //! [`crate::dialogs::Dialog::Layout`].
 
-use egui::{Color32, Ui, vec2};
+use egui::{Ui, vec2};
 use serde::Serialize;
 use serde_json::{Value, json};
 
@@ -14,6 +14,7 @@ use wordcraft_doc::section::LineNumberRestart;
 use wordcraft_engine::cmd::mailings::{ENVELOPE_SIZES, LABEL_PRODUCTS};
 
 use crate::WordApp;
+use crate::options::MeasureExt;
 use crate::theme::semibold;
 
 #[derive(Clone, Debug, Serialize)]
@@ -86,7 +87,7 @@ fn buttons(ui: &mut Ui, ok: &str, ok_enabled: bool) -> (bool, bool) {
             if ui.button(tl!("Cancel")).clicked() || ui.input(|i| i.key_pressed(egui::Key::Escape)) {
                 r.1 = true;
             }
-            let okb = ui.add_enabled(ok_enabled, egui::Button::new(egui::RichText::new(tl!(ok)).color(Color32::WHITE)).fill(crate::theme::APP_COLOR));
+            let okb = ui.add_enabled(ok_enabled, crate::widgets::primary_button(ui, tl!(ok)));
             if okb.clicked() {
                 r.0 = true;
             }
@@ -174,11 +175,7 @@ fn line_numbers_ui(app: &mut WordApp, ui: &mut Ui, f: &mut LineNumbersForm) -> b
                 ui.checkbox(&mut f.auto_distance, tl!("Auto"));
                 ui.add_enabled(
                     !f.auto_distance,
-                    egui::DragValue::new(&mut f.distance)
-                        .speed(0.01)
-                        .range(0.0..=22.0 * 72.0 / unit().pt_per_unit())
-                        .suffix(unit().suffix())
-                        .max_decimals(2),
+                    egui::DragValue::new(&mut f.distance).speed(0.01).range(0.0..=22.0 * 72.0 / unit().pt_per_unit()).measure(unit()).max_decimals(2),
                 );
             });
             ui.end_row();
@@ -233,7 +230,7 @@ fn hyphenation_ui(app: &mut WordApp, ui: &mut Ui, f: &mut HyphenationForm) -> bo
     ui.checkbox(&mut f.caps, tl!("Hyphenate words in CAPS"));
     egui::Grid::new("hyph").num_columns(2).spacing(vec2(10.0, 6.0)).show(ui, |ui| {
         ui.label(tl!("Hyphenation zone:"));
-        ui.add(egui::DragValue::new(&mut f.zone).speed(0.01).range(0.0..=22.0 * 72.0 / unit().pt_per_unit()).suffix(unit().suffix()).max_decimals(2));
+        ui.add(egui::DragValue::new(&mut f.zone).speed(0.01).range(0.0..=22.0 * 72.0 / unit().pt_per_unit()).measure(unit()).max_decimals(2));
         ui.end_row();
         ui.label(tl!("Limit consecutive hyphens to:"));
         let no_limit = tl!("No limit").to_string();
@@ -362,7 +359,7 @@ fn manual_ui(app: &mut WordApp, ui: &mut Ui, f: &mut ManualForm) -> bool {
             if ui.button(tl!("No")).clicked() {
                 f.skip(app);
             }
-            if ui.add(egui::Button::new(egui::RichText::new(tl!("Yes")).color(Color32::WHITE)).fill(crate::theme::APP_COLOR)).clicked() {
+            if ui.add(crate::widgets::primary_button(ui, tl!("Yes"))).clicked() {
                 f.accept(app);
             }
         });
@@ -520,12 +517,7 @@ fn envelopes_ui(app: &mut WordApp, ui: &mut Ui, f: &mut EnvelopeForm) -> bool {
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             cancel = ui.button(tl!("Cancel")).clicked() || ui.input(|i| i.key_pressed(egui::Key::Escape));
             new = ui.add_enabled(ready, egui::Button::new(tl!("New Document"))).clicked();
-            add = ui
-                .add_enabled(
-                    ready,
-                    egui::Button::new(egui::RichText::new(tl!("Add to Document")).color(Color32::WHITE)).fill(crate::theme::APP_COLOR),
-                )
-                .clicked();
+            add = ui.add_enabled(ready, crate::widgets::primary_button(ui, tl!("Add to Document"))).clicked();
         });
     });
     if add || new {
@@ -535,7 +527,7 @@ fn envelopes_ui(app: &mut WordApp, ui: &mut Ui, f: &mut EnvelopeForm) -> bool {
 }
 
 /// `DL  110 × 220 mm` / `#10  4.13 × 9.5 in`: metric sizes in millimetres, the others in inches.
-fn envelope_label(name: &str, w: f32, h: f32) -> String {
+pub(crate) fn envelope_label(name: &str, w: f32, h: f32) -> String {
     let short = name.strip_prefix("Envelope ").unwrap_or(name);
     if short.starts_with('#') || short == "Monarch" {
         let i = |pt: f32| ((pt / 72.0) * 100.0).round() / 100.0;
@@ -594,7 +586,8 @@ fn product_label(i: usize) -> String {
         "return" => tl!("Return address labels"),
         _ => tl!("Address labels"),
     };
-    format!("{kind}, {} × {}, {} ({})", p.cols, p.rows, p.size_text(), p.paper)
+    let paper = tl!(p.paper);
+    format!("{kind}, {} × {}, {} ({paper})", p.cols, p.rows, p.size_text())
 }
 
 fn labels_ui(app: &mut WordApp, ui: &mut Ui, f: &mut LabelsForm) -> bool {

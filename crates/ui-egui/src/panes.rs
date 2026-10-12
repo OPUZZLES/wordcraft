@@ -111,8 +111,22 @@ fn nav(app: &mut WordApp, ui: &mut Ui) {
     }
     let qid = egui::Id::new("nav_query");
     let mut q = ui.data(|d| d.get_temp::<String>(qid)).unwrap_or_default();
-    let r = ui.add(egui::TextEdit::singleline(&mut q).hint_text(tl!("Search document")).desired_width(f32::INFINITY));
-    if r.changed() {
+    // Ctrl+F with text selected searches for it, as Word does (a selection within one line).
+    let focus = std::mem::take(&mut app.nav_search_focus);
+    let picked = focus.then(|| app.session.selected_text()).filter(|t| !t.is_empty() && !t.contains(['\n', '\r']) && t.chars().count() <= 255);
+    if let Some(t) = &picked {
+        q = t.clone();
+    }
+    let mut out = egui::TextEdit::singleline(&mut q).hint_text(tl!("Search document")).desired_width(f32::INFINITY).show(ui);
+    let r = out.response.clone();
+    if focus {
+        // Focused with its text selected, so typing replaces it.
+        r.request_focus();
+        let all = egui::text::CCursorRange::two(egui::text::CCursor::new(0), egui::text::CCursor::new(q.chars().count()));
+        out.state.cursor.set_char_range(Some(all));
+        out.state.store(ui.ctx(), r.id);
+    }
+    if r.changed() || picked.is_some() {
         ui.data_mut(|d| d.insert_temp(qid, q.clone()));
         if !q.is_empty() {
             let _ = app.session.run("edit.find", &json!({"text": q}));
@@ -152,7 +166,9 @@ fn nav(app: &mut WordApp, ui: &mut Ui) {
                 let mut job = egui::text::LayoutJob::default();
                 let fmt = |c| egui::TextFormat { font_id: regular(12.0), color: c, ..Default::default() };
                 job.append(pre, 0.0, fmt(ui.visuals().text_color()));
-                job.append(hit, 0.0, egui::TextFormat { font_id: semibold(12.0), background: egui::Color32::from_rgb(0xFF, 0xF1, 0x76), color: egui::Color32::BLACK, ..Default::default() });
+                // The match is marked the way Find marks it on the page, per theme (#656).
+                let mark = Tokens::get(ui.ctx()).find_highlight;
+                job.append(hit, 0.0, egui::TextFormat { font_id: semibold(12.0), background: mark, color: ui.visuals().text_color(), ..Default::default() });
                 job.append(post, 0.0, fmt(ui.visuals().text_color()));
                 job.wrap.max_width = ui.available_width();
                 if ui.add(egui::Button::new(job).frame(false)).clicked() {
@@ -183,17 +199,31 @@ fn nav(app: &mut WordApp, ui: &mut Ui) {
                 ui.label(egui::RichText::new(tl!("Create an interactive outline of your document.\n\nIt's a great way to keep track of where you are or quickly move your content around.\n\nTo get started, go to the Home tab and apply Heading styles to the headings in your document.")).weak());
             }
             for (i, (path, lv, txt)) in items.into_iter().enumerate() {
-                ui.horizontal(|ui| {
-                    ui.add_space(lv as f32 * 14.0);
-                    let r = ui.selectable_label(current == Some(i), egui::RichText::new(txt).font(if lv == 0 { semibold(12.5) } else { regular(12.5) }));
-                    if r.clicked() {
-                        let _ = app.run("caret.set", json!({"pos": Pos { story: StoryRef::Body, path, off: 0 }}));
-                        app.canvas.want_focus = true;
-                    }
-                });
+                if nav_heading(ui, lv, &txt, current == Some(i)).clicked() {
+                    let _ = app.run("caret.set", json!({"pos": Pos { story: StoryRef::Body, path, off: 0 }}));
+                    // Align the chosen heading's page immediately against this pane, rather
+                    // than the indeterminate minimum movement from scroll_to_rect.
+                    app.canvas.nav_to_caret = true;
+                    app.canvas.scroll_to_caret = false;
+                    app.canvas.want_focus = true;
+                }
             }
         }
     });
+}
+
+/// Constrain each heading to the available pane width so long document text cannot
+/// enlarge the panel. The full heading stays accessible on hover.
+fn nav_heading(ui: &mut Ui, level: u8, text: &str, selected: bool) -> egui::Response {
+    ui.horizontal(|ui| {
+        ui.add_space(level as f32 * 14.0);
+        ui.add_sized(
+            vec2(ui.available_width(), ui.spacing().interact_size.y),
+            egui::Button::selectable(selected, egui::RichText::new(text).font(if level == 0 { semibold(12.5) } else { regular(12.5) })).truncate(),
+        )
+        .on_hover_text(text)
+    })
+    .inner
 }
 
 /// Items collected by Copy and Cut, newest first; clicking one pastes it at the caret.
@@ -336,7 +366,7 @@ fn comments(app: &mut WordApp, ui: &mut Ui) {
                 }
                 ui.horizontal(|ui| {
                     ui.label(egui::RichText::new(c.get("author").and_then(Value::as_str).unwrap_or("")).font(semibold(12.0)));
-                    ui.label(egui::RichText::new(c.get("date").and_then(Value::as_str).unwrap_or("").get(..10).unwrap_or("")).small().weak());
+                    ui.label(egui::RichText::new(comment_stamp(c.get("date").and_then(Value::as_str).unwrap_or(""))).small().weak());
                     if c.get("resolved").and_then(Value::as_bool).unwrap_or(false) {
                         ui.label(egui::RichText::new(tl!("Resolved")).small().color(t.green));
                     }
@@ -674,6 +704,11 @@ fn trim_num(x: f64) -> String {
     s.trim_end_matches('0').trim_end_matches('.').to_string()
 }
 
+/// `2026-10-12T04:44:00Z` → `2026-10-12 04:44` (date and time, no seconds) for comment cards.
+fn comment_stamp(iso: &str) -> String {
+    iso.chars().take(16).map(|c| if c == 'T' { ' ' } else { c }).collect()
+}
+
 /// `dotDash` → `Dot dash` (enum values from the document model).
 fn camel_words(s: &str) -> String {
     let mut out = String::with_capacity(s.len() + 4);
@@ -688,4 +723,54 @@ fn camel_words(s: &str) -> String {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::comment_stamp;
+
+    #[test]
+    fn comment_stamp_keeps_date_and_time() {
+        assert_eq!(comment_stamp("2026-10-12T04:44:31Z"), "2026-10-12 04:44");
+        assert_eq!(comment_stamp("2026-10-12"), "2026-10-12");
+        assert_eq!(comment_stamp(""), "");
+    }
+}
+
+#[cfg(test)]
+mod navigation_tests {
+    use super::*;
+
+    #[test]
+    fn long_headings_truncate_without_stretching_navigation() {
+        let text = "An extremely long heading with words that must stay inside the navigation pane ".repeat(20);
+        for (width, level) in [(260.0, 0), (180.0, 5)] {
+            let ctx = egui::Context::default();
+            crate::theme::install_fonts(&ctx);
+            let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, vec2(900.0, 600.0));
+            let mut panel_rect = egui::Rect::NOTHING;
+            let mut heading_rect = egui::Rect::NOTHING;
+            let output = ctx.run_ui(egui::RawInput { screen_rect: Some(screen), ..Default::default() }, |ui| {
+                let result = egui::Panel::left("navigation_test")
+                    .default_size(width)
+                    .resizable(true)
+                    .show(ui, |ui| egui::ScrollArea::vertical().show(ui, |ui| nav_heading(ui, level, &text, true)).inner);
+                panel_rect = result.response.rect;
+                heading_rect = result.inner.rect;
+            });
+
+            assert!(panel_rect.width() < width + 20.0, "long heading expanded the {width}px pane to {panel_rect:?}");
+            assert!(heading_rect.max.x <= panel_rect.max.x, "heading escaped pane: {heading_rect:?} / {panel_rect:?}");
+            assert!(
+                output.shapes.iter().any(|s| match &s.shape {
+                    egui::Shape::Text(t) => {
+                        t.galley.elided && t.galley.rows.last().is_some_and(|r| r.row.glyphs.last().is_some_and(|g| g.chr == '…'))
+                    }
+                    _ => false,
+                }),
+                "long heading must render a trailing ellipsis at {width}px"
+            );
+            output.drop_without_applying_deltas();
+        }
+    }
 }

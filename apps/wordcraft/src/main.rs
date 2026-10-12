@@ -12,17 +12,19 @@
 mod animations;
 #[cfg(target_os = "macos")]
 mod apple_events;
+mod clipboard;
 mod control_server;
+mod default_apps;
 mod file_dialogs;
 #[cfg(any(target_os = "windows", test))]
 mod graphics;
 mod logging;
 mod print;
+mod region;
 
 use wordcraft_engine::Session;
 use wordcraft_ui_egui::{
     Services, UiState, WordApp,
-    paste_picture::ClipboardPicture,
     window_geometry::{WindowGeometry, take_rescue},
 };
 
@@ -52,7 +54,7 @@ impl eframe::App for App {
         let closing = ctx.input(|i| i.viewport().close_requested());
         if closing && !self.0.close_requested() {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
-        } else if closing || self.0.quit_requested {
+        } else if (closing || self.0.quit_requested) && !self.0.printing.busy() {
             // On macOS, letting eframe drop the window inside `-[NSApplication run]` aborts in
             // `-[_NSTouchBarFinderObservation invalidate]`. Command-Q calls `terminate:`. Once
             // the close is allowed, take that path instead of dropping the window on this turn.
@@ -76,6 +78,7 @@ impl eframe::App for App {
         self.3.show(frame);
     }
     fn on_exit(&mut self) {
+        print::finish_pending_jobs();
         save_prefs(&self.0);
         if let Some(key_file) = &self.2 {
             key_file.remove();
@@ -93,11 +96,16 @@ impl eframe::App for App {
 #[cfg(target_os = "macos")]
 fn schedule_macos_terminate(app: &WordApp, key_file: Option<&control_server::KeyFile>) {
     use std::sync::atomic::{AtomicBool, Ordering};
+    if app.printing.busy() {
+        return;
+    }
     static QUIT: AtomicBool = AtomicBool::new(false);
     if QUIT.swap(true, Ordering::Relaxed) {
         return;
     }
     log::info!("window close: quitting");
+    // This path can bypass on_exit. Join the owned workers before termination and cleanup.
+    print::finish_pending_jobs();
     save_prefs(app);
     if let Some(key_file) = key_file {
         key_file.remove();
@@ -120,6 +128,21 @@ fn prefs_path() -> Option<std::path::PathBuf> {
 /// Where the log files live: `logs` in the preferences folder (see `logging`).
 fn log_dir() -> Option<std::path::PathBuf> {
     Some(prefs_path()?.parent()?.join("logs"))
+}
+
+/// `custom-dictionary.txt` in the settings folder: the words Add to Dictionary kept (#40).
+fn user_dict_path() -> Option<std::path::PathBuf> {
+    wordcraft_control_key::settings_dir().map(|b| b.join(wordcraft_engine::Session::USER_DICT_FILE))
+}
+
+fn load_user_dictionary(app: &mut WordApp) {
+    if !prefs_enabled() {
+        return;
+    }
+    if let Some(p) = user_dict_path() {
+        wordcraft_proof::load_user_dictionary(&p);
+        app.session.user_dict_path = Some(p);
+    }
 }
 
 /// Runs without preferences (`WORDCRAFT_NO_PREFS`, agents' test runs) neither read nor write them.
@@ -176,30 +199,23 @@ fn save_prefs(app: &WordApp) {
 }
 
 /// Native file dialogs, shown without blocking the window (`file_dialogs`, #94), File › Print
-/// through the system's PDF viewer (`print`, #15), pictures on the system clipboard (#45), and
-/// the system's animation setting (`animations`).
+/// through the system spooler (`print`), the system clipboard's text, formatted copies,
+/// pictures and format names (`clipboard`, #45, #584, #687, #833), the system's animation setting
+/// (`animations`), and making WordCraft the default app for Word documents (`default_apps`, #295).
 fn services(file_dialog: file_dialogs::Hook, ctx: &egui::Context) -> Services {
     Services {
         file_dialog: Some(file_dialog),
-        print: Some(print::hook()),
-        clipboard_picture: Some(Box::new(clipboard_picture)),
+        printers: Some(print::discover()),
+        print_native: Some(print::submit()),
+        clipboard_picture: Some(Box::new(clipboard::picture)),
+        make_default_app: default_apps::hook(),
         animations_enabled: Some(animations::hook(ctx)),
-        clipboard_text: Some(Box::new(|| arboard::Clipboard::new().ok()?.get_text().ok())),
+        clipboard_text: Some(Box::new(clipboard::text)),
+        clipboard_html: Some(Box::new(clipboard::html)),
+        clipboard_rtf: Some(Box::new(clipboard::rtf)),
+        clipboard_formats: Some(Box::new(clipboard::formats)),
         ..Default::default()
     }
-}
-
-/// The picture on the system clipboard (#45): copied files, else image pixels. The UI checks the
-/// sizes before inserting anything.
-fn clipboard_picture() -> Option<ClipboardPicture> {
-    let mut clipboard = arboard::Clipboard::new().map_err(|e| log::warn!("clipboard: {e}")).ok()?;
-    if let Ok(files) = clipboard.get().file_list()
-        && !files.is_empty()
-    {
-        return Some(ClipboardPicture::Files(files));
-    }
-    let image = clipboard.get_image().ok()?;
-    Some(ClipboardPicture::Pixels { width: image.width, height: image.height, rgba: image.bytes.into_owned() })
 }
 
 /// Window, Dock and taskbar icon.
@@ -265,14 +281,24 @@ fn main() -> eframe::Result {
         options.viewport = options.viewport.with_icon(icon);
     }
     // Before eframe creates the wgpu instance: default Windows to DirectX 12 only, or OpenGL when
-    // DirectX 12 has no GPU driver, and compile DirectX 12 shaders with FXC, which needs no
-    // DLL of ours (#603; see graphics.rs).
+    // DirectX 12 has no GPU driver or this is a 32-bit build, and compile DirectX 12 shaders with
+    // FXC, which needs no DLL of ours (#603; see graphics.rs).
     #[cfg(target_os = "windows")]
     graphics::configure(&mut options, eframe::wgpu::Backends::from_env());
     load_user_fonts();
     let restored = saved_window();
     if let Some(window) = restored {
         options.viewport = window.apply(options.viewport);
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    // winit has no file drag-and-drop on Wayland (only on X11), so dropping files from the file
+    // manager showed a "no" cursor. Run through XWayland when it's there; WORDCRAFT_WAYLAND=1
+    // keeps the native Wayland backend.
+    if std::env::var_os("DISPLAY").is_some() && std::env::var_os("WORDCRAFT_WAYLAND").is_none() {
+        options.event_loop_builder = Some(Box::new(|b| {
+            use winit::platform::x11::EventLoopBuilderExtX11;
+            b.with_x11();
+        }));
     }
     // Registered before the event loop starts, so it catches the Finder event that launched us as
     // well as later ones. Lives until the event loop returns; the app creator only borrows it.
@@ -284,10 +310,23 @@ fn main() -> eframe::Result {
         "WordCraft",
         options,
         Box::new(move |cc| {
-            let doc = if sample { wordcraft_engine::sample::sample_document() } else { wordcraft_doc::Document::new() };
+            // The system region picks the new document's paper, the units and the decimal
+            // separator (#838).
+            let region = region::system();
+            let doc = if sample { wordcraft_engine::sample::sample_document() } else { wordcraft_engine::blank_document(&region) };
             let (file_dialog, dialogs) = file_dialogs::hook(&cc.egui_ctx);
-            let mut app = WordApp::new(Session::new(doc), services(file_dialog, &cc.egui_ctx));
+            let mut session = Session::new(doc);
+            session.system_region = region;
+            let mut app = WordApp::new(session, services(file_dialog, &cc.egui_ctx));
             load_prefs(&mut app);
+            load_user_dictionary(&mut app);
+            // A region chosen in File › Options replaces the system's for the first blank
+            // document too (#838).
+            if !sample && app.session.prefs.region.is_some() {
+                let doc = app.session.blank_document();
+                app.session.set_document(doc);
+            }
+            app.watch_desktop_theme(&cc.egui_ctx);
             app.ui.window = restored;
             app.integrated_titlebar = cfg!(target_os = "macos");
             let mut key_file = None;
@@ -296,6 +335,12 @@ fn main() -> eframe::Result {
             {
                 app = app.with_control(rx);
                 key_file = file;
+            }
+            // Nothing to open (no files, no sample, no control channel driving the editor): start
+            // on File › Home, as Word does (#766), unless the Start screen option is off. Files
+            // macOS hands over later open on top of it and close it (`apple_events`).
+            if files.is_empty() && !sample && control_port.is_none() {
+                app.start_screen();
             }
             for f in files {
                 if let Err(e) = app.run("file.open", serde_json::json!({"path": f})) {
