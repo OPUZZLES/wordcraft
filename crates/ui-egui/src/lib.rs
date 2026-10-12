@@ -17,6 +17,7 @@ pub mod a11y;
 pub mod a11y_pane;
 pub mod backstage;
 pub mod canvas;
+pub mod caret_glide;
 pub mod chrome;
 pub mod colors;
 pub mod content_controls;
@@ -37,6 +38,9 @@ pub mod dialogs_ribbon;
 pub mod dialogs_smart_art;
 pub mod dialogs_templates;
 pub mod equation_tab;
+/// The built-in file browser, for desktops without a system file dialog (#576).
+#[cfg(not(target_arch = "wasm32"))]
+pub mod file_browser;
 pub mod file_dialogs;
 pub mod frame;
 pub mod i18n;
@@ -55,6 +59,7 @@ pub mod read_aloud;
 pub mod ribbon;
 pub mod scroll;
 pub mod table_pen;
+pub mod table_resize;
 pub mod theme;
 pub mod widgets;
 pub mod window_geometry;
@@ -66,7 +71,7 @@ use serde_json::{Value, json};
 use wordcraft_engine::Session;
 
 pub use control::ControlRequest;
-pub use file_dialogs::FileDialogRequest;
+pub use file_dialogs::{FileDialogAnswer, FileDialogRequest, open_filters};
 
 /// Platform services injected by the host (file dialogs, file I/O).
 #[derive(Default)]
@@ -76,10 +81,11 @@ pub struct Services {
     /// Pick a path to save to, given a suggested name.
     pub pick_save: Option<Box<dyn Fn(&str) -> Option<String>>>,
     /// Desktop: show a native file dialog without blocking the UI thread (#94); used instead of
-    /// `pick_open` / `pick_save` when set. The host sends the picked path (`None` when cancelled)
-    /// through the returned channel once the user answers, and wakes the UI; a dropped sender
-    /// counts as cancelled. The app shows one dialog at a time ([`file_dialogs`]).
-    pub file_dialog: Option<Box<dyn Fn(FileDialogRequest) -> std::sync::mpsc::Receiver<Option<String>>>>,
+    /// `pick_open` / `pick_save` when set. The host sends the picked path (`Ok(None)` when
+    /// cancelled) through the returned channel once the user answers, and wakes the UI; a dropped
+    /// sender counts as cancelled. An `Err` says no system dialog could be shown, and the app shows
+    /// its built-in file browser instead (#576). The app shows one dialog at a time ([`file_dialogs`]).
+    pub file_dialog: Option<Box<dyn Fn(FileDialogRequest) -> std::sync::mpsc::Receiver<FileDialogAnswer>>>,
     /// Web: open a file picker; the file arrives later through `inbox`.
     pub open_async: Option<Box<dyn Fn(&str)>>,
     /// Web: files (name, bytes) delivered asynchronously (picker, drag and drop).
@@ -97,6 +103,15 @@ pub struct Services {
     /// Desktop: the picture on the system clipboard, if any — egui's paste only carries text
     /// (#45). Read when Paste finds no text; see [`paste_picture`].
     pub clipboard_picture: Option<Box<dyn Fn() -> Option<paste_picture::ClipboardPicture>>>,
+    /// Whether the system has animation effects on (Windows: Animation effects; macOS: Reduce
+    /// motion; Linux and the BSDs: the desktop's setting; browsers: `prefers-reduced-motion`), or
+    /// `None` when it doesn't say. What "Use system setting" follows ([`theme::Animations`]).
+    /// Asked every frame, so a change in the system's settings shows at once: the host answers
+    /// from memory and does any slow asking elsewhere. Without the hook, animation effects stay on.
+    pub animations_enabled: Option<Box<dyn Fn() -> Option<bool>>>,
+    /// Desktop: the text on the system clipboard, if any. Ctrl+V gets it from egui's paste event;
+    /// the ribbon and context-menu Paste read it here (#584).
+    pub clipboard_text: Option<Box<dyn Fn() -> Option<String>>>,
     /// Web: keep a font the user added (stored file name, original bytes) for the next visit
     /// (#582). Desktop fonts are stored by the font database itself, in the app's font folder.
     pub store_font: Option<Box<dyn Fn(&str, &[u8])>>,
@@ -128,6 +143,9 @@ pub struct UiState {
     /// Interface size in percent (#475): scales the whole interface on top of the system's
     /// display scale. Junk or out-of-range saved values read as 100 % or are clamped to 80–200 %.
     pub interface_size: theme::InterfaceSize,
+    /// Animation effects (smooth scrolling, fades): on, off, or follow the system's setting, which
+    /// is the default. An unknown saved value reads as the default.
+    pub animations: theme::Animations,
     /// The dark-mode switch `ui.json` held before `theme` (#115): read once to migrate, never written.
     #[serde(rename = "dark", skip_serializing)]
     pub(crate) legacy_dark: Option<bool>,
@@ -154,6 +172,10 @@ pub struct UiState {
     /// View › Switch Modes: show pages dark (white text on black), kept between runs. Only the
     /// pages: the interface follows [`UiState::theme`] (#312).
     pub dark_page: bool,
+    /// File › Options › Advanced › Animation: the caret glides to its new place and its blink
+    /// fades, as Word's does on Windows (on, the default), or it jumps and blinks on and off
+    /// (off).
+    pub caret_animation: bool,
     /// Custom keyboard shortcuts (Customize Keyboard, #368); the session owns them while running.
     pub keyboard: wordcraft_engine::KeyMap,
     /// Custom ribbon tabs and groups, hidden tabs and the Quick Access Toolbar (Customize Ribbon,
@@ -201,6 +223,7 @@ impl Default for UiState {
             recent_colors: Vec::new(),
             theme: theme::Appearance::default(),
             interface_size: theme::InterfaceSize::default(),
+            animations: theme::Animations::default(),
             legacy_dark: None,
             nav_tab: "headings".into(),
             show_discord: true,
@@ -213,6 +236,7 @@ impl Default for UiState {
             keytips: crate::keytips::Phase::Off,
             alt_chord_used: false,
             dark_page: false,
+            caret_animation: true,
             keyboard: wordcraft_engine::KeyMap::default(),
             ribbon: wordcraft_engine::RibbonLayout::default(),
             caption_labels: Vec::new(),
@@ -289,6 +313,10 @@ pub struct WordApp {
     fonts_frames: u32,
     /// The interface theme setting last installed in egui ([`theme::apply`]).
     applied_theme: Option<theme::Appearance>,
+    /// What the system last said about its animation effects ([`Services::animations_enabled`]).
+    system_animations: Option<bool>,
+    /// Whether egui's own animations were last switched on or off ([`theme::apply_animations`]).
+    applied_animations: Option<bool>,
     pub frame_ms: f64,
     /// The window title last sent; a viewport command schedules a repaint, so only send changes.
     sent_title: String,
@@ -317,6 +345,9 @@ pub struct WordApp {
     autosave_path: Option<std::path::PathBuf>,
     /// The file dialog the host is showing, and what its answer is for ([`file_dialogs`]).
     file_dialog: Option<file_dialogs::PendingDialog>,
+    /// The built-in file browser, when it is open, and the folder it showed last (#576).
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) file_browser: file_browser::State,
     /// File › Info: the property field being typed in and the document revision after its last
     /// keystroke, so one visit's keystrokes make a single undo step (and anything else in
     /// between, such as an Undo, starts a new one).
@@ -368,6 +399,8 @@ impl WordApp {
             want_system_cjk: false,
             fonts_frames: 0,
             applied_theme: None,
+            system_animations: None,
+            applied_animations: None,
             frame_ms: 0.0,
             sent_title: String::new(),
             quit_requested: false,
@@ -388,6 +421,8 @@ impl WordApp {
             font_generation: wordcraft_fonts::FontDb::global().generation(),
             dialog_pick: None,
             file_dialog: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            file_browser: file_browser::State::default(),
             info_editing: None,
         }
     }
@@ -464,6 +499,25 @@ impl WordApp {
                 self.session.path.as_ref().and_then(|p| p.file_name()).map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| self.title_stem());
             self.dialog = Some(dialogs::Dialog::SaveChanges { name, then: id.to_string(), params, document: self.session.document_id() });
             return Ok(json!({"pending": "saveChanges"}));
+        }
+        // The ribbon and context-menu Paste commands send no text: read the system clipboard's, as
+        // Ctrl+V's paste event carries it (#584).
+        let mut params = params;
+        if matches!(id, "edit.paste" | "edit.pasteText" | "edit.pasteMerge" | "edit.pasteSpecial")
+            && params.get("text").is_none()
+            && let Some(text) = self.services.clipboard_text.as_ref().and_then(|f| f()).filter(|t| !t.is_empty())
+            && let Some(o) = params.as_object_mut()
+        {
+            // Picture files copied in a file manager reach us as their paths: paste the pictures,
+            // as Ctrl+V does.
+            if id == "edit.paste"
+                && self.session.math.is_none()
+                && paste_picture::names_picture_files(&text)
+                && let Some(r) = paste_picture::paste(self)
+            {
+                return r;
+            }
+            o.insert("text".into(), Value::String(text));
         }
         // Paste without system clipboard text: a picture there is newer than our own copy (copying
         // here replaces it with text), so it wins (#45).
@@ -749,6 +803,22 @@ impl WordApp {
         self.ui.theme.is_dark(self.ctx.as_ref().and_then(egui::Context::system_theme))
     }
 
+    /// Whether animation effects are on: the Animation effects setting, where `System` follows
+    /// what the system last reported (on when it reports nothing).
+    pub fn animations_on(&self) -> bool {
+        self.ui.animations.enabled(self.system_animations)
+    }
+
+    /// What the system last said about its animation effects (`None`: it doesn't say).
+    pub fn system_animations(&self) -> Option<bool> {
+        self.system_animations
+    }
+
+    /// Ask the host for the system's animation setting.
+    fn read_system_animations(&mut self) {
+        self.system_animations = self.services.animations_enabled.as_ref().and_then(|ask| ask());
+    }
+
     /// Commands that live in the UI layer.
     fn ui_command(&mut self, id: &str, p: &Value) -> Option<Result<Value, String>> {
         let s = |k: &str| p.get(k).and_then(Value::as_str);
@@ -839,6 +909,18 @@ impl WordApp {
                 }
                 json!({"percent": self.ui.interface_size.percent()})
             }
+            "ui.animations" => {
+                // `system` (follow the system's animation setting), `on` or `off`; no value reads
+                // it. `enabled` is what that comes to now, `system` what the system reports.
+                if let Some(v) = s("value") {
+                    match theme::Animations::from_code(v) {
+                        Some(a) => self.ui.animations = a,
+                        None => return Some(Err(format!("unknown animations setting {v:?}; use system, on or off"))),
+                    }
+                }
+                self.read_system_animations();
+                json!({"animations": self.ui.animations.code(), "enabled": self.animations_on(), "system": self.system_animations})
+            }
             "ui.language" => {
                 // `auto` (follow the system) or a language code; anything else is an error.
                 if let Some(v) = s("value") {
@@ -863,6 +945,14 @@ impl WordApp {
                 self.open_dialog();
                 json!({})
             }
+            // The built-in file browser (#576), for when the system's file dialog doesn't show up
+            // (desktop only): `purpose` is document (default), picture, recipients or save. A system
+            // dialog still waiting for an answer is given up as cancelled.
+            #[cfg(not(target_arch = "wasm32"))]
+            "ui.fileBrowser" => {
+                self.browse_builtin(s("purpose").unwrap_or("document"));
+                json!({"open": self.file_browser.open.is_some()})
+            }
             // Mailings › Select Recipients › Use an Existing List…: pick a CSV/TSV/text file and
             // load it as the mail-merge recipients. Opens system UI, like `ui.openFileDialog`.
             "ui.openRecipientList" => {
@@ -876,6 +966,16 @@ impl WordApp {
             "ui.discord" => {
                 self.canvas.open_url = Some("https://discord.gg/artcraft".into());
                 json!({})
+            }
+            "ui.caretAnimation" => {
+                // File › Options › Advanced › Animation: `value` true or false turns the caret's
+                // glide and fading blink on or off; no value reads it.
+                match p.get("value") {
+                    None => {}
+                    Some(Value::Bool(on)) => self.ui.caret_animation = *on,
+                    Some(_) => return Some(Err("`value` must be true or false".into())),
+                }
+                json!({"caretAnimation": self.ui.caret_animation})
             }
             // Shape Format › Text › Create Link: the next click on an empty text box links the
             // selected box to it (`shape.link` with that box as the target); Esc cancels.
@@ -1045,6 +1145,14 @@ impl WordApp {
         if ctx.zoom_factor() != zoom {
             ctx.set_zoom_factor(zoom);
         }
+        // Animation effects: the host is asked every frame what the system says (it answers from
+        // memory), so a change made in the system's settings is followed without a restart.
+        self.read_system_animations();
+        let animate = self.animations_on();
+        if self.applied_animations != Some(animate) {
+            theme::apply_animations(ctx, animate);
+            self.applied_animations = Some(animate);
+        }
         if self.ctx.is_none() {
             self.ctx = Some(ctx.clone());
         }
@@ -1168,6 +1276,11 @@ impl WordApp {
         let t0 = now_ms();
         let ctx = ui.ctx().clone();
         i18n::set_current(i18n::Lang::from_pref(&self.ui.language));
+        // Animation effects off: egui's scroll areas get a wheel notch whole, not eased in.
+        if !self.animations_on() {
+            let opts = ctx.options(|o| o.input_options);
+            ctx.input_mut(|i| i.smooth_scroll_delta = scroll::unsmoothed_scroll(i, &opts));
+        }
         // Fonts installed by `logic` take effect on the next frame.
         if self.fonts_frames < 2 {
             self.fonts_frames += 1;
@@ -1191,6 +1304,8 @@ impl WordApp {
         }
         content_controls::popup(self, &ctx);
         dialogs::show(self, &ctx);
+        #[cfg(not(target_arch = "wasm32"))]
+        file_browser::show(self, &ctx);
         colors::show(self, &ctx);
         zotero::show_alert(self, &ctx);
         read_aloud::show(self, &ctx);
@@ -1510,6 +1625,28 @@ mod tests {
         WordApp::new(Session::new(wordcraft_doc::Document::new()), Services::default())
     }
 
+    /// File › Options › Advanced › Animation: the caret's animation is a UI command, kept between
+    /// runs.
+    #[test]
+    fn caret_animation_is_a_ui_command_and_survives_a_restart() {
+        let mut a = app();
+        assert_eq!(a.run("ui.caretAnimation", json!({})).unwrap(), json!({"caretAnimation": true}), "on by default; no value reads it");
+        assert_eq!(a.run("ui.caretAnimation", json!({"value": false})).unwrap(), json!({"caretAnimation": false}));
+        for junk in [json!({"value": "yes"}), json!({"value": 1}), json!({"value": null}), json!({"value": [true]})] {
+            assert!(a.run("ui.caretAnimation", junk).is_err());
+        }
+        assert!(!a.ui.caret_animation, "a rejected value keeps the setting");
+        let saved = serde_json::to_string(&a.prefs()).unwrap();
+        assert!(saved.contains(r#""caretAnimation":false"#), "{saved}");
+        let mut b = app();
+        b.apply_prefs(serde_json::from_str(&saved).unwrap());
+        assert!(!b.ui.caret_animation);
+        // Settings saved before the option existed leave it on.
+        let old: UiState = serde_json::from_str(r#"{"tab":"Insert"}"#).unwrap();
+        assert!(old.caret_animation && old.tab == "Insert");
+        assert_eq!(a.run("ui.caretAnimation", json!({"value": true})).unwrap()["caretAnimation"], true);
+    }
+
     /// Insert › Icons (#309) opens the icon picker from the ribbon; an id inserts without it.
     #[test]
     fn icons_button_opens_the_picker_and_ids_insert_directly() {
@@ -1698,6 +1835,174 @@ mod tests {
         let notch = crate::scroll::notch_px(a.canvas.scale / crate::canvas::PX_PER_PT);
         assert!(first > 0.0 && first < notch, "a notch eases in: {first}");
         assert!((a.canvas.scroll_offset.y - at - notch).abs() < 0.5, "a notch scrolls {notch}: {}", a.canvas.scroll_offset.y - at);
+    }
+
+    /// An app whose host reports the system's animation setting as `system` holds it.
+    fn app_with_system_animations(system: &std::rc::Rc<std::cell::Cell<Option<bool>>>) -> WordApp {
+        let system = system.clone();
+        let services = Services { animations_enabled: Some(Box::new(move || system.get())), ..Default::default() };
+        WordApp::new(Session::new(wordcraft_doc::Document::new()), services)
+    }
+
+    /// Animation effects: "Use system setting" (the default) follows what the host reports and is
+    /// on when it reports nothing; On and Off ignore the system. The choice is kept between runs.
+    #[test]
+    fn animation_effects_setting_follows_the_system_and_survives_a_restart() {
+        use theme::Animations;
+        for (setting, system, on) in [
+            (Animations::System, None, true),
+            (Animations::System, Some(true), true),
+            (Animations::System, Some(false), false),
+            (Animations::On, Some(false), true),
+            (Animations::Off, Some(true), false),
+            (Animations::Off, None, false),
+        ] {
+            assert_eq!(setting.enabled(system), on, "{setting:?} with the system at {system:?}");
+        }
+        // No host hook (tests, headless screenshots): nothing is reported, so they are on.
+        let mut a = app();
+        assert_eq!(a.run("ui.animations", json!({})).unwrap(), json!({"animations": "system", "enabled": true, "system": null}));
+        // The system has them off, as Windows reports with Animation effects switched off.
+        let system = std::rc::Rc::new(std::cell::Cell::new(Some(false)));
+        let mut a = app_with_system_animations(&system);
+        assert_eq!(a.run("ui.animations", json!({})).unwrap(), json!({"animations": "system", "enabled": false, "system": false}));
+        assert_eq!(a.run("ui.animations", json!({"value": "On"})).unwrap()["enabled"], true);
+        system.set(Some(true));
+        assert_eq!(a.run("ui.animations", json!({"value": "off"})).unwrap(), json!({"animations": "off", "enabled": false, "system": true}));
+        assert!(a.run("ui.animations", json!({"value": "sometimes"})).is_err());
+        assert_eq!(a.ui.animations, Animations::Off, "a rejected value keeps the setting");
+        let saved = serde_json::to_string(&a.prefs()).unwrap();
+        assert!(saved.contains(r#""animations":"off""#), "{saved}");
+        let mut b = app();
+        b.apply_prefs(serde_json::from_str(&saved).unwrap());
+        assert_eq!(b.ui.animations, Animations::Off);
+        assert!(!b.animations_on());
+        // Preferences from before the setting, or with a value it doesn't know, follow the system.
+        for raw in [r#"{"tab": "Insert"}"#, r#"{"animations": "wobbly", "tab": "Insert"}"#, r#"{"animations": 3, "tab": "Insert"}"#] {
+            let ui = UiState::from_json(raw.as_bytes()).unwrap();
+            assert_eq!((ui.animations, ui.tab.as_str()), (Animations::System, "Insert"), "{raw}");
+        }
+    }
+
+    /// With the system's animation effects off (what Windows reports with Settings › Accessibility ›
+    /// Visual effects › Animation effects off), a wheel notch scrolls the page its whole distance
+    /// in one frame and egui's own fades and scroll glides are off. A change of the system's
+    /// setting is followed from the next frame.
+    #[test]
+    fn wheel_notches_land_at_once_with_animation_effects_off() {
+        let ctx = egui::Context::default();
+        let system = std::rc::Rc::new(std::cell::Cell::new(Some(false)));
+        let mut a = app_with_system_animations(&system);
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1280.0, 600.0));
+        let mut t = 0.0;
+        let mut frame = |a: &mut WordApp, events: Vec<egui::Event>| {
+            t += 1.0 / 60.0;
+            let input = egui::RawInput { events, time: Some(t), screen_rect: Some(screen), ..Default::default() };
+            ctx.run_ui(input, |ui| {
+                a.logic(ui.ctx());
+                a.ui(ui);
+            })
+            .drop_without_applying_deltas();
+        };
+        for _ in 0..3 {
+            frame(&mut a, Vec::new());
+        }
+        assert!(!a.animations_on());
+        assert_eq!(ctx.global_style().animation_time, 0.0, "no fades");
+        assert_eq!(ctx.global_style().scroll_animation, egui::style::ScrollAnimation::none(), "no glide to the caret");
+        let over_page = a.canvas.canvas_rect.unwrap().center();
+        frame(&mut a, vec![egui::Event::PointerMoved(over_page)]);
+        let notch_down = || egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Line,
+            delta: egui::vec2(0.0, -1.0),
+            phase: egui::TouchPhase::Move,
+            modifiers: egui::Modifiers::NONE,
+        };
+        let notch = crate::scroll::notch_px(a.canvas.scale / crate::canvas::PX_PER_PT);
+        let at = a.canvas.scroll_offset.y;
+        frame(&mut a, vec![notch_down()]);
+        let landed = a.canvas.scroll_offset.y;
+        assert!((landed - at - notch).abs() < 0.5, "the whole notch ({notch}) lands in its frame: {}", landed - at);
+        for _ in 0..30 {
+            frame(&mut a, Vec::new());
+        }
+        assert_eq!(a.canvas.scroll_offset.y, landed, "nothing is left to ease in");
+        // Animation effects are switched back on in the system's settings: the next frame has it.
+        system.set(Some(true));
+        frame(&mut a, Vec::new());
+        assert!(a.animations_on());
+        assert_eq!(ctx.global_style().animation_time, egui::Style::default().animation_time);
+        assert_eq!(ctx.global_style().scroll_animation, egui::Style::default().scroll_animation);
+        frame(&mut a, vec![notch_down()]);
+        let first = a.canvas.scroll_offset.y - landed;
+        assert!(first > 0.0 && first < notch, "a notch eases in again: {first}");
+    }
+
+    /// With animation effects off a zoom step is finished in its own frame: Ctrl+wheel zooms the
+    /// notch's whole step at once, the page is already placed and drawn as it will stay, and the
+    /// status bar's zoom readout follows in the very next frame. Turns that arrive in small pieces
+    /// (a touchpad pinch on Windows) add up to a step first rather than each zooming a little.
+    #[test]
+    fn zoom_steps_land_finished_with_animation_effects_off() {
+        let ctx = egui::Context::default();
+        let system = std::rc::Rc::new(std::cell::Cell::new(Some(false)));
+        let mut a = app_with_system_animations(&system);
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1280.0, 800.0));
+        let mut t = 0.0;
+        // One frame; returns how soon it asked to be drawn again.
+        let mut frame = |a: &mut WordApp, events: Vec<egui::Event>| {
+            t += 1.0 / 60.0;
+            let input = egui::RawInput { events, time: Some(t), screen_rect: Some(screen), ..Default::default() };
+            let out = ctx.run_ui(input, |ui| {
+                a.logic(ui.ctx());
+                a.ui(ui);
+            });
+            let again = out.viewport_output.values().map(|v| v.repaint_delay).min();
+            out.drop_without_applying_deltas();
+            again
+        };
+        for _ in 0..3 {
+            frame(&mut a, Vec::new());
+        }
+        let over_page = a.canvas.canvas_rect.unwrap().center();
+        frame(&mut a, vec![egui::Event::PointerMoved(over_page)]);
+        frame(&mut a, Vec::new());
+        let ctrl_wheel = |notches: f32| egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Line,
+            delta: egui::vec2(0.0, notches),
+            phase: egui::TouchPhase::Move,
+            modifiers: egui::Modifiers::COMMAND,
+        };
+        let opts = egui::InputOptions::default();
+        let notch_zoom = (opts.scroll_zoom_speed * opts.line_scroll_speed).exp();
+        let before = a.canvas.scale;
+        frame(&mut a, vec![ctrl_wheel(1.0)]);
+        let (scale, pages) = (a.canvas.scale, a.canvas.page_rects.clone());
+        assert!((scale / before - notch_zoom).abs() < 1e-3, "the whole notch in its frame: {before} -> {scale}");
+        for _ in 0..30 {
+            frame(&mut a, Vec::new());
+            assert_eq!(a.canvas.scale, scale, "nothing is left to ease in");
+            assert_eq!(a.canvas.page_rects, pages, "the page was already where and how it stays");
+        }
+        // Quarter notches: a step of about 10% with every second one, nothing in between.
+        frame(&mut a, vec![ctrl_wheel(-0.25)]);
+        assert_eq!(a.canvas.scale, scale, "a quarter notch isn't a step yet");
+        frame(&mut a, vec![ctrl_wheel(-0.25)]);
+        let stepped = a.canvas.scale;
+        assert!((stepped / scale - (-0.1_f32).exp()).abs() < 1e-3, "{scale} -> {stepped}");
+        for _ in 0..30 {
+            frame(&mut a, Vec::new());
+        }
+        assert_eq!(a.canvas.scale, stepped);
+        // Zoom Out (the status bar's minus, View › Zoom Out): the page changes in that frame, and
+        // the frame asks for another at once so the readout beside the slider isn't left behind.
+        assert_ne!(frame(&mut a, Vec::new()), Some(std::time::Duration::ZERO), "idle: nothing to redraw at once");
+        a.run("view.zoomOut", json!({})).unwrap();
+        assert_eq!(frame(&mut a, Vec::new()), Some(std::time::Duration::ZERO));
+        let (scale, pages) = (a.canvas.scale, a.canvas.page_rects.clone());
+        assert!(scale < stepped);
+        frame(&mut a, Vec::new());
+        assert_eq!((a.canvas.scale, &a.canvas.page_rects), (scale, &pages));
     }
 
     /// Issue #688: dragging a selection past the viewport's bottom edge scrolls on, and the

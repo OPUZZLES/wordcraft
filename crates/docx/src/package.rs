@@ -19,6 +19,7 @@ pub mod rt {
     pub const CORE: &str = "http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties";
     pub const APP: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties";
     pub const CUSTOM: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/custom-properties";
+    pub const CUSTOM_XML_PROPS: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/customXmlProps";
     pub const STYLES: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles";
     pub const NUMBERING: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering";
     pub const SETTINGS: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings";
@@ -39,6 +40,7 @@ pub mod rt {
     pub const DIAGRAM_LAYOUT: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/diagramLayout";
     pub const DIAGRAM_QUICK_STYLE: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/diagramQuickStyle";
     pub const DIAGRAM_COLORS: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/diagramColors";
+    pub const CUSTOM_XML: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/customXml";
 }
 
 /// `Document::passthrough` key for a macro project, kept as opaque bytes (never parsed or run).
@@ -55,6 +57,9 @@ pub const MAX_VBA_RELATED: usize = 64;
 /// types and own relationships, as [`EmbeddedManifest`] lines. Each part's bytes are kept under its
 /// part name. Not a package part: WordCraft's own bookkeeping.
 pub const EMBEDDED_PARTS: &str = "wordcraft:embedded.parts";
+/// Custom XML roots kept by the package (P) or main document (D): `owner\ttype\tpart`.
+/// Their opaque bytes and related parts use the same bounded manifest as embedded objects.
+pub const CUSTOM_XML_ROOTS: &str = "wordcraft:customXml.roots";
 /// Most parts we carry along for a file's embedded objects.
 pub const MAX_EMBEDDED_PARTS: usize = 4096;
 /// Most relationships we keep for one such part.

@@ -660,6 +660,9 @@
 	Show Markup	Показать исправления
 	Show Notes	Показать сноски
 	Show rulers	Показывать линейки
+	Animate the caret (it glides and fades)	Анимировать курсор (плавно перемещается и угасает)
+	Animation	Анимация
+	On: the caret glides to its new place when you type or use the arrow keys, and its blink fades. Off: it jumps and blinks on and off.	Вкл.: при вводе текста и нажатии клавиш со стрелками курсор плавно перемещается на новое место, а его мигание плавно угасает. Выкл.: курсор перескакивает и резко мигает.
 	Show the community button in the title bar	Показывать кнопку сообщества в заголовке окна
 	Show/Hide ¶	Показать/скрыть ¶
 	Show\nComments	Показать\nкомментарии
@@ -1791,6 +1794,7 @@ preview	Title	Пример
 	Left Only	Только слева
 	Right Only	Только справа
 	Largest Only	Только по большей стороне
+	Resize Table by Dragging	Изменение размера таблицы перетаскиванием
 	Add Font…	Добавить шрифт…
 	Added Fonts	Добавленные шрифты
 	Remove Added Font	Удалить добавленный шрифт
@@ -2131,6 +2135,22 @@ preview	Title	Пример
 	Continuous numbering	Сквозная нумерация
 	Apply	Применить
 	Convert Notes	Преобразовать сноски
+
+# Built-in file browser (#576).
+	Documents	Документы
+	Word document	Документ Word
+	All files	Все файлы
+	Recipient lists	Списки получателей
+	The system file dialog isn't available, so WordCraft shows its own. To get the system dialog, install a file chooser portal (such as xdg-desktop-portal-gtk) or zenity.	Системное диалоговое окно выбора файлов недоступно, поэтому WordCraft показывает собственное. Чтобы пользоваться системным, установите портал выбора файлов (например, xdg-desktop-portal-gtk) или zenity.
+	Up one level	На уровень вверх
+	Home folder	Домашняя папка
+	{name} wasn't found.	{name} не найден.
+	{name} already exists. Choose Save again to replace it.	{name} уже существует. Чтобы заменить его, снова выберите «Сохранить».
+	This folder can't be read: {error}	Не удаётся прочитать папку: {error}
+	Showing the first {count} items.	Показаны первые элементы: {count}.
+	File name:	Имя файла:
+	Browse in WordCraft…	Обзор в WordCraft…
+	Open a file with WordCraft's own browser when the system file dialog doesn't appear.	Открыть файл во встроенном обозревателе WordCraft, если системное диалоговое окно выбора файлов не появляется.
 	Hide White Space	Скрыть пустое место между страницами
 	All pages	Все страницы
 	Current page	Текущая страница
@@ -2147,7 +2167,6 @@ preview	Title	Пример
 	The printer, two-sided printing and pages per sheet are chosen in that dialog.	Принтер, двусторонняя печать и число страниц на листе выбираются в этом диалоге.
 	Previous Page	Предыдущая страница
 	Print to PDF	Печать в PDF
-
 # Word XML Document (#548).
 	Word XML Document (*.xml)	Документ Word XML (*.xml)
 # Find and Replace special characters and wildcards (#543).
@@ -2400,3 +2419,11 @@ preview	Title	Пример
 # Asian and Latin text fonts (#505).
 	Asian text font:	Шрифт азиатского текста:
 	Latin text font:	Шрифт латинского текста:
+	Visual effects	Визуальные эффекты
+	Animation effects:	Эффекты анимации:
+	On	Включено
+	Off	Выключено
+	Smooth scrolling and zooming, and menus and buttons that fade in. Off shows every change at once.	Плавная прокрутка и масштабирование, а также плавное появление меню и кнопок. Если выбрано «Выключено», все изменения отображаются сразу.
+	Your system has animation effects turned on.	В системе эффекты анимации включены.
+	Your system has animation effects turned off.	В системе эффекты анимации выключены.
+	Your system doesn't report an animation setting, so animation effects stay on.	Система не сообщает о настройке анимации, поэтому эффекты анимации остаются включёнными.

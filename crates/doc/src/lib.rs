@@ -445,6 +445,10 @@ pub struct Settings {
     /// Equation options (`m:mathPr`), when the document has them.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub math: Option<math::MathProps>,
+    /// Citation and bibliography style (References › Style) by name, when the document
+    /// records one (OOXML's `b:Sources/@StyleName`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bib_style: Option<String>,
     /// The template the document is attached to (Tools › Templates and Add-ins): the target of
     /// `w:attachedTemplate`'s relationship, a path or `file:` URL as the file gives it.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -525,6 +529,7 @@ impl Default for Settings {
             grid_h: DEFAULT_GRID,
             grid_v: DEFAULT_GRID,
             math: None,
+            bib_style: None,
             attached_template: None,
             link_styles: false,
         }

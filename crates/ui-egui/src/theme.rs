@@ -128,6 +128,72 @@ impl From<InterfaceSize> for u16 {
     }
 }
 
+/// The Animation effects setting (File › Options › Accessibility, `ui.animations`): on, off, or
+/// `System`, which follows the system's own setting as the host reports it
+/// ([`Services::animations_enabled`](crate::Services::animations_enabled): Windows' Animation
+/// effects, macOS' Reduce motion, the Linux/BSD desktop's setting, a browser's
+/// `prefers-reduced-motion`).
+/// Off: wheel notches scroll and zoom at once ([`crate::scroll`]) and nothing fades or glides
+/// ([`apply_animations`]).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(from = "String", into = "String")]
+pub enum Animations {
+    #[default]
+    System,
+    On,
+    Off,
+}
+
+impl Animations {
+    /// In menu order.
+    pub const ALL: [Animations; 3] = [Animations::System, Animations::On, Animations::Off];
+
+    /// The value used in `ui.json` and by the `ui.animations` command.
+    pub fn code(self) -> &'static str {
+        match self {
+            Animations::System => "system",
+            Animations::On => "on",
+            Animations::Off => "off",
+        }
+    }
+
+    pub fn from_code(code: &str) -> Option<Animations> {
+        Animations::ALL.into_iter().find(|a| a.code().eq_ignore_ascii_case(code.trim()))
+    }
+
+    /// The English label (translated with `tl!` where shown).
+    pub fn label(self) -> &'static str {
+        match self {
+            Animations::System => "Use system setting",
+            Animations::On => "On",
+            Animations::Off => "Off",
+        }
+    }
+
+    /// Whether animation effects are on, given what the system reports (`None`: it doesn't say).
+    /// `System` falls back to on when the system reports nothing.
+    pub fn enabled(self, system: Option<bool>) -> bool {
+        match self {
+            Animations::System => system.unwrap_or(true),
+            Animations::On => true,
+            Animations::Off => false,
+        }
+    }
+}
+
+/// An unknown saved value reads as the default rather than discarding the whole `ui.json`.
+impl From<String> for Animations {
+    fn from(s: String) -> Self {
+        Animations::from_code(&s).unwrap_or_default()
+    }
+}
+
+impl From<Animations> for String {
+    fn from(a: Animations) -> Self {
+        a.code().to_string()
+    }
+}
+
 /// Every colour the UI uses; widgets never hard-code colours.
 #[derive(Clone, Copy, Debug)]
 pub struct Tokens {
@@ -509,6 +575,17 @@ pub fn apply(ctx: &egui::Context, appearance: Appearance) {
     ctx.options_mut(|o| {
         o.fallback_theme = egui::Theme::Light;
         o.theme_preference = appearance.preference();
+    });
+}
+
+/// Turn egui's own animations on or off: hover and press fades, menus, tooltips and windows fading
+/// in, sections sliding open, and the glide when a scroll area brings the caret or a list item
+/// into view. Off, each of them happens at once.
+pub fn apply_animations(ctx: &egui::Context, on: bool) {
+    let defaults = egui::Style::default();
+    ctx.all_styles_mut(|s| {
+        s.animation_time = if on { defaults.animation_time } else { 0.0 };
+        s.scroll_animation = if on { defaults.scroll_animation } else { egui::style::ScrollAnimation::none() };
     });
 }
 

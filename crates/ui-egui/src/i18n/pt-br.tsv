@@ -787,6 +787,9 @@
 	Show only comments and formatting in balloons	Mostrar apenas comentários e formatação em balões
 	Show revisions in balloons	Mostrar revisões em balões
 	Show rulers	Mostrar réguas
+	Animation	Animação
+	Animate the caret (it glides and fades)	Animar o ponto de inserção (desliza e esmaece)
+	On: the caret glides to its new place when you type or use the arrow keys, and its blink fades. Off: it jumps and blinks on and off.	Ativado: o ponto de inserção desliza até a nova posição quando você digita ou usa as setas, e o piscar é suave. Desativado: ele salta e pisca de forma brusca.
 	Show the community button in the title bar	Mostrar o botão da comunidade na barra de título
 	Show/Hide ¶	Mostrar/ocultar ¶
 	Show\nComments	Mostrar\ncomentários
@@ -1412,6 +1415,7 @@
 	Deleted	Excluído
 	Interface size:	Tamanho da interface:
 	Makes the ribbon, menus and dialogs larger or smaller, on top of your system's display scaling. Document zoom is separate.	Aumenta ou diminui a faixa de opções, os menus e as caixas de diálogo, além da escala de exibição do sistema. O zoom do documento é separado.
+	Resize Table by Dragging	Redimensionar tabela arrastando
 	Print Markup	Imprimir marcação
 	Comments beside each page and tracked changes in PDFs, prints and images; a comment list at the end of web pages, Markdown and text.	Comentários ao lado de cada página e alterações controladas em PDFs, impressões e imagens; uma lista de comentários no final de páginas da web, Markdown e texto.
 
@@ -1698,6 +1702,22 @@
 	Continuous numbering	Numeração contínua
 	Apply	Aplicar
 	Convert Notes	Converter notas
+
+# Built-in file browser when the system file dialog is unavailable (#576)
+	Documents	Documentos
+	Word document	Documento do Word
+	All files	Todos os arquivos
+	Recipient lists	Listas de destinatários
+	The system file dialog isn't available, so WordCraft shows its own. To get the system dialog, install a file chooser portal (such as xdg-desktop-portal-gtk) or zenity.	A caixa de diálogo de arquivos do sistema não está disponível, então o WordCraft mostra a sua própria. Para usar a do sistema, instale um portal seletor de arquivos (como xdg-desktop-portal-gtk) ou o zenity.
+	Up one level	Subir um nível
+	Home folder	Pasta pessoal
+	{name} wasn't found.	{name} não foi encontrado.
+	{name} already exists. Choose Save again to replace it.	{name} já existe. Escolha Salvar novamente para substituí-lo.
+	This folder can't be read: {error}	Não é possível ler esta pasta: {error}
+	Showing the first {count} items.	Mostrando os primeiros {count} itens.
+	File name:	Nome do arquivo:
+	Browse in WordCraft…	Procurar no WordCraft…
+	Open a file with WordCraft's own browser when the system file dialog doesn't appear.	Abra um arquivo com o navegador próprio do WordCraft quando a caixa de diálogo de arquivos do sistema não aparecer.
 	Hide White Space	Ocultar espaço em branco
 	All pages	Todas as páginas
 	Current page	Página atual
@@ -2019,3 +2039,11 @@
 	Turkish	Turco
 	Ukrainian	Ucraniano
 	{language} is now the document's default language.	{language} agora é o idioma padrão do documento.
+	Visual effects	Efeitos visuais
+	Animation effects:	Efeitos de animação:
+	On	Ativado
+	Off	Desativado
+	Smooth scrolling and zooming, and menus and buttons that fade in. Off shows every change at once.	Rolagem e zoom suaves, e menus e botões que aparecem gradualmente. Com “Desativado”, cada alteração é mostrada de imediato.
+	Your system has animation effects turned on.	Seu sistema está com os efeitos de animação ativados.
+	Your system has animation effects turned off.	Seu sistema está com os efeitos de animação desativados.
+	Your system doesn't report an animation setting, so animation effects stay on.	Seu sistema não informa uma configuração de animação, então os efeitos de animação continuam ativados.

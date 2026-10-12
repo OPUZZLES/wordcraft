@@ -297,6 +297,8 @@ pub fn specs() -> Vec<CommandSpec> {
                 CmdError::Params(format!("style must be one of {:?}", STYLES.iter().map(|x| x.name).collect::<Vec<_>>()))
             })?;
             s.bib_style = st.name.to_string();
+            // Recorded in the document too, so a save keeps it.
+            s.doc.settings.bib_style = Some(st.name.to_string());
             update_citations(s)?;
             Ok(json!({"style": s.bib_style}))
         })
@@ -974,6 +976,71 @@ mod tests {
         assert!(t.contains("(Rivera and Chen)"), "{t}");
         s.run("references.citationStyle", &json!({"style": "IEEE"})).unwrap();
         assert!(s.doc.plain_text(StoryRef::Body).contains("[1]"));
+    }
+
+    #[test]
+    fn bibliography_round_trip_docx() {
+        let mut s = Session::new(wordcraft_doc::Document::new());
+        s.run("text.insert", &json!({"text": "Studios matter "})).unwrap();
+        s.run(
+            "references.citation",
+            &json!({
+                "source": {
+                    "author": "Rivera, Alex; Chen, Mei",
+                    "title": "Shared Spaces",
+                    "year": "2021",
+                    "publisher": "Harbor Books",
+                    "city": "Portland",
+                    "editor": "Johnson, Robert",
+                    "edition": "2nd",
+                    "issue": "4",
+                    "month": "10",
+                    "day": "15",
+                    "accessed": "2024-05-15",
+                    "doi": "10.1000/182"
+                }
+            }),
+        )
+        .unwrap();
+        s.run("text.newParagraph", &json!({})).unwrap();
+        s.run("references.bibliography", &json!({})).unwrap();
+
+        // Serialize to DOCX and back — sources must survive.
+        let bytes = wordcraft_docx::write(&s.doc).expect("docx write");
+        let doc = wordcraft_docx::read(&bytes).expect("docx read");
+        assert_eq!(doc.sources.len(), 1, "round-tripped sources: {:?}", doc.sources);
+        assert_eq!(doc.sources[0].author, "Rivera, Alex; Chen, Mei");
+        assert_eq!(doc.sources[0].title, "Shared Spaces");
+        assert_eq!(doc.sources[0].editor, "Johnson, Robert");
+        assert_eq!(doc.sources[0].edition, "2nd");
+        assert_eq!(doc.sources[0].issue, "4");
+        assert_eq!(doc.sources[0].month, "10");
+        assert_eq!(doc.sources[0].day, "15");
+        assert_eq!(doc.sources[0].accessed, "2024-05-15");
+        assert_eq!(doc.sources[0].doi, "10.1000/182");
+
+        // Round-tripped document in a new session works with citation styles.
+        let mut s2 = Session::new(doc);
+        s2.run("references.citationStyle", &json!({"style": "Harvard (Anglia)"})).unwrap();
+        let t = s2.doc.plain_text(StoryRef::Body);
+        assert!(t.contains("(Rivera and Chen, 2021)"), "{t}");
+        assert!(t.contains("Rivera, A. and Chen, M., 2021. Shared Spaces. Portland: Harbor Books."), "{t}");
+    }
+
+    #[test]
+    fn citation_style_survives_docx_save_and_reopen() {
+        let mut s = Session::new(wordcraft_doc::Document::new());
+        s.run("references.citation", &json!({"source": {"author": "Rivera, Alex", "title": "Shared Spaces", "year": "2021"}})).unwrap();
+        s.run("references.citationStyle", &json!({"style": "Harvard (Anglia)"})).unwrap();
+        let bytes = wordcraft_docx::write(&s.doc).expect("docx write");
+        let doc = wordcraft_docx::read(&bytes).expect("docx read");
+        assert_eq!(doc.settings.bib_style.as_deref(), Some("Harvard (Anglia)"));
+        assert_eq!(Session::new(doc.clone()).bib_style, "Harvard (Anglia)");
+        let mut other = Session::new(wordcraft_doc::Document::new());
+        other.set_document(doc);
+        assert_eq!(other.bib_style, "Harvard (Anglia)");
+        // A document without a recorded style is APA.
+        assert_eq!(Session::new(wordcraft_doc::Document::new()).bib_style, "APA");
     }
 
     #[test]

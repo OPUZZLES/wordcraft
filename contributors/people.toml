@@ -38,6 +38,11 @@ real_name = "Dmitrii Khlapov"
 display_name = "Dima Khlapov"
 sync_github_name = false
 
+[people.arcanii]
+real_name = "Bryan Mark"
+display_name = "Arcanii"
+sync_github_name = false
+
 [people.henno]
 sync_github_name = true
 
@@ -49,3 +54,6 @@ display_name = "Gleyson Carvalho"
 sync_github_name = false
 [people.alexanderalber]
 real_name = "Alexander Alber"
+
+[people.edurbs]
+sync_github_name = true

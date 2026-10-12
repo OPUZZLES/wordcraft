@@ -112,7 +112,7 @@ fn run(app: &mut WordApp, id: &str, params: Value) -> bool {
 }
 
 fn unit() -> wordcraft_geom::Unit {
-    wordcraft_geom::Unit::default()
+    crate::options::unit()
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -680,6 +680,29 @@ mod tests {
         let s = &a.session.doc.settings;
         assert!(s.auto_hyphenation && !s.hyphenate_caps && s.consecutive_hyphen_limit == 2);
         assert!((s.hyphenation_zone - 18.0).abs() < 0.01, "zone untouched: {}", s.hyphenation_zone);
+    }
+
+    /// #755: the Line Numbers "From text" distance and the Hyphenation zone follow the
+    /// File › Options unit (centimeters here); `params` sends points whatever the unit.
+    #[test]
+    fn line_numbers_and_hyphenation_measure_in_the_options_unit() {
+        let mut a = app();
+        a.run("file.options", json!({"units": "centimeters"})).unwrap();
+        a.run("layout.lineNumbers", json!({"value": "restartPage", "start": 1, "countBy": 1, "distance": 18.0})).unwrap();
+        a.run("ui.dialog", json!({"name": "lineNumbers"})).unwrap();
+        let LayoutDialog::LineNumbers(f) = form(&mut a) else { panic!("line numbers") };
+        assert!(!f.auto_distance);
+        let cm = 18.0 / wordcraft_geom::PT_PER_CM;
+        assert!((f.distance - cm).abs() < 0.01, "distance was {} cm", f.distance);
+        let sent = f.params()["distance"].as_f64().unwrap_or_default();
+        assert!((sent - 18.0).abs() < 0.05, "params sent {sent} pt");
+
+        a.run("layout.hyphenation", json!({"value": true, "zone": 36.0})).unwrap();
+        a.run("ui.dialog", json!({"name": "hyphenation"})).unwrap();
+        let LayoutDialog::Hyphenation(h) = form(&mut a) else { panic!("hyphenation") };
+        assert!((h.zone - 36.0 / wordcraft_geom::PT_PER_CM).abs() < 0.01, "zone was {} cm", h.zone);
+        let sent = h.params()["zone"].as_f64().unwrap_or_default();
+        assert!((sent - 36.0).abs() < 0.05, "params sent {sent} pt");
     }
 
     /// #407: the Language button opens the dialog (scripts with a language never see it); OK

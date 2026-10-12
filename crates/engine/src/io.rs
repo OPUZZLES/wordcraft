@@ -2,6 +2,9 @@
 
 use wordcraft_doc::Document;
 
+#[cfg(not(target_arch = "wasm32"))]
+mod safe_save;
+
 /// Formats WordCraft opens.
 pub const OPEN_EXTS: &[&str] = &[
     "docx",
@@ -320,10 +323,7 @@ pub fn save_path(path: &std::path::Path, doc: &Document) -> Result<(), String> {
 #[cfg(not(target_arch = "wasm32"))]
 pub fn save_path_with(path: &std::path::Path, doc: &Document, password: Option<&str>, opts: &ExportOptions) -> Result<(), String> {
     let bytes = save_bytes_with(&path.to_string_lossy(), doc, password, opts)?;
-    // Write atomically: temp file next to the target, then rename.
-    let tmp = path.with_extension(format!("{}.tmp", ext_of(&path.to_string_lossy())));
-    std::fs::write(&tmp, &bytes).map_err(|e| format!("{}: {e}", tmp.display()))?;
-    std::fs::rename(&tmp, path).map_err(|e| format!("{}: {e}", path.display()))
+    safe_save::write(path, &bytes).map_err(|e| format!("{}: {e}", path.display()))
 }
 
 #[cfg(target_arch = "wasm32")]

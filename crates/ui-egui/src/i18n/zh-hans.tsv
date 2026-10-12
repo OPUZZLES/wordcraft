@@ -798,6 +798,9 @@
 	Show only comments and formatting in balloons	仅在批注框中显示批注和格式
 	Show revisions in balloons	在批注框中显示修订
 	Show rulers	显示标尺
+	Animation	动画
+	Animate the caret (it glides and fades)	为光标添加动画（平滑移动并淡入淡出）
+	On: the caret glides to its new place when you type or use the arrow keys, and its blink fades. Off: it jumps and blinks on and off.	开启：输入或使用方向键时，光标平滑移动到新位置，闪烁时淡入淡出。关闭：光标直接跳转，闪烁时直接显示和隐藏。
 	Show the community button in the title bar	在标题栏中显示社区按钮
 	Show/Hide ¶	显示/隐藏 ¶
 	Show\nComments	显示批注
@@ -1412,6 +1415,7 @@
 	Deleted	已删除
 	Interface size:	界面大小：
 	Makes the ribbon, menus and dialogs larger or smaller, on top of your system's display scaling. Document zoom is separate.	在系统显示缩放的基础上放大或缩小功能区、菜单和对话框。文档缩放单独设置。
+	Resize Table by Dragging	拖动调整表格大小
 	Print Markup	打印标记
 	Comments beside each page and tracked changes in PDFs, prints and images; a comment list at the end of web pages, Markdown and text.	在 PDF、打印和图像中于每页旁显示批注和修订；在网页、Markdown 和文本末尾附上批注列表。
 
@@ -1698,6 +1702,22 @@
 	Continuous numbering	连续编号
 	Apply	应用
 	Convert Notes	转换注释
+
+# Built-in file browser when the system file dialog is unavailable (#576)
+	Documents	文档
+	Word document	Word 文档
+	All files	所有文件
+	Recipient lists	收件人列表
+	The system file dialog isn't available, so WordCraft shows its own. To get the system dialog, install a file chooser portal (such as xdg-desktop-portal-gtk) or zenity.	系统文件对话框不可用，因此 WordCraft 显示自己的对话框。要使用系统对话框，请安装文件选择器门户（例如 xdg-desktop-portal-gtk）或 zenity。
+	Up one level	向上一级
+	Home folder	主文件夹
+	{name} wasn't found.	未找到 {name}。
+	{name} already exists. Choose Save again to replace it.	{name} 已存在。再次选择“保存”即可替换它。
+	This folder can't be read: {error}	无法读取此文件夹：{error}
+	Showing the first {count} items.	仅显示前 {count} 项。
+	File name:	文件名:
+	Browse in WordCraft…	在 WordCraft 中浏览…
+	Open a file with WordCraft's own browser when the system file dialog doesn't appear.	当系统文件对话框没有出现时，使用 WordCraft 自带的浏览器打开文件。
 	Hide White Space	隐藏空白
 	All pages	所有页面
 	Current page	当前页
@@ -2019,3 +2039,11 @@
 	Turkish	土耳其语
 	Ukrainian	乌克兰语
 	{language} is now the document's default language.	{language} 现在是此文档的默认语言。
+	Visual effects	视觉效果
+	Animation effects:	动画效果：
+	On	开
+	Off	关
+	Smooth scrolling and zooming, and menus and buttons that fade in. Off shows every change at once.	平滑滚动和缩放，以及菜单和按钮的淡入效果。选择“关”后，所有更改会立即显示。
+	Your system has animation effects turned on.	系统已打开动画效果。
+	Your system has animation effects turned off.	系统已关闭动画效果。
+	Your system doesn't report an animation setting, so animation effects stay on.	系统未提供动画设置，因此动画效果保持打开。

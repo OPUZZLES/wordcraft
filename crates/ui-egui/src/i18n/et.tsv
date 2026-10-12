@@ -692,6 +692,9 @@
 	Show Notes	Kuva märkused
 	Show all formatting marks	Kuva kõik vormindusmärgid
 	Show rulers	Kuva joonlauad
+	Animation	Animatsioon
+	Animate the caret (it glides and fades)	Animeeri tekstikursorit (libiseb ja hajub)
+	On: the caret glides to its new place when you type or use the arrow keys, and its blink fades. Off: it jumps and blinks on and off.	Sees: tekstikursor libiseb tippimisel või nooleklahvide kasutamisel uude kohta ja selle vilkumine hajub sujuvalt. Väljas: kursor hüppab ja vilgub järsult.
 	Show the community button in the title bar	Kuva tiitliribal kogukonna nupp
 	Show the mini toolbar when text is selected	Kuva teksti valimisel minitööriistariba
 	Show/Hide ¶	Kuva/peida ¶
@@ -1402,6 +1405,7 @@
 	Deleted	Kustutatud
 	Interface size:	Kasutajaliidese suurus:
 	Makes the ribbon, menus and dialogs larger or smaller, on top of your system's display scaling. Document zoom is separate.	Muudab menüülindi, menüüd ja dialoogid suuremaks või väiksemaks, lisaks süsteemi ekraani skaleerimisele. Dokumendi suum on eraldi.
+	Resize Table by Dragging	Tabeli suuruse muutmine lohistades
 	Print Markup	Prindi märgistus
 	Comments beside each page and tracked changes in PDFs, prints and images; a comment list at the end of web pages, Markdown and text.	Kommentaarid iga lehe kõrval ja jälitatud muudatused PDF-ides, väljatrükkides ja piltides; kommentaaride loend veebilehtede, Markdowni ja teksti lõpus.
 
@@ -1663,6 +1667,22 @@
 	Continuous numbering	Pidev nummerdus
 	Apply	Rakenda
 	Convert Notes	Teisenda märkused
+
+# Built-in file browser when the system file dialog is unavailable (#576)
+	Documents	Dokumendid
+	Word document	Wordi dokument
+	All files	Kõik failid
+	Recipient lists	Adressaatide loendid
+	The system file dialog isn't available, so WordCraft shows its own. To get the system dialog, install a file chooser portal (such as xdg-desktop-portal-gtk) or zenity.	Süsteemi failidialoog pole saadaval, seega näitab WordCraft enda oma. Süsteemi dialoogi saamiseks paigalda failivalija portaal (näiteks xdg-desktop-portal-gtk) või zenity.
+	Up one level	Taseme võrra üles
+	Home folder	Kodukaust
+	{name} wasn't found.	{name} ei leitud.
+	{name} already exists. Choose Save again to replace it.	{name} on juba olemas. Selle asendamiseks vali uuesti Salvesta.
+	This folder can't be read: {error}	Seda kausta ei saa lugeda: {error}
+	Showing the first {count} items.	Kuvatud on ainult esimesed kirjed: {count}.
+	File name:	Faili nimi:
+	Browse in WordCraft…	Sirvi WordCraftis…
+	Open a file with WordCraft's own browser when the system file dialog doesn't appear.	Ava fail WordCrafti enda failisirvijaga, kui süsteemi failidialoog ei ilmu.
 	Hide White Space	Peida tühi ala lehtede vahel
 	All pages	Kõik leheküljed
 	Current page	Praegune lehekülg
@@ -2017,3 +2037,11 @@
 	Turkish	Türgi
 	Ukrainian	Ukraina
 	{language} is now the document's default language.	{language} on nüüd dokumendi vaikekeel.
+	Visual effects	Visuaalefektid
+	Animation effects:	Animatsiooniefektid:
+	On	Sees
+	Off	Väljas
+	Smooth scrolling and zooming, and menus and buttons that fade in. Off shows every change at once.	Sujuv kerimine ja suumimine ning menüüde ja nuppude sujuv ilmumine. Valikuga „Väljas“ kuvatakse iga muudatus kohe.
+	Your system has animation effects turned on.	Süsteemis on animatsiooniefektid sisse lülitatud.
+	Your system has animation effects turned off.	Süsteemis on animatsiooniefektid välja lülitatud.
+	Your system doesn't report an animation setting, so animation effects stay on.	Süsteem ei teata animatsiooniseadet, seega jäävad animatsiooniefektid sisse.

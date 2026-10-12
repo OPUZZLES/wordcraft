@@ -787,6 +787,9 @@
 	Show only comments and formatting in balloons	僅在註解方塊中顯示註解和格式設定
 	Show revisions in balloons	在註解方塊中顯示修訂
 	Show rulers	顯示尺規
+	Animation	動畫
+	Animate the caret (it glides and fades)	為游標加上動畫（平滑移動並淡入淡出）
+	On: the caret glides to its new place when you type or use the arrow keys, and its blink fades. Off: it jumps and blinks on and off.	開啟：輸入或使用方向鍵時，游標會平滑移動到新位置，閃爍時淡入淡出。關閉：游標直接跳到新位置，閃爍時直接顯示和隱藏。
 	Show the community button in the title bar	在標題列中顯示社群按鈕
 	Show/Hide ¶	顯示/隱藏 ¶
 	Show\nComments	顯示註解
@@ -1401,6 +1404,7 @@
 	Deleted	已刪除
 	Interface size:	介面大小：
 	Makes the ribbon, menus and dialogs larger or smaller, on top of your system's display scaling. Document zoom is separate.	在系統顯示縮放的基礎上放大或縮小功能區、功能表與對話方塊。文件縮放另行設定。
+	Resize Table by Dragging	拖曳調整表格大小
 	Print Markup	列印標記
 	Comments beside each page and tracked changes in PDFs, prints and images; a comment list at the end of web pages, Markdown and text.	在 PDF、列印和影像中於每頁旁顯示註解和修訂；在網頁、Markdown 和文字末尾附上註解清單。
 
@@ -1687,6 +1691,22 @@
 	Continuous numbering	連續編號
 	Apply	套用
 	Convert Notes	轉換附註
+
+# Built-in file browser when the system file dialog is unavailable (#576)
+	Documents	文件
+	Word document	Word 文件
+	All files	所有檔案
+	Recipient lists	收件者清單
+	The system file dialog isn't available, so WordCraft shows its own. To get the system dialog, install a file chooser portal (such as xdg-desktop-portal-gtk) or zenity.	系統檔案對話方塊無法使用，因此 WordCraft 顯示自己的對話方塊。若要使用系統對話方塊，請安裝檔案選擇器入口（例如 xdg-desktop-portal-gtk）或 zenity。
+	Up one level	上移一層
+	Home folder	個人資料夾
+	{name} wasn't found.	找不到 {name}。
+	{name} already exists. Choose Save again to replace it.	{name} 已存在。再次選擇「儲存」即可取代它。
+	This folder can't be read: {error}	無法讀取此資料夾：{error}
+	Showing the first {count} items.	僅顯示前 {count} 個項目。
+	File name:	檔案名稱:
+	Browse in WordCraft…	在 WordCraft 中瀏覽…
+	Open a file with WordCraft's own browser when the system file dialog doesn't appear.	當系統檔案對話方塊沒有出現時，使用 WordCraft 內建的瀏覽器開啟檔案。
 	Hide White Space	隱藏空白
 	All pages	所有頁面
 	Current page	目前頁面
@@ -2008,3 +2028,11 @@
 	Turkish	土耳其文
 	Ukrainian	烏克蘭文
 	{language} is now the document's default language.	{language} 現在是此文件的預設語言。
+	Visual effects	視覺效果
+	Animation effects:	動畫效果：
+	On	開
+	Off	關
+	Smooth scrolling and zooming, and menus and buttons that fade in. Off shows every change at once.	平滑捲動與縮放，以及功能表與按鈕的淡入效果。選擇「關」後，所有變更會立即顯示。
+	Your system has animation effects turned on.	系統已開啟動畫效果。
+	Your system has animation effects turned off.	系統已關閉動畫效果。
+	Your system doesn't report an animation setting, so animation effects stay on.	系統未提供動畫設定，因此動畫效果保持開啟。

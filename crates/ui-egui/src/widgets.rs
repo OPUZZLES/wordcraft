@@ -685,7 +685,8 @@ fn list_rows<'a>(
 /// How a drawn button looks this frame. Hover fades in over egui's animation time and the
 /// pressed state blends in while the pointer is down, as on egui's own buttons. Framed buttons
 /// take egui's widget visuals (fill, stroke, text colour, expansion) so they match `ui.button`;
-/// frameless ones take the ribbon's hover/pressed tokens, like [`small`] and [`big`].
+/// frameless ones take the ribbon's hover/pressed tokens, like [`small`] and [`big`]. With
+/// animation effects off (egui's animation time is zero) both states show at once.
 pub struct DrawnState {
     pub fill: Color32,
     pub stroke: Stroke,
@@ -696,7 +697,7 @@ pub struct DrawnState {
 pub fn drawn_state(ui: &Ui, resp: &Response, framed: bool) -> DrawnState {
     let pressed = resp.is_pointer_button_down_on();
     let h = ui.ctx().animate_bool_responsive(resp.id.with("hover"), resp.hovered() || pressed);
-    let p = ui.ctx().animate_bool_with_time(resp.id.with("press"), pressed, 0.06);
+    let p = ui.ctx().animate_bool_with_time(resp.id.with("press"), pressed, ui.style().animation_time.min(0.06));
     if framed {
         let w = &ui.visuals().widgets;
         let mix = |a: Color32, b: Color32, c: Color32| a.lerp_to_gamma(b, h).lerp_to_gamma(c, p);

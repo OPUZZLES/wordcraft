@@ -1,6 +1,6 @@
 # WordCraft parity with Microsoft Word
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-11 · **Change:** trivial (Show revisions in balloons draws deletion balloons; previously trivial: English spelling knows common modern words, #520; previously trivial: all 12 bibliography styles, #383; previously trivial: formatting revisions landed, #41; previously trivial: Draw Table and Eraser landed, #303; previously minor: readiness table with hours per audience; full number back to the additive weighted sum, 60%; mainstream and essentials numbers added; alpha gate checked; previously major: full re-measure against Word for Mac 16.113.4; replaces the parity tables that lived in ROADMAP.md) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-11 · **Change:** trivial (table borders and the resize handle drag on the page, #217; previously trivial: all 12 bibliography styles, #383; previously trivial: formatting revisions landed, #41; previously trivial: Draw Table and Eraser landed, #303; previously minor: readiness table with hours per audience; full number back to the additive weighted sum, 60%; mainstream and essentials numbers added; alpha gate checked; previously major: full re-measure against Word for Mac 16.113.4; replaces the parity tables that lived in ROADMAP.md) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
 
 The authoritative assessment of how close WordCraft is to Microsoft Word. [`ROADMAP.md`](../ROADMAP.md)
 summarizes it; [`gaps.md`](gaps.md) itemizes every shortfall; the deep checklists are
@@ -13,7 +13,7 @@ The generated ribbon checklist is [`parity-checklist.md`](parity-checklist.md).
 
 | Number | Value | Kind |
 |---|---|---|
-| Ribbon/menu catalog coverage | **482 / 497 (97.0%)** | **measured**: `cargo xtask parity` (re-derived this pass from `crates/engine/src/catalog.rs` against every `CommandSpec::new` id in the source; identical to the checked-in `parity-checklist.md`) |
+| Ribbon/menu catalog coverage | **483 / 498 (97.0%)** | **measured**: `cargo xtask parity` (re-derived this pass from `crates/engine/src/catalog.rs` against every `CommandSpec::new` id in the source; identical to the checked-in `parity-checklist.md`) |
 | Feature breadth (weighted, beyond the ribbon: dialog options, citation styles, proofing languages, chart types, UI languages) | **~80%** | estimated |
 | Feature depth (weighted by use, table below) | **~68%** | estimated |
 | **Ready for real work** (full target) | **~60%** (range 55–63%) | estimated: weighted sum over the dimension table ([By dimension](#by-dimension)) |
@@ -60,7 +60,7 @@ full parity for the area.
 | Character and paragraph formatting | 11 | 82% | 85% | 8–12 | Nearly every property, Font/Paragraph dialogs, character border, Phonetic Guide (#288), Enclose Characters (#297). Missing: Asian Typography, kerning/ligature/stylistic-set options in the Font dialog's Advanced tab. |
 | Styles and themes | 8 | 74% | 75% | 8–12 | Gallery, pane, create/modify, style sets, themes. Style Inspector landed (#236). Missing: Manage Styles (#270 open), style separators, linked-style edge cases; Word ships 11 Quick Style sets plus dozens of themes, we ship our own smaller set. |
 | Lists | 6 | 78% | 75% | 5–8 | Bullets, numbering, multilevel, restart, `w:lvlOverride` levels (#134), Word's list AutoFormat and Enter/Backspace behaviour. Missing: Define New Multilevel List dialog depth, list styles, legal numbering edge cases. |
-| Tables | 8 | 76% | 72% | 10–16 | Merge/split, styles (cell text takes style formatting, #104), custom table styles saved in the .docx (#256), Word 2013 edge, floating tables, rows split across pages, sort, formula, cell gridlines (#243), Draw Table and Eraser (#303). Missing: splitting or erasing around vertically merged cells, nested-table polish, interactive column resize (#49 open, #217). Cell text direction landed (#245). |
+| Tables | 8 | 76% | 72% | 10–16 | Merge/split, styles (cell text takes style formatting, #104), custom table styles saved in the .docx (#256), Word 2013 edge, floating tables, rows split across pages, sort, formula, cell gridlines (#243), Draw Table and Eraser (#303). Missing: splitting or erasing around vertically merged cells, nested-table polish, table column markers on the ruler (#49). Dragging column and row borders and the resize handle on the page landed (#217); cell text direction landed (#245). |
 | Page layout and sections | 7 | 70% | 72% | 12–20 | Margins, size, columns, breaks, page borders, line numbers, vertical alignment, drop caps, hyphenation. Columns don't balance; RTL sections missing. Vertical sections (tbRl/btLr) landed (#491). Detail: [layout-parity.md](layout-parity.md). |
 | Headers, footers, page numbers, fields | 5 | 70% | 70% | 8–12 | First/even/odd, link to previous, TOC as an updatable field (#52), cross-references to real bookmarks (#227). Field coverage is a subset of Word's ~90 field codes; Field dialog missing. |
 | Footnotes and endnotes | 3 | 60% | 60% | 3–5 | Placed and editable, numbers from Word files (#103); long notes continue onto the next page under the continuation separator (#352). Footnote and Endnote dialog with options per section: below text, end of section, number format, start at, restart each section or page, custom mark, convert (#385). |
@@ -105,7 +105,7 @@ h), pictures and tables (12–18 h), spelling depth (8–12 h), polish (10–20 
 
 | Discount | Mainstream | Essentials | Evidence |
 |---|---|---|---|
-| Interaction fidelity | ×0.93 | — | Typing pinned to Word (`tests_typing.rs`), ribbon, keytips, mini-toolbar; but 16 modal dialogs against Word's ~100, 125 of ~250 shortcuts, no table column drag on the canvas (#217, #49), picture/shape handling complaints (#82, #142), lines wrap differently without an Aptos-metric font |
+| Interaction fidelity | ×0.93 | — | Typing pinned to Word (`tests_typing.rs`), ribbon, keytips, mini-toolbar; but 16 modal dialogs against Word's ~100, 125 of ~250 shortcuts, picture/shape handling complaints (#82, #142), lines wrap differently without an Aptos-metric font |
 | Discoverability and UI clarity | — | ×0.95 | Word-style ribbon a Word user already knows, command search, keytips; some newer pane strings and tooltips terse or untranslated |
 | Stability on real machines | ×0.90 | ×0.90 (launch and install) | Never-crash standard, hostile-param fuzzing, panic guard; but open startup crash on Intel UHD (#170), freezes (#77, #59, #31), Windows writes fail without admin (#218), installer conflicts with other Crafting Apps (#64, #73, #106, #51); 5 days of field history |
 | Exchanging files with Word users | ×0.90 | ×0.92 (opening files people send) | Word opens our .docx; `.doc` import; but no real-world corpus test, charts/SmartArt/OLE dropped silently, pagination differs (Aptos, no column balancing or footnote continuation). Simple documents, which are most of what a casual user receives, come through well; double-click open on macOS is fixed on main but not yet released (#223, #279) |
@@ -251,6 +251,7 @@ can be used without committing Word output.
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-11 | trivial | Tables: column and row borders and the resize handle drag on the page (#217); Tables row and interaction-fidelity evidence updated, no percentage change |
 | 2026-10-11 | trivial | Review: Show revisions in balloons takes tracked deletions in the body out of the text into "Deleted: …" balloons (it drew like the comments-and-formatting mode before); Review row updated, no percentage change |
 | 2026-10-11 | trivial | Insert › SmartArt (#497): charts/SmartArt row updated; catalog 429/451 → 437/458 (95.4%); no percentage change |
 | 2026-10-11 | trivial | Outline view depth (#493): View row updated; catalog 428/450 → 441/463 (95.2%) with the Outlining tab rows |
