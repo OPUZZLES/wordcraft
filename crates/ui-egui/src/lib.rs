@@ -97,6 +97,9 @@ pub struct Services {
     /// Desktop: the picture on the system clipboard, if any — egui's paste only carries text
     /// (#45). Read when Paste finds no text; see [`paste_picture`].
     pub clipboard_picture: Option<Box<dyn Fn() -> Option<paste_picture::ClipboardPicture>>>,
+    /// Desktop: the text on the system clipboard, if any. Ctrl+V gets it from egui's paste event;
+    /// the ribbon and context-menu Paste read it here (#584).
+    pub clipboard_text: Option<Box<dyn Fn() -> Option<String>>>,
     /// Web: keep a font the user added (stored file name, original bytes) for the next visit
     /// (#582). Desktop fonts are stored by the font database itself, in the app's font folder.
     pub store_font: Option<Box<dyn Fn(&str, &[u8])>>,
@@ -464,6 +467,25 @@ impl WordApp {
                 self.session.path.as_ref().and_then(|p| p.file_name()).map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| self.title_stem());
             self.dialog = Some(dialogs::Dialog::SaveChanges { name, then: id.to_string(), params, document: self.session.document_id() });
             return Ok(json!({"pending": "saveChanges"}));
+        }
+        // The ribbon and context-menu Paste commands send no text: read the system clipboard's, as
+        // Ctrl+V's paste event carries it (#584).
+        let mut params = params;
+        if matches!(id, "edit.paste" | "edit.pasteText" | "edit.pasteMerge" | "edit.pasteSpecial")
+            && params.get("text").is_none()
+            && let Some(text) = self.services.clipboard_text.as_ref().and_then(|f| f()).filter(|t| !t.is_empty())
+            && let Some(o) = params.as_object_mut()
+        {
+            // Picture files copied in a file manager reach us as their paths: paste the pictures,
+            // as Ctrl+V does.
+            if id == "edit.paste"
+                && self.session.math.is_none()
+                && paste_picture::names_picture_files(&text)
+                && let Some(r) = paste_picture::paste(self)
+            {
+                return r;
+            }
+            o.insert("text".into(), Value::String(text));
         }
         // Paste without system clipboard text: a picture there is newer than our own copy (copying
         // here replaces it with text), so it wins (#45).
@@ -1698,6 +1720,59 @@ mod tests {
         let notch = crate::scroll::notch_px(a.canvas.scale / crate::canvas::PX_PER_PT);
         assert!(first > 0.0 && first < notch, "a notch eases in: {first}");
         assert!((a.canvas.scroll_offset.y - at - notch).abs() < 0.5, "a notch scrolls {notch}: {}", a.canvas.scroll_offset.y - at);
+    }
+
+    /// Issue #688: dragging a selection past the viewport's bottom edge scrolls on, and the
+    /// selection keeps growing as the content moves under the stationary pointer.
+    #[test]
+    fn dragging_a_selection_past_the_viewport_edge_auto_scrolls() {
+        let ctx = egui::Context::default();
+        let mut a = app();
+        // A few pages of text, so there is content below the fold.
+        a.run("text.insert", json!({"text": "lorem ipsum dolor sit amet consectetur ".repeat(1200)})).unwrap();
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1280.0, 600.0));
+        let mut t = 0.0;
+        let mut frame = |a: &mut WordApp, events: Vec<egui::Event>| {
+            t += 1.0 / 60.0;
+            let input = egui::RawInput { events, time: Some(t), screen_rect: Some(screen), ..Default::default() };
+            ctx.run_ui(input, |ui| {
+                a.logic(ui.ctx());
+                a.ui(ui);
+            })
+            .drop_without_applying_deltas();
+        };
+        for _ in 0..3 {
+            frame(&mut a, Vec::new());
+        }
+        let (Some(vp), Some(page)) = (a.canvas.viewport, a.canvas.page_rects.first()) else { panic!("the canvas laid out") };
+        let start = page.left_top() + egui::vec2(120.0, 150.0);
+        frame(&mut a, vec![egui::Event::PointerMoved(start)]);
+        frame(
+            &mut a,
+            vec![egui::Event::PointerButton { pos: start, button: egui::PointerButton::Primary, pressed: true, modifiers: Default::default() }],
+        );
+        assert!(a.canvas.drag_selecting(), "the press started a drag-select");
+        let base = a.session.sel.focus.clone();
+        // Hold the pointer just past the viewport's bottom edge and let the frames run.
+        let below = egui::pos2(vp.center().x, vp.max.y + 40.0);
+        for _ in 0..30 {
+            frame(&mut a, vec![egui::Event::PointerMoved(below)]);
+        }
+        assert!(a.canvas.scroll_offset.y > 0.0, "the view scrolled toward later content");
+        assert!(a.session.sel.focus > base, "the selection followed the content");
+        // The pointer never moves; the content keeps scrolling under it, so the selection must
+        // keep growing.
+        let grown = a.session.sel.focus.clone();
+        for _ in 0..15 {
+            frame(&mut a, vec![egui::Event::PointerMoved(below)]);
+        }
+        assert!(a.session.sel.focus > grown, "the selection keeps growing under a stationary pointer");
+        frame(
+            &mut a,
+            vec![egui::Event::PointerButton { pos: below, button: egui::PointerButton::Primary, pressed: false, modifiers: Default::default() }],
+        );
+        assert!(!a.canvas.drag_selecting());
+        assert!(!a.session.sel.is_collapsed(), "the drag left a selection");
     }
 
     /// Issue #123: zoomed out, pages sit side by side, and clicks map to the page under the pointer.

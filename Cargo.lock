@@ -5001,11 +5001,14 @@ name = "wordcraft"
 version = "0.5.0"
 dependencies = [
  "arboard",
+ "dispatch2",
  "eframe",
  "egui",
  "fmv-macos-events",
  "getrandom 0.3.4",
  "log",
+ "objc2 0.6.5",
+ "objc2-app-kit 0.3.2",
  "open",
  "pollster 0.4.0",
  "rfd",

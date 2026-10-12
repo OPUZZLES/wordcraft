@@ -11,7 +11,7 @@ use wordcraft_doc::props::{
 use wordcraft_doc::section::{Columns, DocGrid, DocGridType, LineNumberRestart, LineNumbering, NumFormat, SectionProps, SectionStart};
 use wordcraft_doc::styles::{Style, StyleKind};
 use wordcraft_doc::table::{Cell, Table};
-use wordcraft_doc::{Block, Blocks, Comment, Document, InlineObject, Paragraph, PartKind, Revision, RevisionKind, Watermark, para_block};
+use wordcraft_doc::{Block, Blocks, Comment, Document, InlineObject, Paragraph, PartKind, Revision, RevisionKind, Source, Watermark, para_block};
 
 fn rt(doc: &Document) -> Document {
     let bytes = wordcraft_docx::write(doc).expect("write");
@@ -1260,6 +1260,21 @@ fn kitchen_sink() -> Document {
     blocks.push(Arc::new(Block::Table(t)));
     blocks.push(para_block(Paragraph::new()));
     d.body = blocks;
+    d.sources.push(Source {
+        tag: "Sink2026".into(),
+        kind: "book".into(),
+        author: "Author, First".into(),
+        title: "Title".into(),
+        year: "2026".into(),
+        editor: "Editor, Chief".into(),
+        edition: "3rd".into(),
+        issue: "2".into(),
+        month: "08".into(),
+        day: "24".into(),
+        accessed: "2026-08-25".into(),
+        doi: "10.1234/sink.2026".into(),
+        ..Default::default()
+    });
     d
 }
 
@@ -1275,6 +1290,7 @@ fn second_generation_is_stable() {
     assert_eq!(d2.revisions, d1.revisions);
     assert_eq!(d2.settings, d1.settings);
     assert_eq!(d2.media, d1.media);
+    assert_eq!(d2.sources, d1.sources);
     assert_eq!(d2, d1);
 }
 
@@ -1701,6 +1717,154 @@ fn rotated_group_and_shadow_rotation_round_trip() {
         })
         .collect();
     assert_eq!(got, [(20.0, Some(true)), (20.0, Some(false))]);
+}
+
+#[test]
+fn bibliography_sources_round_trip() {
+    let mut d = Document::new();
+    d.sources.push(Source {
+        tag: "Rivera2021".into(),
+        kind: "book".into(),
+        author: "Rivera, Alex; Chen, Mei".into(),
+        title: "Shared Spaces".into(),
+        year: "2021".into(),
+        publisher: "Harbor Books".into(),
+        city: "Portland".into(),
+        editor: "Johnson, Robert".into(),
+        edition: "2nd".into(),
+        month: "10".into(),
+        day: "15".into(),
+        ..Default::default()
+    });
+    d.sources.push(Source {
+        tag: "Smith2023".into(),
+        kind: "article".into(),
+        author: "Smith, John David".into(),
+        title: "Modern Typography".into(),
+        year: "2023".into(),
+        journal: "Design Quarterly".into(),
+        volume: "12".into(),
+        pages: "45-60".into(),
+        url: "https://example.com/typo".into(),
+        issue: "4".into(),
+        doi: "10.1000/182".into(),
+        ..Default::default()
+    });
+    d.sources.push(Source {
+        tag: "WebSite2024".into(),
+        kind: "website".into(),
+        author: "Solo".into(),
+        title: "Open Fonts".into(),
+        year: "2024".into(),
+        url: "https://example.org".into(),
+        accessed: "2024-05-15".into(),
+        ..Default::default()
+    });
+    d.sources.push(Source {
+        tag: "Chapter2025".into(),
+        kind: "bookSection".into(),
+        author: "Lee, Harper".into(),
+        title: "Chapter One".into(),
+        year: "2025".into(),
+        journal: "Anthology of Prose".into(),
+        pages: "1-20".into(),
+        ..Default::default()
+    });
+    d.sources.push(Source {
+        tag: "Misc2026".into(),
+        kind: "other".into(),
+        title: "Archive Manuscript".into(),
+        year: "2026".into(),
+        city: "Oxford".into(),
+        ..Default::default()
+    });
+
+    let bytes = wordcraft_docx::write(&d).expect("write");
+    let mut zip = zip::ZipArchive::new(std::io::Cursor::new(&bytes)).unwrap();
+
+    // Verify package-root customXml parts exist
+    assert!(zip.by_name("customXml/item1.xml").is_ok());
+    assert!(zip.by_name("customXml/itemProps1.xml").is_ok());
+    assert!(zip.by_name("customXml/_rels/item1.xml.rels").is_ok());
+
+    let mut rels_xml = String::new();
+    std::io::Read::read_to_string(&mut zip.by_name("_rels/.rels").unwrap(), &mut rels_xml).unwrap();
+    assert!(rels_xml.contains("relationships/customXml"), "{rels_xml}");
+    assert!(rels_xml.contains("Target=\"customXml/item1.xml\""), "{rels_xml}");
+
+    let mut ct_xml = String::new();
+    std::io::Read::read_to_string(&mut zip.by_name("[Content_Types].xml").unwrap(), &mut ct_xml).unwrap();
+    assert!(ct_xml.contains("PartName=\"/customXml/item1.xml\""), "{ct_xml}");
+    assert!(ct_xml.contains("PartName=\"/customXml/itemProps1.xml\""), "{ct_xml}");
+
+    let mut item_xml = String::new();
+    std::io::Read::read_to_string(&mut zip.by_name("customXml/item1.xml").unwrap(), &mut item_xml).unwrap();
+    assert!(item_xml.contains("SelectedStyle=\"\\APA.XSL\""), "{item_xml}");
+    assert!(item_xml.contains("StyleName=\"APA\""), "{item_xml}");
+    assert!(item_xml.contains("<b:SourceType>Book</b:SourceType>"), "{item_xml}");
+    assert!(item_xml.contains("<b:SourceType>JournalArticle</b:SourceType>"), "{item_xml}");
+    assert!(item_xml.contains("<b:SourceType>InternetSite</b:SourceType>"), "{item_xml}");
+    assert!(item_xml.contains("<b:SourceType>BookSection</b:SourceType>"), "{item_xml}");
+    assert!(item_xml.contains("<b:SourceType>Misc</b:SourceType>"), "{item_xml}");
+    assert!(item_xml.contains("<b:Author><b:Author><b:NameList><b:Person>"), "{item_xml}");
+    assert!(item_xml.contains("<b:Last>Rivera</b:Last><b:First>Alex</b:First>"), "{item_xml}");
+    assert!(item_xml.contains("<b:Last>Smith</b:Last><b:First>John</b:First><b:Middle>David</b:Middle>"), "{item_xml}");
+    assert!(item_xml.contains("<b:Last>Solo</b:Last>"), "{item_xml}");
+    assert!(item_xml.contains("<b:Editor>"), "{item_xml}");
+    assert!(item_xml.contains("<b:Last>Johnson</b:Last><b:First>Robert</b:First>"), "{item_xml}");
+    assert!(item_xml.contains("<b:Edition>2nd</b:Edition>"), "{item_xml}");
+    assert!(item_xml.contains("<b:Month>10</b:Month>"), "{item_xml}");
+    assert!(item_xml.contains("<b:Day>15</b:Day>"), "{item_xml}");
+    assert!(item_xml.contains("<b:Issue>4</b:Issue>"), "{item_xml}");
+    assert!(item_xml.contains("<b:DOI>10.1000/182</b:DOI>"), "{item_xml}");
+    assert!(item_xml.contains("<b:YearAccessed>2024</b:YearAccessed>"), "{item_xml}");
+    assert!(item_xml.contains("<b:MonthAccessed>05</b:MonthAccessed>"), "{item_xml}");
+    assert!(item_xml.contains("<b:DayAccessed>15</b:DayAccessed>"), "{item_xml}");
+    assert!(item_xml.contains("<b:Accessed>2024-05-15</b:Accessed>"), "{item_xml}");
+
+    let back = wordcraft_docx::read(&bytes).expect("read");
+    assert_eq!(back.sources.len(), 5);
+    assert_eq!(back.sources[0].tag, "Rivera2021");
+    assert_eq!(back.sources[0].kind, "book");
+    assert_eq!(back.sources[0].author, "Rivera, Alex; Chen, Mei");
+    assert_eq!(back.sources[0].title, "Shared Spaces");
+    assert_eq!(back.sources[0].year, "2021");
+    assert_eq!(back.sources[0].publisher, "Harbor Books");
+    assert_eq!(back.sources[0].city, "Portland");
+    assert_eq!(back.sources[0].editor, "Johnson, Robert");
+    assert_eq!(back.sources[0].edition, "2nd");
+    assert_eq!(back.sources[0].month, "10");
+    assert_eq!(back.sources[0].day, "15");
+
+    assert_eq!(back.sources[1].tag, "Smith2023");
+    assert_eq!(back.sources[1].kind, "article");
+    assert_eq!(back.sources[1].author, "Smith, John David");
+    assert_eq!(back.sources[1].title, "Modern Typography");
+    assert_eq!(back.sources[1].journal, "Design Quarterly");
+    assert_eq!(back.sources[1].volume, "12");
+    assert_eq!(back.sources[1].pages, "45-60");
+    assert_eq!(back.sources[1].url, "https://example.com/typo");
+    assert_eq!(back.sources[1].issue, "4");
+    assert_eq!(back.sources[1].doi, "10.1000/182");
+
+    assert_eq!(back.sources[2].tag, "WebSite2024");
+    assert_eq!(back.sources[2].kind, "website");
+    assert_eq!(back.sources[2].author, "Solo");
+    assert_eq!(back.sources[2].title, "Open Fonts");
+    assert_eq!(back.sources[2].url, "https://example.org");
+    assert_eq!(back.sources[2].accessed, "2024-05-15");
+
+    assert_eq!(back.sources[3].tag, "Chapter2025");
+    assert_eq!(back.sources[3].kind, "bookSection");
+    assert_eq!(back.sources[3].author, "Lee, Harper");
+    assert_eq!(back.sources[3].title, "Chapter One");
+    assert_eq!(back.sources[3].journal, "Anthology of Prose");
+    assert_eq!(back.sources[3].pages, "1-20");
+
+    assert_eq!(back.sources[4].tag, "Misc2026");
+    assert_eq!(back.sources[4].kind, "other");
+    assert_eq!(back.sources[4].title, "Archive Manuscript");
+    assert_eq!(back.sources[4].city, "Oxford");
 }
 
 #[test]
