@@ -1702,6 +1702,9 @@
 	Continuous numbering	Numeração contínua
 	Apply	Aplicar
 	Convert Notes	Converter notas
+	English (United Kingdom)	Inglês (Reino Unido)
+	Polish	Polonês
+	Do Not Check Spelling or Grammar	Não verificar ortografia nem gramática
 
 # Built-in file browser when the system file dialog is unavailable (#576)
 	Documents	Documentos
@@ -1992,7 +1995,6 @@
 	Detect language automatically	Detectar o idioma automaticamente
 	Do not check spelling or grammar	Não verificar ortografia nem gramática
 	Dutch	Holandês
-	English (United Kingdom)	Inglês (Reino Unido)
 	Envelope size:	Tamanho do envelope:
 	Estonian	Estoniano
 	Finnish	Finlandês
@@ -2021,7 +2023,6 @@
 	Numbering:	Numeração:
 	Omit	Omitir
 	One label per recipient	Uma etiqueta por destinatário
-	Polish	Polonês
 	Portuguese (Brazil)	Português (Brasil)
 	Portuguese (Portugal)	Português (Portugal)
 	Return address labels	Etiquetas de remetente

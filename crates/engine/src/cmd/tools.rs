@@ -577,7 +577,7 @@ pub fn specs() -> Vec<CommandSpec> {
         })
         .params(r#"{"format": "decimal|upperRoman|lowerLetter…", "text"?: "%1.", "start"?: n}"#),
         CommandSpec::new("review.language", "Language", "Review › Language", language).params(
-            r#"{"lang"?: "en-US|en-GB|fr-FR|…", "noProof"?: bool, "detect"?: bool (detect language automatically, a preference), "default"?: bool (make `lang` the document's default language instead)}"#,
+            r#"{"lang"?: "en-US|en-GB|pl-PL|fr-FR|…" (BCP 47; default en-US), "noProof"?: bool, "detect"?: bool (detect language automatically, a preference), "default"?: bool (also the document's default language)}"#,
         ),
         CommandSpec::new("review.showMarkup", "Show Markup", "Review › Tracking", |s, v| {
             s.view.show_markup = p::bool(v, "value").unwrap_or(!s.view.show_markup);
@@ -633,8 +633,10 @@ pub fn specs() -> Vec<CommandSpec> {
 /// Nothing at all sets US English, as before.
 fn language(s: &mut Session, v: &Value) -> CmdResult {
     let lang = match p::str(v, "lang") {
-        Some(l) if !l.is_empty() && l.len() <= 35 && l.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') => Some(l.to_string()),
-        Some(l) => return Err(CmdError::Params(format!("`{l}` is not a language tag"))),
+        Some(t) => Some(
+            wordcraft_proof::lang::normalize_tag(t)
+                .ok_or_else(|| CmdError::Params(format!("`lang` must be a language tag such as pl-PL or en-US, not {t:?}")))?,
+        ),
         None => None,
     };
     let no_proof = p::bool(v, "noProof");
@@ -643,15 +645,14 @@ fn language(s: &mut Session, v: &Value) -> CmdResult {
         s.prefs.detect_language = d;
     }
     if p::bool(v, "default") == Some(true) {
-        let l = lang.ok_or_else(|| CmdError::Params("`lang` is required with `default`".into()))?;
+        let l = lang.clone().ok_or_else(|| CmdError::Params("`default` needs `lang`".into()))?;
         s.doc.styles.default_chr.lang = Some(l.clone());
         // A Normal style that names its own language follows the new default.
         if let Some(n) = s.doc.styles.styles.iter_mut().find(|x| x.id == "Normal")
             && n.chr.lang.is_some()
         {
-            n.chr.lang = Some(l.clone());
+            n.chr.lang = Some(l);
         }
-        return Ok(json!({"default": l, "detect": s.prefs.detect_language}));
     }
     let lang = match (lang, no_proof, detect) {
         (None, None, None) => Some("en-US".to_string()),

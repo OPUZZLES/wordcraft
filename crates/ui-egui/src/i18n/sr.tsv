@@ -1704,6 +1704,9 @@
 	Continuous numbering	Непрекидна нумерација
 	Apply	Примени
 	Convert Notes	Претвори напомене
+	English (United Kingdom)	Енглески (Велика Британија)
+	Polish	Пољски
+	Do Not Check Spelling or Grammar	Не проверавај правопис и граматику
 
 # Built-in file browser when the system file dialog is unavailable (#576)
 	Documents	Документи
@@ -1994,7 +1997,6 @@
 	Detect language automatically	Аутоматски препознај језик
 	Do not check spelling or grammar	Не проверавај правопис ни граматику
 	Dutch	Холандски
-	English (United Kingdom)	Енглески (Уједињено Краљевство)
 	Envelope size:	Величина коверте:
 	Estonian	Естонски
 	Finnish	Фински
@@ -2023,7 +2025,6 @@
 	Numbering:	Нумерисање:
 	Omit	Изостави
 	One label per recipient	Једна налепница по примаоцу
-	Polish	Пољски
 	Portuguese (Brazil)	Португалски (Бразил)
 	Portuguese (Portugal)	Португалски (Португалија)
 	Return address labels	Налепнице са адресом пошиљаоца

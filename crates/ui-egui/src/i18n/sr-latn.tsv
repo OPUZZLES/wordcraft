@@ -1700,6 +1700,9 @@
 	Continuous numbering	Neprekidna numeracija
 	Apply	Primeni
 	Convert Notes	Pretvori napomene
+	English (United Kingdom)	Engleski (Velika Britanija)
+	Polish	Poljski
+	Do Not Check Spelling or Grammar	Ne proveravaj pravopis i gramatiku
 
 # Built-in file browser when the system file dialog is unavailable (#576)
 	Documents	Dokumenti
@@ -1990,7 +1993,6 @@
 	Detect language automatically	Automatski prepoznaj jezik
 	Do not check spelling or grammar	Ne proveravaj pravopis ni gramatiku
 	Dutch	Holandski
-	English (United Kingdom)	Engleski (Ujedinjeno Kraljevstvo)
 	Envelope size:	Veličina koverte:
 	Estonian	Estonski
 	Finnish	Finski
@@ -2019,7 +2021,6 @@
 	Numbering:	Numerisanje:
 	Omit	Izostavi
 	One label per recipient	Jedna nalepnica po primaocu
-	Polish	Poljski
 	Portuguese (Brazil)	Portugalski (Brazil)
 	Portuguese (Portugal)	Portugalski (Portugalija)
 	Return address labels	Nalepnice sa adresom pošiljaoca
