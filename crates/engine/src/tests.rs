@@ -1423,6 +1423,111 @@ fn toc_and_fields() {
 }
 
 #[test]
+fn toc_refresh_after_save_and_reopen() {
+    for extension in ["docx", "json"] {
+        for (headings, levels) in [(&["Top"][..], 1), (&["Top", "Next"][..], 1), (&["Top"][..], 4)] {
+            let mut s = s();
+            run(&mut s, "document.setText", json!({"text": headings.join("\n")}));
+            for i in 0..headings.len() {
+                run(&mut s, "caret.set", json!({"pos": Pos::body(i, 0)}));
+                run(&mut s, "styles.apply", json!({"style": "Heading 1"}));
+            }
+            // A level-two heading must stay out of a depth-one TOC after reopening.
+            if levels == 1 {
+                run(&mut s, "caret.docEnd", json!({}));
+                run(&mut s, "text.newParagraph", json!({}));
+                run(&mut s, "text.insert", json!({"text": "Detail"}));
+                run(&mut s, "styles.apply", json!({"style": "Heading 2"}));
+            }
+            run(&mut s, "caret.docStart", json!({}));
+            run(&mut s, "references.toc", json!({"levels": levels}));
+            run(&mut s, "references.updateToc", json!({}));
+            let expected = text(&s);
+            let name = format!("toc.{extension}");
+            let bytes = crate::io::save_bytes(&name, &s.doc).unwrap();
+            s = Session::new(crate::io::open_bytes(&name, &bytes).unwrap());
+            for command in ["references.updateToc", "references.updateToc", "references.updateFields"] {
+                run(&mut s, command, json!({}));
+                assert_eq!(text(&s), expected, "{extension}, levels={levels}, {command}");
+            }
+            let heading = s
+                .doc
+                .body
+                .iter()
+                .position(|b| b.as_para().is_some_and(|p| p.props.style.as_deref() == Some("Heading1") && p.plain_text() == "Top"))
+                .unwrap();
+            // Hyperlinked TOCs bookmark their headings; select the text after those markers.
+            let off = s.doc.body[heading].as_para().unwrap().text.find("Top").unwrap();
+            run(&mut s, "select.range", json!({"anchor": Pos::body(heading, off), "focus": Pos::body(heading, off + 3)}));
+            run(&mut s, "text.insert", json!({"text": "Revised"}));
+            let before_refresh = text(&s);
+            run(&mut s, "references.updateToc", json!({}));
+            let revised = text(&s);
+            assert_eq!(revised.matches("Revised\t").count(), 1, "{revised}");
+            assert!(!revised.contains("Top"), "{revised}");
+            assert_eq!(revised.matches("Next\t").count(), headings.len() - 1, "{revised}");
+            assert_eq!(revised.matches("Detail\t").count(), 0, "{revised}");
+            assert_eq!(revised.lines().filter(|line| *line == "Detail").count(), usize::from(levels == 1), "{revised}");
+            assert!(s.undo());
+            assert_eq!(text(&s), before_refresh);
+            run(&mut s, "references.updateToc", json!({}));
+            assert_eq!(text(&s), revised);
+            let bytes = crate::io::save_bytes(&name, &s.doc).unwrap();
+            s = Session::new(crate::io::open_bytes(&name, &bytes).unwrap());
+            run(&mut s, "references.updateFields", json!({}));
+            assert_eq!(text(&s), revised, "saved edited TOC, {extension}");
+        }
+    }
+}
+
+/// A TOC imported as a range field (no TOC heading, so it isn't turned back into the engine's
+/// TOC on open) is still found by Update Table, Update Field and Table of Contents: it is
+/// refreshed in place, not duplicated, and the refresh is one undo step.
+#[test]
+fn imported_range_toc_is_refreshed_in_place() {
+    use wordcraft_doc::para::InlineObject;
+    use wordcraft_doc::props::CharProps;
+    for locked in [false, true] {
+        let mut d = wordcraft_doc::Document::from_text("Before.\nOld entry\t9\nAlpha\nBeta");
+        {
+            let p = d.para_mut(StoryRef::Body, &wordcraft_doc::Path::top(1)).unwrap();
+            let n = p.len();
+            p.insert_object(n, InlineObject::FieldEnd, &CharProps::default()).unwrap();
+            p.insert_object(0, InlineObject::FieldStart { instr: r#"TOC \o "1-2" \h"#.into(), locked }, &CharProps::default()).unwrap();
+        }
+        let mut s = Session::new(d);
+        for (i, style) in [(2, "Heading 1"), (3, "Heading 2")] {
+            run(&mut s, "caret.set", json!({"pos": Pos::body(i, 0)}));
+            run(&mut s, "styles.apply", json!({"style": style}));
+        }
+        // Through DOCX, as an imported file is.
+        let bytes = wordcraft_docx::write(&s.doc).unwrap();
+        s = Session::new(wordcraft_docx::read(&bytes).unwrap());
+        assert_eq!(s.doc.field_ranges(StoryRef::Body).len(), 1, "read back as a range field");
+        let before = text(&s);
+        run(&mut s, "references.updateToc", json!({}));
+        let refreshed = text(&s);
+        if locked {
+            // Like Word, a locked field keeps its result.
+            assert_eq!(refreshed, before);
+            continue;
+        }
+        assert!(!refreshed.contains("Old entry"), "{refreshed}");
+        assert!(refreshed.starts_with("Before.\n"), "{refreshed}");
+        assert_eq!(refreshed.matches("Alpha\t").count(), 1, "{refreshed}");
+        assert_eq!(refreshed.matches("Beta\t").count(), 1, "{refreshed}");
+        assert!(s.doc.field_ranges(StoryRef::Body).is_empty(), "now the engine's TOC");
+        for command in ["references.updateToc", "references.updateFields", "references.toc"] {
+            run(&mut s, command, json!({}));
+            assert_eq!(text(&s), refreshed, "{command} refreshes the same TOC");
+        }
+        while s.undo() {}
+        assert_eq!(text(&s), before);
+        assert_eq!(s.doc.field_ranges(StoryRef::Body).len(), 1, "undo brings the imported range back");
+    }
+}
+
+#[test]
 fn toc_page_numbers_follow_headings() {
     let mut s = s();
     run(&mut s, "references.toc", json!({}));
