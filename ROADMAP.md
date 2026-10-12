@@ -2,7 +2,7 @@
 
 **Stage: alpha** · next: beta, ~15 points (60% → 75% ready for real work) and ~150–230 h away
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-12 · **Change:** trivial (native save conflict protection, #813; readiness unchanged; previously trivial: table borders and the resize handle drag on the page, #217; previously trivial: formatting revisions landed, #41; previously trivial: Draw tab ink, #307, and Draw Table and Eraser, #303, landed: catalog 402/434; previously minor: readiness table with hours per audience; full number back to the additive weighted sum, 60%; mainstream and essentials numbers added; alpha gate checked; previously major: full re-measure against Word for Mac 16.113.4; restructured to the craftrules progress-docs standard) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-11 · **Change:** trivial (German interface catalog, #574; previously trivial: Turkish interface landed; previously trivial: formatting revisions landed, #41; previously trivial: Draw tab ink, #307, and Draw Table and Eraser, #303, landed: catalog 402/434; previously minor: readiness table with hours per audience; full number back to the additive weighted sum, 60%; mainstream and essentials numbers added; alpha gate checked; previously major: full re-measure against Word for Mac 16.113.4; restructured to the craftrules progress-docs standard) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
 
 WordCraft aims for complete parity with Microsoft Word, then goes further on speed, openness and
 agent control. This page is the summary; the assessment is
@@ -106,12 +106,12 @@ Weights and evidence per area: [docs/target-app-parity.md](docs/target-app-parit
 | Portuguese | pt-br (pt-PT none) | partial | ~95% |
 | Indonesian | id | none | 0% |
 | Japanese | ja | partial | ~95% |
-| German | de | none (PR #203 open) | 0% |
+| German | de | partial (#574) | ~95% |
 | Korean | ko | none | 0% |
 | Vietnamese | vi | none | 0% |
 
-Also shipped: Traditional Chinese (`zh-hant`), Ukrainian (`uk`), Serbian (`sr`, `sr-latn`, #250) and Russian (`ru`), all partial (~95%). Estonian (`et`) and Turkish (`tr`) now have complete 1,307-entry interface catalogs with
-system-locale selection and a saved language choice; Estonian and Turkish proofing are not included. Word ships
+Also shipped: Traditional Chinese (`zh-hant`), Ukrainian (`uk`), Serbian (`sr`, `sr-latn`, #250) and Russian (`ru`), all partial (~95%). Estonian (`et`), Turkish (`tr`) and Italian (`it`, #594) now have complete 1,307-entry interface catalogs with
+system-locale selection and a saved language choice (Italian also has 51 strings none of the others had yet); Estonian, Turkish and Italian proofing are not included. Word ships
 30 interface languages and proofing for ~50. Detail: [docs/localization-parity.md](docs/localization-parity.md).
 
 ## Upcoming
@@ -133,6 +133,7 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 | 2026-10-11 | Hide White Space (#645): `view.hideWhiteSpace` (View › Show checkbox, or double-click the gap between pages) collapses margins, headers and footers between pages to a thin line in Print Layout; screen only, page count unchanged |
 | 2026-10-11 | Fonts: Palatino Linotype and Book Antiqua fall back to Palatino (macOS) or TeX Gyre Pagella / P052 / URW Palladio (Linux) before generic serif (#670) |
 |---|---|
+| 2026-10-11 | German (`de`) interface (#574): 2,021 translated entries covering the full zh-hans key set, locale and saved-preference tests, bundled-font checks; no German proofing resources |
 | 2026-10-11 | `.doc` import keeps pictures and drawings (#551): inline and floating pictures (PNG, JPEG, DIB, EMF, WMF), shapes, lines, groups and text boxes with position and wrap, from [MS-ODRAW] |
 | 2026-10-11 | Tables resize with the mouse (#217): drag a column border (the neighbour makes up the difference; Shift moves one column), a row's bottom border, or the handle past the bottom-right corner to scale the table; a dashed guide while dragging, one undo step per drag; `table.resizeDrag` for agents |
 | 2026-10-11 | Animation effects setting: File › Options › Accessibility › Animation effects (Use system setting, On, Off). With the system's animations off (Windows' Animation effects, macOS' Reduce motion, the Linux/BSD desktop's setting, a browser's reduced motion) the page no longer smooth-scrolls: wheel notches and Ctrl+wheel zoom land at once, in the document and in every list and pane, and menus and buttons don't fade; `ui.animations` for agents |
@@ -188,6 +189,7 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 | 2026-10-11 | Field codes like Word's field keys (#339): show codes (Alt+F9, Shift+F9), edit, unlink, lock and step through fields |
 | 2026-10-11 | Word's common keyboard shortcuts (#330): 101 → 125 of ~250 |
 | 2026-10-11 | Turkish (`tr`) interface: all 1,307 catalog entries, `tr-TR`/`tr-CY` system locales and a saved language choice; command search keeps Turkish dotted and dotless I apart (`italik` finds İtalik); locale, catalog, search and bundled-font tests; no Turkish proofing resources |
+| 2026-10-11 | Italian (`it`) interface (#594): 2,399 entries, feature names as Italian Word users know them, locale and saved-preference tests, bundled-font checks; no Italian proofing resources |
 | 2026-10-11 | Citations and bibliography in all 12 of Word's styles: Harvard, ISO 690 (author-date and numerical), Turabian, GB/T 7714, GOST (name and title sort) and SIST02 join APA, MLA, Chicago and IEEE; numbered styles count in order of first citation (#383) |
 | 2026-10-11 | Interface size setting (#475): File › Options › General scales the interface 80–200 % on top of the system display scale, kept between runs; `ui.interfaceSize` for agents |
 | 2026-10-11 | DOCX paragraph defaults: preserve omission separately from explicit empty defaults, with repeated-save and default-edit regressions |
@@ -208,6 +210,7 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-11 | trivial | Progress log: German interface (#574) |
 | 2026-10-11 | trivial | Native saves refuse pre-existing external changes without clearing edits; synthetic macOS checks, explicit race/platform limits; readiness unchanged |
 | 2026-10-11 | trivial | Progress log: tables resize with the mouse (#217) |
 | 2026-10-11 | trivial | Progress log: Animation effects setting |
