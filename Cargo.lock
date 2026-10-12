@@ -5250,6 +5250,7 @@ dependencies = [
  "wordcraft-layout",
  "wordcraft-render",
  "wordcraft-zotero",
+ "zbus",
  "zip",
 ]
 

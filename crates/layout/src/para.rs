@@ -595,6 +595,22 @@ impl<'a> Builder<'a> {
             .filter(|r| !r.substituted)
             .map(|r| r.face);
         let use_levels = para_text && !self.levels.is_empty();
+        // One fallback face for the run's East Asian characters: the first face in fallback order
+        // covering every character the primary font lacks, so the run draws in a single CJK face
+        // instead of mixing faces per character (e.g. a bundled Japanese Mincho for JIS-covered
+        // ideographs beside a Simplified-Chinese sans for the rest). Whitespace and characters the
+        // primary covers don't constrain the choice. `None` keeps the per-character fallback.
+        let ea_face: Option<FaceRef> = {
+            let ea: Vec<char> = text
+                .chars()
+                .filter(|c| crate::kinsoku::is_east_asian(*c) && !primary.covers(*c) && !c.is_whitespace() && !c.is_control() && *c != SOFT_HYPHEN)
+                .collect();
+            if ea.is_empty() {
+                None
+            } else {
+                wordcraft_fonts::FontDb::global().fallback_for_east_asian(&ea, primary.id(), rc.bold, rc.italic).map(|f| FaceRef::of(&f))
+            }
+        };
         // Split by font coverage (fallback faces), small caps case, script formatting and direction.
         let mut seg_start = 0;
         let mut cur: Option<SegKey> = None;
@@ -612,6 +628,8 @@ impl<'a> Builder<'a> {
                 _ if prim.covers(c) || c.is_whitespace() || c.is_control() || c == SOFT_HYPHEN => None,
                 // Stay in the fallback face the word started in while it covers the letters.
                 Some(SegKey { face: Some(f), .. }) if f.covers(c) => Some(f),
+                // The run's unified East Asian face, when one face covers the whole run.
+                _ if !complex && ea_face.is_some() && crate::kinsoku::is_east_asian(c) => ea_face,
                 _ => {
                     let (bold, italic) = if complex { (rc.bold_cs, rc.italic_cs) } else { (rc.bold, rc.italic) };
                     wordcraft_fonts::FontDb::global().fallback_styled(c, prim.id(), bold, italic).map(|f| FaceRef::of(&f))
@@ -994,8 +1012,11 @@ pub fn layout_para(p: &Paragraph, env: &ParaEnv) -> ParaLayout {
     let math_props = doc.settings.math.clone().unwrap_or_default();
     // The byte ranges of runs left out of the layout, in order, adjacent runs merged.
     let mut left: Vec<std::ops::Range<usize>> = Vec::new();
+    // Each run's proofing language and whether it is checked (spelling, grammar, hyphenation).
+    let mut runs: Vec<ProofRun> = Vec::new();
     for (range, props) in p.run_ranges() {
         let rc = resolve(props);
+        runs.push(ProofRun::of(range.clone(), &rc));
         let Some(text) = p.text.get(range.clone()) else { continue };
         if left_out(&rc, b.env.show_hidden, b.env.hide_deleted) {
             match left.last_mut() {
@@ -1297,7 +1318,7 @@ pub fn layout_para(p: &Paragraph, env: &ParaEnv) -> ParaLayout {
         text_len: p.text.len(),
         has_page_fields,
         notes,
-        issues: env.proofing.map(|o| proof_issues(p, &o)).unwrap_or_default(),
+        issues: env.proofing.map(|o| proof_issues(p, &runs, &o)).unwrap_or_default(),
         drop_cap,
         hyph_after: Vec::new(),
         bidi_levels: b.levels,
@@ -1309,7 +1330,7 @@ pub fn layout_para(p: &Paragraph, env: &ParaEnv) -> ParaLayout {
         enclosures,
     };
     let auto = env.doc.settings.auto_hyphenation && !pl.rp.suppress_hyphens;
-    pl.hyph_after = hyphenation_points(&text, to_para, &pl, auto, env.doc.settings.hyphenate_caps);
+    pl.hyph_after = hyphenation_points(&text, to_para, &pl, auto, env.doc.settings.hyphenate_caps, &runs);
     pl.left_out = left;
     for k in pl.hyph_after.clone() {
         if let Some(c) = pl.clusters.get_mut(k as usize) {
@@ -2074,10 +2095,11 @@ fn hyphen_glyph(pl: &ParaLayout, style: u16, cache: &mut Vec<(u16, u32, f32)>) -
 }
 
 /// Clusters after which a line may end with a hyphen: soft hyphens always, and dictionary or
-/// pattern hyphenation points of each word when automatic hyphenation is on. Both are found in
-/// `text`, the paragraph as laid out (without what the layout leaves out, [`left_out`]), and
-/// `to_para` maps the end of a char there to the paragraph's text.
-fn hyphenation_points(text: &str, to_para: impl Fn(usize) -> Option<usize>, pl: &ParaLayout, auto: bool, caps: bool) -> Vec<u32> {
+/// pattern hyphenation points of each word, in the language of its run ([`ProofRun`]), when
+/// automatic hyphenation is on (words in capitals only with `caps`). Both are found in `text`, the paragraph as laid out (without what
+/// the layout leaves out, [`left_out`]), and `to_para` maps the end of a char there to the
+/// paragraph's text.
+fn hyphenation_points(text: &str, to_para: impl Fn(usize) -> Option<usize>, pl: &ParaLayout, auto: bool, caps: bool, runs: &[ProofRun]) -> Vec<u32> {
     let mut bytes: Vec<usize> = text.char_indices().filter(|(_, c)| *c == SOFT_HYPHEN).map(|(i, c)| i + c.len_utf8()).collect();
     if auto {
         let lim = wordcraft_proof::hyphen::Limits::default();
@@ -2095,8 +2117,11 @@ fn hyphenation_points(text: &str, to_para: impl Fn(usize) -> Option<usize>, pl: 
                         && !w.chars().any(wordcraft_fonts::is_rtl)
                         && (caps || !all_caps(w))
                     {
+                        // The word's language: its first letter's run, found by its place in `p.text`.
+                        let first = w.chars().next().map_or(1, char::len_utf8);
+                        let lang = to_para(a + first).map(|e| lang_at(runs, e.saturating_sub(first))).unwrap_or_default();
                         let offs: Vec<usize> = w.char_indices().map(|(o, _)| o).collect();
-                        for pt in wordcraft_proof::hyphen::hyphen_points(w, &lim) {
+                        for pt in wordcraft_proof::hyphen::hyphen_points_in(w, &lim, lang) {
                             if let Some(o) = offs.get(pt) {
                                 bytes.push(a + o);
                             }
@@ -2274,24 +2299,54 @@ impl ParaLayout {
     }
 }
 
-/// Spelling and grammar issues in a paragraph (skipping "do not check" and hidden runs).
-fn proof_issues(p: &Paragraph, opts: &crate::ProofOptions) -> Vec<(usize, usize, bool)> {
+/// One run's proofing: its bytes in the paragraph, its language (`w:lang`, resolved through the
+/// styles: the document default, paragraph and character styles, direct formatting) and whether
+/// it is left unchecked ("Do not check spelling or grammar", hidden text, hyperlinks).
+#[derive(Clone, Debug, PartialEq)]
+pub struct ProofRun {
+    pub range: std::ops::Range<usize>,
+    pub lang: wordcraft_proof::ProofLang,
+    pub skip: bool,
+}
+
+impl ProofRun {
+    fn of(range: std::ops::Range<usize>, rc: &ResolvedChar) -> ProofRun {
+        ProofRun { range, lang: wordcraft_proof::ProofLang::from_tag(rc.lang.as_deref()), skip: rc.no_proof || rc.hidden || rc.link.is_some() }
+    }
+}
+
+/// The proofing runs of a paragraph, in order. `table` is the cell's table-style character
+/// formatting ([`CellText::chr`]) for a paragraph in a table, as layout resolves it.
+pub fn proof_runs(doc: &Document, p: &Paragraph, table: Option<&CharProps>) -> Vec<ProofRun> {
+    let style = p.props.style.as_deref();
+    p.run_ranges().map(|(r, c)| ProofRun::of(r, &doc.styles.resolve_char_in(style, table, c))).collect()
+}
+
+/// The language of the run holding byte `off` (English past the last run).
+fn lang_at(runs: &[ProofRun], off: usize) -> wordcraft_proof::ProofLang {
+    let k = runs.partition_point(|r| r.range.end <= off);
+    runs.get(k).filter(|r| r.range.start <= off).map(|r| r.lang).unwrap_or_default()
+}
+
+/// Spelling and grammar issues in a paragraph, in order: each word in its run's language
+/// ([`wordcraft_proof::check_text_with`]: what spelling skips, and grammar only with `grammar`),
+/// and none touching a run left unchecked.
+pub fn paragraph_issues(p: &Paragraph, runs: &[ProofRun], spelling: &wordcraft_proof::Options, grammar: bool) -> Vec<wordcraft_proof::Issue> {
     if p.text.trim().is_empty() || p.text.len() > 100_000 {
         return Vec::new();
     }
     let text = proof_text(p);
-    let skip = |a: usize, b: usize| {
-        p.run_ranges().any(|(r, c)| r.start < b && a < r.end && (c.no_proof == Some(true) || c.hidden == Some(true) || c.link.is_some()))
-    };
-    let mut v: Vec<(usize, usize, bool)> = wordcraft_proof::check_spelling_with(&text, &opts.spelling)
+    let spans: Vec<(std::ops::Range<usize>, wordcraft_proof::ProofLang)> = runs.iter().map(|r| (r.range.clone(), r.lang)).collect();
+    let skip = |a: usize, b: usize| runs.iter().any(|r| r.skip && r.range.start < b && a < r.range.end);
+    wordcraft_proof::check_text_with(&text, &spans, spelling, grammar).into_iter().filter(|i| !skip(i.start, i.end)).collect()
+}
+
+/// Spelling and grammar issues in a paragraph as squiggles: (start, end, is grammar).
+fn proof_issues(p: &Paragraph, runs: &[ProofRun], opts: &crate::ProofOptions) -> Vec<(usize, usize, bool)> {
+    paragraph_issues(p, runs, &opts.spelling, opts.grammar)
         .into_iter()
-        .filter(|i| !skip(i.start, i.end))
-        .map(|i| (i.start, i.end, false))
-        .collect();
-    if opts.grammar {
-        v.extend(wordcraft_proof::check_grammar(&text).into_iter().filter(|i| !skip(i.start, i.end)).map(|i| (i.start, i.end, true)));
-    }
-    v
+        .map(|i| (i.start, i.end, i.kind == wordcraft_proof::IssueKind::Grammar))
+        .collect()
 }
 
 /// Text for proofing with the same byte offsets: inline objects and tracked deletions become

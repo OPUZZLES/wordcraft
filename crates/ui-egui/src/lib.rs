@@ -5,6 +5,13 @@
 //! the menus, ribbon, shortcuts, control channel and MCP all reach the same behaviour.
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
+/// What the operating system says about light and dark. macOS and Windows answer through winit;
+/// winit reports nothing on Linux, where the desktop portal does ([`desktop_theme`]). `None` means
+/// nobody answered, not a preference.
+fn system_theme(ctx: &egui::Context, desktop_dark: Option<bool>) -> Option<egui::Theme> {
+    ctx.system_theme().or_else(|| desktop_dark.map(|dark| if dark { egui::Theme::Dark } else { egui::Theme::Light }))
+}
+
 /// An English UI string in the current interface language ([`i18n::t`]).
 #[macro_export]
 macro_rules! tl {
@@ -23,6 +30,7 @@ pub mod colors;
 pub mod content_controls;
 pub mod control;
 pub mod credits;
+pub mod desktop_theme;
 pub mod dialogs;
 pub mod dialogs_chart;
 pub mod dialogs_controls;
@@ -311,8 +319,14 @@ pub struct WordApp {
     /// File ▸ Options: load the installed CJK fallback font if no embedded face covers it.
     pub(crate) want_system_cjk: bool,
     fonts_frames: u32,
-    /// The interface theme setting last installed in egui ([`theme::apply`]).
+    /// The effective interface theme last installed in egui ([`theme::apply`]).
     applied_theme: Option<theme::Appearance>,
+    /// The desktop's light/dark choice, watched while the app runs (Linux has no winit answer).
+    desktop_theme: desktop_theme::DesktopTheme,
+    /// The last answer [`desktop_theme`] gave, so a frame that asks costs nothing.
+    desktop_dark: Option<bool>,
+    /// The interface language whose editing language the session last got ([`i18n::Lang::editing_lang`]).
+    applied_editing: Option<i18n::Lang>,
     /// What the system last said about its animation effects ([`Services::animations_enabled`]).
     system_animations: Option<bool>,
     /// Whether egui's own animations were last switched on or off ([`theme::apply_animations`]).
@@ -400,6 +414,10 @@ impl WordApp {
             want_system_cjk: false,
             fonts_frames: 0,
             applied_theme: None,
+            // Inert until the app binary calls `watch_desktop_theme`.
+            desktop_theme: desktop_theme::DesktopTheme::default(),
+            desktop_dark: None,
+            applied_editing: None,
             system_animations: None,
             applied_animations: None,
             frame_ms: 0.0,
@@ -769,7 +787,9 @@ impl WordApp {
             self.ui.recent.truncate(MAX_RECENT);
         }
         if !self.session.status.is_empty() {
+            // Engine messages are English; the catalog translates the ones it knows.
             let s = std::mem::take(&mut self.session.status);
+            let s = tl!(&s).to_string();
             self.status(s);
         }
     }
@@ -804,9 +824,17 @@ impl WordApp {
         }
     }
 
+    /// Follow the desktop's light/dark choice while the app runs (Linux, where winit reports no
+    /// system theme; see [`desktop_theme`]). The desktop app calls this once at start-up; unit
+    /// tests and `ui_shot` don't, so what they draw doesn't depend on the host's desktop theme.
+    pub fn watch_desktop_theme(&mut self, ctx: &egui::Context) {
+        let ctx = ctx.clone();
+        self.desktop_theme = desktop_theme::DesktopTheme::start(move || ctx.request_repaint());
+    }
+
     /// Whether the interface theme setting currently resolves to dark (`System` asks the OS).
     pub fn ui_is_dark(&self) -> bool {
-        self.ui.theme.is_dark(self.ctx.as_ref().and_then(egui::Context::system_theme))
+        self.ui.theme.is_dark(self.ctx.as_ref().and_then(|ctx| system_theme(ctx, self.desktop_dark)))
     }
 
     /// Whether animation effects are on: the Animation effects setting, where `System` follows
@@ -1153,6 +1181,12 @@ impl WordApp {
     pub fn logic(&mut self, ctx: &egui::Context) {
         let lang = i18n::Lang::from_pref(&self.ui.language);
         i18n::set_current(lang);
+        // New documents are written in the interface's language when WordCraft can proof it
+        // (a Polish interface: Polish spelling, grammar and hyphenation from the first word).
+        if self.applied_editing != Some(lang) {
+            self.session.set_editing_language(lang.editing_lang());
+            self.applied_editing = Some(lang);
+        }
         options::sync(self);
         // Chinese text wants the Chinese face before the Japanese one (one glyph style per line).
         // An installed CJK font is read only once CJK text is shown (#241): never for an English
@@ -1167,12 +1201,24 @@ impl WordApp {
             ctx.options_mut(|o| o.zoom_with_keyboard = false);
             self.styled = true;
         }
+        if let Some(answer) = self.desktop_theme.take_change() {
+            self.desktop_dark = Some(answer);
+        }
         // Both palettes are installed and egui picks one: with `System` it follows an OS appearance
-        // change live (it reports it and repaints, #311). The interface follows the Interface theme
+        // change live (winit reports it and repaints, #311). Where winit is silent (Linux) the
+        // desktop portal's answer fills in instead. The interface follows the Interface theme
         // setting alone; Dark page only changes how pages are drawn (#312).
-        if self.applied_theme != Some(self.ui.theme) {
-            theme::apply(ctx, self.ui.theme);
-            self.applied_theme = Some(self.ui.theme);
+        let effective = match self.ui.theme {
+            theme::Appearance::System if ctx.system_theme().is_none() => match self.desktop_dark {
+                Some(true) => theme::Appearance::Dark,
+                Some(false) => theme::Appearance::Light,
+                None => theme::Appearance::System,
+            },
+            other => other,
+        };
+        if self.applied_theme != Some(effective) {
+            theme::apply(ctx, effective);
+            self.applied_theme = Some(effective);
         }
         // Interface size (#475): egui's zoom factor multiplies the display scale the system reports
         // (native pixels per point), so it adds to it rather than replacing it. Keyboard zoom is

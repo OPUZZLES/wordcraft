@@ -1690,6 +1690,9 @@
 	Continuous numbering	通し番号
 	Apply	適用
 	Convert Notes	注の変換
+	English (United Kingdom)	英語（英国）
+	Polish	ポーランド語
+	Do Not Check Spelling or Grammar	スペル チェックと文章校正を行わない
 
 # Built-in file browser when the system file dialog is unavailable (#576)
 	Documents	ドキュメント
@@ -1980,7 +1983,6 @@
 	Detect language automatically	言語を自動的に検出する
 	Do not check spelling or grammar	スペルチェックと文章校正を行わない
 	Dutch	オランダ語
-	English (United Kingdom)	英語（英国）
 	Envelope size:	封筒サイズ:
 	Estonian	エストニア語
 	Finnish	フィンランド語
@@ -2009,7 +2011,6 @@
 	Numbering:	番号の付け方:
 	Omit	省略
 	One label per recipient	宛先ごとに 1 枚のラベル
-	Polish	ポーランド語
 	Portuguese (Brazil)	ポルトガル語（ブラジル）
 	Portuguese (Portugal)	ポルトガル語（ポルトガル）
 	Return address labels	差出人ラベル
