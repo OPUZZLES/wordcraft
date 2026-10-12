@@ -1242,35 +1242,41 @@ pub fn table_grid_picker(ui: &mut Ui, app: &mut WordApp) {
     }
 }
 
-/// Where the open dialog's top edge sits, as (window id, offset below the top of the screen).
+/// The open dialog, as (window id, frames it has been centred for).
 fn dialog_top_key() -> egui::Id {
     egui::Id::new("dialog_top")
 }
 
-/// Anchors a dialog: centred on the frame it opens, then with its top edge held where that put
-/// it, so a taller or shorter tab (Paragraph, Font, Borders and Shading…) only moves the bottom
-/// edge and the tab strip stays under the mouse (#507). egui keeps it on screen if it grows past
-/// the bottom.
+/// Frames a dialog stays centred: the first one measures it, the second centres that size.
+const DIALOG_CENTRED_FRAMES: u8 = 2;
+
+/// Places a dialog: centred for its first frames, then left where it is with its top-centre point
+/// as the pivot, so a taller or shorter tab (Paragraph, Font, Borders and Shading…) only moves
+/// the bottom edge and the tab strip stays under the mouse (#507). It is no longer anchored after
+/// that, so dragging the title bar moves it (#732). egui keeps it on screen if it grows past the
+/// bottom.
 fn place_dialog<'a>(ctx: &egui::Context, id: egui::Id, w: egui::Window<'a>) -> egui::Window<'a> {
-    match ctx.data(|d| d.get_temp::<(egui::Id, f32)>(dialog_top_key())) {
-        Some((open, top)) if open == id => w.anchor(egui::Align2::CENTER_TOP, vec2(0.0, top)),
+    let w = w.pivot(egui::Align2::CENTER_TOP);
+    match ctx.data(|d| d.get_temp::<(egui::Id, u8)>(dialog_top_key())) {
+        Some((open, frames)) if open == id && frames >= DIALOG_CENTRED_FRAMES => w,
         _ => w.anchor(egui::Align2::CENTER_CENTER, vec2(0.0, -40.0)),
     }
 }
 
-/// After a dialog's first frame: holds its top edge where centring its measured size put it.
-fn remember_dialog_top(ctx: &egui::Context, id: egui::Id, rect: egui::Rect) {
-    if ctx.data(|d| d.get_temp::<(egui::Id, f32)>(dialog_top_key())).is_some_and(|(open, _)| open == id) {
-        return;
+/// After a frame of a dialog: counts the frames it has been centred for.
+fn count_dialog_frame(ctx: &egui::Context, id: egui::Id) {
+    let frames = match ctx.data(|d| d.get_temp::<(egui::Id, u8)>(dialog_top_key())) {
+        Some((open, frames)) if open == id => frames,
+        _ => 0,
+    };
+    if frames < DIALOG_CENTRED_FRAMES {
+        ctx.data_mut(|d| d.insert_temp(dialog_top_key(), (id, frames + 1)));
     }
-    let screen = ctx.content_rect();
-    let top = (screen.center().y - 40.0 - rect.height() / 2.0 - screen.top()).max(0.0);
-    ctx.data_mut(|d| d.insert_temp(dialog_top_key(), (id, top)));
 }
 
 pub fn show(app: &mut WordApp, ctx: &egui::Context) {
     let Some(mut d) = app.dialog.take() else {
-        ctx.data_mut(|d| d.remove::<(egui::Id, f32)>(dialog_top_key()));
+        ctx.data_mut(|d| d.remove::<(egui::Id, u8)>(dialog_top_key()));
         return;
     };
     let mut open = true;
@@ -1333,8 +1339,8 @@ pub fn show(app: &mut WordApp, ctx: &egui::Context) {
         ui.set_min_width(340.0);
         close = body(app, ui, &mut d);
     });
-    if let Some(r) = shown {
-        remember_dialog_top(ctx, id, r.response.rect);
+    if shown.is_some() {
+        count_dialog_frame(ctx, id);
     }
     if open && !close {
         app.dialog = Some(d);
@@ -3413,5 +3419,44 @@ mod tests {
         apply_font(&mut app, &d);
         let c = app.session.doc.para_at(&wordcraft_doc::Pos::body(0, 0)).map(|p| p.props_of_char(0).clone()).unwrap_or_default();
         assert_eq!((c.small_caps, c.caps, c.size), (Some(false), Some(true), Some(14.0)));
+    }
+
+    /// A dialog was pinned by its anchor, so dragging its title bar did nothing (#732).
+    #[test]
+    fn dragging_a_dialog_title_bar_moves_it() {
+        let mut app = app_with("Some text");
+        app.dialog = Dialog::open("paragraph", &mut app);
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            app,
+        );
+        for _ in 0..4 {
+            h.step();
+        }
+        let id = egui::Id::new(("dialog", "Paragraph"));
+        let before = h.ctx.memory(|m| m.area_rect(id)).expect("dialog is open");
+        let screen = h.ctx.content_rect();
+        assert!((before.center().x - screen.center().x).abs() <= 1.0, "opens centred: {before:?} in {screen:?}");
+        let grab = egui::pos2(before.center().x, before.top() + 10.0);
+        let drop = grab + vec2(-200.0, 120.0);
+        let button =
+            |pos, pressed| egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE };
+        h.event(egui::Event::PointerMoved(grab));
+        h.step();
+        h.event(button(grab, true));
+        h.step();
+        h.event(egui::Event::PointerMoved(drop));
+        h.step();
+        h.event(button(drop, false));
+        for _ in 0..4 {
+            h.step();
+        }
+        let after = h.ctx.memory(|m| m.area_rect(id)).expect("dialog is still open");
+        assert!((after.min.x - (before.min.x - 200.0)).abs() <= 1.0, "moved left: {before:?} -> {after:?}");
+        assert!((after.min.y - (before.min.y + 120.0)).abs() <= 1.0, "moved down: {before:?} -> {after:?}");
     }
 }

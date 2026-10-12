@@ -1700,6 +1700,59 @@ mod tests {
         assert!((a.canvas.scroll_offset.y - at - notch).abs() < 0.5, "a notch scrolls {notch}: {}", a.canvas.scroll_offset.y - at);
     }
 
+    /// Issue #688: dragging a selection past the viewport's bottom edge scrolls on, and the
+    /// selection keeps growing as the content moves under the stationary pointer.
+    #[test]
+    fn dragging_a_selection_past_the_viewport_edge_auto_scrolls() {
+        let ctx = egui::Context::default();
+        let mut a = app();
+        // A few pages of text, so there is content below the fold.
+        a.run("text.insert", json!({"text": "lorem ipsum dolor sit amet consectetur ".repeat(1200)})).unwrap();
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1280.0, 600.0));
+        let mut t = 0.0;
+        let mut frame = |a: &mut WordApp, events: Vec<egui::Event>| {
+            t += 1.0 / 60.0;
+            let input = egui::RawInput { events, time: Some(t), screen_rect: Some(screen), ..Default::default() };
+            ctx.run_ui(input, |ui| {
+                a.logic(ui.ctx());
+                a.ui(ui);
+            })
+            .drop_without_applying_deltas();
+        };
+        for _ in 0..3 {
+            frame(&mut a, Vec::new());
+        }
+        let (Some(vp), Some(page)) = (a.canvas.viewport, a.canvas.page_rects.first()) else { panic!("the canvas laid out") };
+        let start = page.left_top() + egui::vec2(120.0, 150.0);
+        frame(&mut a, vec![egui::Event::PointerMoved(start)]);
+        frame(
+            &mut a,
+            vec![egui::Event::PointerButton { pos: start, button: egui::PointerButton::Primary, pressed: true, modifiers: Default::default() }],
+        );
+        assert!(a.canvas.drag_selecting(), "the press started a drag-select");
+        let base = a.session.sel.focus.clone();
+        // Hold the pointer just past the viewport's bottom edge and let the frames run.
+        let below = egui::pos2(vp.center().x, vp.max.y + 40.0);
+        for _ in 0..30 {
+            frame(&mut a, vec![egui::Event::PointerMoved(below)]);
+        }
+        assert!(a.canvas.scroll_offset.y > 0.0, "the view scrolled toward later content");
+        assert!(a.session.sel.focus > base, "the selection followed the content");
+        // The pointer never moves; the content keeps scrolling under it, so the selection must
+        // keep growing.
+        let grown = a.session.sel.focus.clone();
+        for _ in 0..15 {
+            frame(&mut a, vec![egui::Event::PointerMoved(below)]);
+        }
+        assert!(a.session.sel.focus > grown, "the selection keeps growing under a stationary pointer");
+        frame(
+            &mut a,
+            vec![egui::Event::PointerButton { pos: below, button: egui::PointerButton::Primary, pressed: false, modifiers: Default::default() }],
+        );
+        assert!(!a.canvas.drag_selecting());
+        assert!(!a.session.sel.is_collapsed(), "the drag left a selection");
+    }
+
     /// Issue #123: zoomed out, pages sit side by side, and clicks map to the page under the pointer.
     #[test]
     fn zoomed_out_pages_sit_side_by_side_and_clicks_land_on_them() {

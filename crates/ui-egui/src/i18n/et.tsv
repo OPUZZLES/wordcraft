@@ -1399,6 +1399,7 @@
 	Choose the sheet that holds the recipients.	Valige leht, millel on adressaadid.
 	First row of data contains column headers	Andmete esimene rida sisaldab veerupäiseid
 	Formatted	Vormindatud
+	Deleted	Kustutatud
 	Interface size:	Kasutajaliidese suurus:
 	Makes the ribbon, menus and dialogs larger or smaller, on top of your system's display scaling. Document zoom is separate.	Muudab menüülindi, menüüd ja dialoogid suuremaks või väiksemaks, lisaks süsteemi ekraani skaleerimisele. Dokumendi suum on eraldi.
 	Print Markup	Prindi märgistus
