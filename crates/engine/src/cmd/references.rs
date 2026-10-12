@@ -1,7 +1,7 @@
 //! References tab: table of contents, footnotes/endnotes, captions; field updates.
 
 use serde_json::{Value, json};
-use wordcraft_doc::para::{InlineObject, NoteKind};
+use wordcraft_doc::para::{InlineObject, NoteKind, OBJ};
 use wordcraft_doc::props::{CharProps, TabAlign, TabLeader, TabStop};
 use wordcraft_doc::{Block, Paragraph, PartKind, Path, Pos, StoryRef, para_block};
 
@@ -309,6 +309,41 @@ fn toc_range(s: &Session) -> Option<(usize, usize)> {
     Some((start, end))
 }
 
+/// A TOC imported as a range field (`FieldStart`…`FieldEnd`: one without a TOC heading, or with
+/// content around it the engine's TOC can't reproduce) becomes the engine's TOC before an update,
+/// so Update Table refreshes it rather than adding a second one: an empty `TOC` field where the
+/// range started, its old result gone, and the regenerated entries after that paragraph (text
+/// that followed the range moves below them). Only an unlocked, top-level TOC that isn't inside
+/// another range field, and only when the body has no engine TOC already.
+fn range_toc_to_field(s: &mut Session) -> Result<(), CmdError> {
+    if toc_range(s).is_some() {
+        return Ok(());
+    }
+    let is_toc = |instr: &str| {
+        let field = FieldCode::parse(instr);
+        field.name == "TOC" && !field.has('c')
+    };
+    let Some(r) = s
+        .doc
+        .field_ranges(StoryRef::Body)
+        .into_iter()
+        .find(|r| r.depth == 0 && !r.locked && is_toc(&r.instr) && r.start.path.depth() == 0 && r.end.path.depth() == 0)
+    else {
+        return Ok(());
+    };
+    let Some(after_end) = r.end.off.checked_add(OBJ.len_utf8()) else { return Ok(()) };
+    let end = Pos { off: after_end, ..r.end.clone() };
+    let props = s.doc.para_at(&r.start).map(|p| p.props_of_char(r.start.off).clone()).unwrap_or_default();
+    let at = s.doc.delete_range(&r.start, &end)?;
+    let field = InlineObject::Field { instr: r.instr.trim().to_string(), result: String::new(), locked: false, code: false };
+    let after = s.doc.insert_object(&at, field, &props)?;
+    if s.doc.para_at(&after).is_some_and(|p| after.off < p.len()) {
+        s.doc.split_paragraph(&after)?;
+    }
+    s.clamp_selection();
+    Ok(())
+}
+
 /// The TOC field instruction in `p` (not a table of figures).
 fn toc_field(p: &Paragraph) -> Option<String> {
     p.objects.iter().find_map(|o| match o {
@@ -321,6 +356,7 @@ fn toc_field(p: &Paragraph) -> Option<String> {
 }
 
 fn insert_toc(s: &mut Session, v: &Value) -> CmdResult {
+    range_toc_to_field(s)?;
     let replace = v.as_object().is_some_and(|m| !m.is_empty());
     // Replacing a table puts the new one where the old one was, in place of an empty paragraph.
     let mut placeholder = false;
@@ -408,6 +444,7 @@ pub fn update_toc(s: &mut Session) -> Result<(), CmdError> {
 /// Rebuild the entries the TOC field's switches ask for. The tab leader is `leader`, or the one
 /// the entries had (Word keeps it in the entries' tab stops, not in the field).
 fn regenerate_toc(s: &mut Session, leader: Option<TabLeader>) -> Result<(), CmdError> {
+    range_toc_to_field(s)?;
     let Some((start, end)) = toc_range(s) else { return Ok(()) };
     let Some(instr) = s.doc.body.get(start).and_then(|b| b.as_para()).and_then(toc_field) else { return Ok(()) };
     let f = FieldCode::parse(&instr);
