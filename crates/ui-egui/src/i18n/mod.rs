@@ -48,7 +48,7 @@ pub struct LangInfo {
 }
 
 /// The registry. English first: it is the fallback and the source language.
-pub static LANGUAGES: [LangInfo; 12] = [
+pub static LANGUAGES: [LangInfo; 14] = [
     LangInfo { code: "en", name: "English", source: "", prefer_hans: false, catalog: OnceLock::new() },
     // Simplified Chinese; `zh`, `zh-CN`, `zh-SG` and `zh-Hans-*` resolve here (see `candidates`).
     LangInfo { code: "zh-hans", name: "简体中文", source: include_str!("zh-hans.tsv"), prefer_hans: true, catalog: OnceLock::new() },
@@ -68,9 +68,14 @@ pub static LANGUAGES: [LangInfo; 12] = [
     // matching — no special-casing needed, unlike Chinese's script-by-region fallback).
     LangInfo { code: "sr-latn", name: "Srpski (latinica)", source: include_str!("sr-latn.tsv"), prefer_hans: false, catalog: OnceLock::new() },
     LangInfo { code: "et", name: "Eesti", source: include_str!("et.tsv"), prefer_hans: false, catalog: OnceLock::new() },
+    // German, neutral across Germany, Austria and Switzerland; `de`, `de-DE`, `de-AT`, `de-CH` …
+    // resolve here.
+    LangInfo { code: "de", name: "Deutsch", source: include_str!("de.tsv"), prefer_hans: false, catalog: OnceLock::new() },
     // Russian; `ru`, `ru-RU`, `ru_RU.UTF-8` and other regions resolve here.
     LangInfo { code: "ru", name: "Русский", source: include_str!("ru.tsv"), prefer_hans: false, catalog: OnceLock::new() },
     LangInfo { code: "tr", name: "Türkçe", source: include_str!("tr.tsv"), prefer_hans: false, catalog: OnceLock::new() },
+    // Italian; `it-IT`, `it-CH` and `it-*` resolve here.
+    LangInfo { code: "it", name: "Italiano", source: include_str!("it.tsv"), prefer_hans: false, catalog: OnceLock::new() },
 ];
 
 impl LangInfo {

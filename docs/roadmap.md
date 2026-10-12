@@ -10,7 +10,7 @@ Opus 5.5 agent wall-clock.
 
 1. **Merge or close the ~45 open PRs** before starting overlapping work: many close catalog gaps
    (Clipboard pane #264, Manage Styles #270, Group #267), fix field bugs (Hebrew RTL #20, IME
-   fixes #155–#164) or add languages (de, nb, nn, he). Owner review needed.
+   fixes #155–#164) or add languages (nb, nn, he). Owner review needed.
 2. **DOCX real-world corpus** (gap #1, 30–50 h): collect openly licensed real-world .docx files,
    open/render/round-trip them, compare with Word locally, fix what breaks. Omitted/empty
    paragraph defaults now have synthetic save/reopen coverage; the corpus gate remains open.
@@ -60,7 +60,7 @@ partial rows are fidelity gaps (beta work), not broken workflows. WordCraft stay
 | M12 | Formats breadth (PDF, ODT, RTF, HTML, MD, TXT, LaTeX, `.doc` import) | done (first versions); `.doc` write, encryption, minor formats missing | 60–100 h |
 | M13 | Performance budgets | on track (1.4 ms relayout); large real-world documents unmeasured | 10–20 h |
 | M14 | 1.0 polish, packaging, signing | releases v0.1.0–v0.4.0 published (signed macOS, Windows MSI x64/x86/arm64, Linux, FreeBSD, web) | — |
-| M15 | Localization (12 key languages, RTL interface, proofing languages) | 9 UI languages, English proofing | 80–130 h |
+| M15 | Localization (12 key languages, RTL interface, proofing languages) | 11 UI languages, English proofing | 80–130 h |
 | M16 | Right-to-left and East Asian typography | RTL paragraphs done (#207) | 30–45 h |
 
 ## Next after beta
