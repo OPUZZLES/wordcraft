@@ -12,7 +12,55 @@ use wordcraft_doc::resolve::{ResolvedChar, ResolvedPara};
 use wordcraft_doc::{Document, Paragraph};
 use wordcraft_fonts::FaceRef;
 
+use crate::NumeralMode;
 use crate::fields::{FIELD_SHADING, FieldCtx, field_code_text, field_text};
+
+/// How a run set in one of Word's symbol fonts (Symbol, Wingdings, Wingdings 2/3, Webdings)
+/// shows its characters. Those fonts are proprietary and usually missing: a substitute has other
+/// glyphs, or none, at their codes, so each character is drawn as its Unicode equivalent
+/// ([`wordcraft_doc::symbol_fonts`]) from a face that has it. The text itself is unchanged.
+#[derive(Clone, Copy)]
+struct SymbolRun<'a> {
+    family: &'a str,
+    /// The symbol font itself is installed (`face` is it).
+    installed: bool,
+    face: FaceRef,
+}
+
+impl<'a> SymbolRun<'a> {
+    fn of(family: &'a str, r: &wordcraft_fonts::word::Resolved) -> Option<Self> {
+        wordcraft_doc::symbol_fonts::is_symbol_font(family).then_some(SymbolRun { family, installed: !r.substituted, face: r.face })
+    }
+
+    /// The character drawn for `c`.
+    fn show(&self, c: char) -> char {
+        if self.installed {
+            if self.face.covers(c) {
+                return c;
+            }
+            // A plain 8-bit code in the installed font: its glyph sits at the private-use code.
+            if let Some(p) = (0x20..=0xFF).contains(&u32::from(c)).then(|| char::from_u32(0xF000 + u32::from(c))).flatten()
+                && self.face.covers(p)
+            {
+                return p;
+            }
+        }
+        let Some(u) = wordcraft_doc::symbol_fonts::symbol_char(self.family, c) else { return c };
+        // A few list bullets have common look-alikes in far more fonts: use one when no face
+        // has the exact character.
+        let alt = match u {
+            '\u{26AB}' => Some('\u{25CF}'),
+            '\u{25FC}' => Some('\u{25A0}'),
+            '\u{2B9A}' => Some('\u{27A2}'),
+            _ => None,
+        };
+        let has = |ch: char| self.face.covers(ch) || wordcraft_fonts::FontDb::global().fallback_for(ch, self.face.id()).is_some();
+        match alt {
+            Some(a) if !has(u) && has(a) => a,
+            _ => u,
+        }
+    }
+}
 
 /// A face at a size with the formatting needed to draw it.
 #[derive(Clone, Debug)]
@@ -334,13 +382,19 @@ pub struct ParaEnv<'a> {
     pub table: Option<&'a CellText>,
     /// Check spelling (and grammar, as the options say) for squiggles; `None` = no squiggles.
     pub proofing: Option<crate::ProofOptions>,
+    /// How digits look on screen (an unresolved `System` shows Western digits).
+    pub numeral: NumeralMode,
     /// Areas text must flow around (floating objects), relative to the paragraph: x from the
     /// column's left edge, y from the top of the first line.
     pub exclusions: &'a [Exclusion],
     /// Automatic equation numbers used before this paragraph.
     pub eq_number: u32,
+    pub read_line_spacing: Option<f32>,
     /// The section's document grid (`Grid::default()`: none).
     pub grid: Grid,
+    /// Shrink inline drawings wider than the line to fit it: in text boxes, which don't clip what
+    /// runs past their sides. Elsewhere such a drawing keeps its size and the page edge clips it.
+    pub fit_objects: bool,
 }
 
 /// The section's document grid as layout applies it (`w:docGrid`, ECMA-376 §17.6.5).
@@ -467,6 +521,64 @@ fn is_mark(c: char) -> bool {
     matches!(unicode_bidi::bidi_class(c), NSM | BN) && !c.is_control()
 }
 
+/// A digit Word's Numeral modes substitute: ASCII or Arabic-Indic (U+0660–U+0669).
+fn is_numeral_digit(c: char) -> bool {
+    c.is_ascii_digit() || ('\u{660}'..='\u{669}').contains(&c)
+}
+
+/// Characters skipped when looking for the text around a number: digits, spaces and the
+/// Arabic decimal/thousands separators (٫ ٬).
+fn is_number_inside(c: char) -> bool {
+    is_numeral_digit(c) || ('\u{6f0}'..='\u{6f9}').contains(&c) || c == ' ' || c == '\t' || c == '\u{66b}' || c == '\u{66c}'
+}
+
+/// Which digits of run `text` sit in right-to-left surroundings (Word › Numeral › Context), by
+/// byte offset. European numbers take an even bidi level, so a digit's own level says little;
+/// the nearest neighbour on either side that isn't part of the number (digits, spaces,
+/// separators) decides. One pass each way, so long runs of digits and spaces stay linear.
+/// Offsets past `levels` count as left to right.
+fn context_digit_dirs(text: &str, levels: &[u8], base: usize) -> Vec<bool> {
+    let odd = |o: usize| levels.get(base.saturating_add(o)).is_some_and(|l| l % 2 == 1);
+    let mut out = vec![false; text.len()];
+    let mut left_rtl = false;
+    for (o, c) in text.char_indices() {
+        if !is_number_inside(c) {
+            left_rtl = odd(o);
+        } else if is_numeral_digit(c)
+            && let Some(v) = out.get_mut(o)
+        {
+            *v = odd(o) || left_rtl;
+        }
+    }
+    let mut right_rtl = false;
+    for (o, c) in text.char_indices().rev() {
+        if !is_number_inside(c) {
+            right_rtl = odd(o);
+        } else if right_rtl
+            && is_numeral_digit(c)
+            && let Some(v) = out.get_mut(o)
+        {
+            *v = true;
+        }
+    }
+    out
+}
+
+/// Map a byte range of numeral-substituted display text back to the original text.
+///
+/// `map_starts[i]` is the display byte offset of the `i`th char and `orig_of[i]` its original
+/// byte offset (`orig_of` ends with the original length as a sentinel). Substitution is
+/// 1 char → 1 char, so both ends land on char boundaries; anything else falls back to the
+/// end of the original text instead of panicking or slicing mid-character.
+pub(crate) fn remap_range(map_starts: &[usize], orig_of: &[usize], orig_len: usize, ms: usize, me: usize) -> (usize, usize) {
+    let n = map_starts.len();
+    let i = map_starts.partition_point(|&b| b < ms).min(n);
+    let j = map_starts.partition_point(|&b| b < me).min(n);
+    let s = orig_of.get(i).copied().unwrap_or(orig_len);
+    let e = orig_of.get(j).copied().unwrap_or(orig_len);
+    (s.min(e), s.max(e))
+}
+
 /// Bidi embedding levels per byte of `text` (UAX #9 rules up to I2), or empty when the
 /// paragraph is left to right and has no right-to-left characters.
 pub fn bidi_levels(text: &str, rtl_para: bool) -> Vec<u8> {
@@ -517,6 +629,15 @@ fn east_asian(c: char) -> bool {
 }
 
 impl<'a> Builder<'a> {
+    /// Displayed form of `c` at run-relative byte `at` (Word › Numeral): one char in, one
+    /// char out. `rtl` is the shaping direction; in Context mode `context` (from
+    /// [`context_digit_dirs`], empty otherwise) gives each digit's surroundings, since European
+    /// numbers take an even bidi level.
+    fn numeral_char(&self, context: &[bool], at: usize, c: char, rtl: bool) -> char {
+        let dir = if !context.is_empty() && is_numeral_digit(c) { context.get(at).copied().unwrap_or(false) } else { rtl };
+        self.env.numeral.map(c, dir)
+    }
+
     /// Style index for a resolved char in `face` (caps-scaled `size` override for small caps).
     fn style(&mut self, rc: &Arc<ResolvedChar>, face_override: Option<FaceRef>, small: bool) -> u16 {
         let r = wordcraft_fonts::word::resolve(&rc.font, rc.bold, rc.italic);
@@ -583,7 +704,11 @@ impl<'a> Builder<'a> {
         // Complex-script characters (Persian, Arabic…) use the run's complex-script font, size,
         // bold and italic.
         let rc_cs: Option<Arc<ResolvedChar>> = text.chars().any(|c| rc.uses_complex(c)).then(|| Arc::new(rc.complex()));
-        let primary = wordcraft_fonts::word::resolve(&rc.font, rc.bold, rc.italic).face;
+        let resolved = wordcraft_fonts::word::resolve(&rc.font, rc.bold, rc.italic);
+        let primary = resolved.face;
+        // Symbol-font characters are laid out as their Unicode equivalents.
+        let sym = SymbolRun::of(&rc.font, &resolved);
+        let show = |c: char| sym.map_or(c, |m| m.show(c));
         let primary_cs = rc_cs.as_ref().map(|r| wordcraft_fonts::word::resolve(&r.font, r.bold, r.italic).face);
         // Chinese, Japanese and Korean characters use the run's East Asian font (`w:eastAsia`) when
         // it is installed and has them.
@@ -595,30 +720,55 @@ impl<'a> Builder<'a> {
             .filter(|r| !r.substituted)
             .map(|r| r.face);
         let use_levels = para_text && !self.levels.is_empty();
+        let context = if self.env.numeral == NumeralMode::Context && use_levels { context_digit_dirs(text, &self.levels, base) } else { Vec::new() };
+        // One fallback face for the run's East Asian characters: the first face in fallback order
+        // covering every character the primary font lacks, so the run draws in a single CJK face
+        // instead of mixing faces per character (e.g. a bundled Japanese Mincho for JIS-covered
+        // ideographs beside a Simplified-Chinese sans for the rest). Whitespace and characters the
+        // primary covers don't constrain the choice. `None` keeps the per-character fallback.
+        let ea_face: Option<FaceRef> = {
+            let ea: Vec<char> = text
+                .chars()
+                .filter(|c| crate::kinsoku::is_east_asian(*c) && !primary.covers(*c) && !c.is_whitespace() && !c.is_control() && *c != SOFT_HYPHEN)
+                .collect();
+            if ea.is_empty() {
+                None
+            } else {
+                wordcraft_fonts::FontDb::global().fallback_for_east_asian(&ea, primary.id(), rc.bold, rc.italic).map(|f| FaceRef::of(&f))
+            }
+        };
         // Split by font coverage (fallback faces), small caps case, script formatting and direction.
         let mut seg_start = 0;
         let mut cur: Option<SegKey> = None;
         let mut segs: Vec<(usize, usize, SegKey)> = Vec::new();
         for (i, c) in text.char_indices() {
+            let rtl = use_levels && self.levels.get(base + i).is_some_and(|l| l % 2 == 1);
+            // A symbol-font character becomes its Unicode symbol (#776).
+            let c = show(c);
+            // Displayed form (Word › Numeral): one char in, one char out. Coverage and the
+            // fallback face are picked for the displayed char, so Hindi digits land in an
+            // Arabic-capable face and Western digits in a Latin one.
+            let dc = self.numeral_char(&context, i, c, rtl);
             let mark = is_mark(c);
             let complex = match cur {
                 Some(k) if mark => k.complex,
-                _ => rc_cs.is_some() && rc.uses_complex(c),
+                _ => rc_cs.is_some() && rc.uses_complex(dc),
             };
             let prim = if complex { primary_cs.unwrap_or(primary) } else { primary };
             let face = match cur {
                 Some(k) if mark => k.face,
                 _ if !complex && east_asian(c) && primary_ea.is_some_and(|f| f.covers(c)) => primary_ea,
-                _ if prim.covers(c) || c.is_whitespace() || c.is_control() || c == SOFT_HYPHEN => None,
+                _ if prim.covers(dc) || c.is_whitespace() || c.is_control() || c == SOFT_HYPHEN => None,
                 // Stay in the fallback face the word started in while it covers the letters.
-                Some(SegKey { face: Some(f), .. }) if f.covers(c) => Some(f),
+                Some(SegKey { face: Some(f), .. }) if f.covers(dc) => Some(f),
+                // The run's unified East Asian face, when one face covers the whole run.
+                _ if !complex && ea_face.is_some() && crate::kinsoku::is_east_asian(c) => ea_face,
                 _ => {
                     let (bold, italic) = if complex { (rc.bold_cs, rc.italic_cs) } else { (rc.bold, rc.italic) };
-                    wordcraft_fonts::FontDb::global().fallback_styled(c, prim.id(), bold, italic).map(|f| FaceRef::of(&f))
+                    wordcraft_fonts::FontDb::global().fallback_styled(dc, prim.id(), bold, italic).map(|f| FaceRef::of(&f))
                 }
             };
             let small = rc.small_caps && !rc.caps && c.is_lowercase();
-            let rtl = use_levels && self.levels.get(base + i).is_some_and(|l| l % 2 == 1);
             let k = SegKey { face, small, complex, rtl };
             match cur {
                 Some(p) if p.same(&k) => {}
@@ -633,6 +783,7 @@ impl<'a> Builder<'a> {
         if let Some(p) = cur {
             segs.push((seg_start, text.len(), p));
         }
+        let no_kern = [wordcraft_fonts::feature_value(b"kern", 0)];
         for (a, b, key) in segs {
             let Some(sub) = text.get(a..b) else { continue };
             let rc = match (&rc_cs, key.complex) {
@@ -644,21 +795,49 @@ impl<'a> Builder<'a> {
             let si = self.style(rc, key.face, small);
             let Some(st) = self.styles.get(si as usize).cloned() else { continue };
             let upper = rc.caps || small;
-            let map = |c: char| if upper { c.to_uppercase().next().unwrap_or(c) } else { c };
+            // Displayed text: numeral substitution is 1 char → 1 char, so codepoints stay
+            // aligned with the document and only byte offsets shift; `orig_of` maps each
+            // displayed char back to its original byte offset (+ a `sub.len()` sentinel).
+            let substituted = sub.char_indices().any(|(i, c)| self.numeral_char(&context, a + i, c, key.rtl) != c);
+            let mut mapped = String::new();
+            let mut map_starts: Vec<usize> = Vec::new();
+            let mut orig_of: Vec<usize> = Vec::new();
+            if substituted {
+                mapped = String::with_capacity(sub.len());
+                for (i, c) in sub.char_indices() {
+                    map_starts.push(mapped.len());
+                    orig_of.push(i);
+                    mapped.push(self.numeral_char(&context, a + i, c, key.rtl));
+                }
+                orig_of.push(sub.len());
+            }
+            let shape_text = if substituted { mapped.as_str() } else { sub };
+            let map = |c: char| {
+                let d = show(c);
+                if d != c {
+                    d
+                } else if upper {
+                    c.to_uppercase().next().unwrap_or(c)
+                } else {
+                    c
+                }
+            };
+            // The shaper kerns by default; Word kerns only when Kerning for fonts covers the size.
+            let features: &[wordcraft_fonts::Feature] = if rc.kerned() { &[] } else { &no_kern };
             let shaped = if use_levels {
-                wordcraft_fonts::shape_run(&st.face, sub, &[], map, key.rtl)
+                wordcraft_fonts::shape_run(&st.face, shape_text, features, map, key.rtl)
             } else {
-                wordcraft_fonts::shape(&st.face, sub, &[], map)
+                wordcraft_fonts::shape(&st.face, shape_text, features, map)
             };
             let k = st.size / st.face.upem.max(1.0) as f32;
             let hscale = rc.scale / 100.0;
             // Group glyphs by cluster byte offset; graphemes may span several shaper clusters.
             // Complex-script syllables the graphemes split (Myanmar vowel signs, stacked
             // consonants) stay one cluster: the caret never stops inside them.
-            let bounds: Vec<usize> = wordcraft_doc::cluster::cluster_starts(sub);
+            let bounds: Vec<usize> = wordcraft_doc::cluster::cluster_starts(shape_text);
             let mut gi = 0usize;
             for (bi, &gs) in bounds.iter().enumerate() {
-                let ge = bounds.get(bi + 1).copied().unwrap_or(sub.len());
+                let ge = bounds.get(bi + 1).copied().unwrap_or(shape_text.len());
                 let g0 = self.glyphs.len() as u32;
                 let mut adv = 0.0f32;
                 while let Some(g) = shaped.get(gi) {
@@ -670,7 +849,7 @@ impl<'a> Builder<'a> {
                     gi += 1;
                 }
                 let g1 = self.glyphs.len() as u32;
-                let s = sub.get(gs..ge).unwrap_or("");
+                let s = shape_text.get(gs..ge).unwrap_or("");
                 let ch = s.chars().next().unwrap_or(' ');
                 let kind = kind_override.unwrap_or(if ch == ' ' || ch == '\u{3000}' {
                     ClKind::Space
@@ -680,9 +859,11 @@ impl<'a> Builder<'a> {
                     ClKind::Text
                 });
                 let adv = if kind == ClKind::Marker { 0.0 } else { adv + rc.spacing };
+                // Clusters index the document text, never the displayed text.
+                let (cs, ce) = if substituted { remap_range(&map_starts, &orig_of, sub.len(), gs, ge) } else { (gs, ge) };
                 self.clusters.push(Cluster {
-                    start: base + a + gs,
-                    end: base + a + ge,
+                    start: base + a + cs,
+                    end: base + a + ce,
                     adv,
                     kind,
                     style: si,
@@ -954,19 +1135,35 @@ pub(crate) fn left_out(rc: &ResolvedChar, show_hidden: bool, hide_deleted: bool)
 pub fn layout_para(p: &Paragraph, env: &ParaEnv) -> ParaLayout {
     let doc = env.doc;
     let mut rp = doc.styles.resolve_para_in(&p.props, env.table.map(|t| &t.para));
+    if let Some(spacing) = env.read_line_spacing.filter(|s| s.is_finite() && (1.0..=2.0).contains(s)) {
+        rp.line_spacing = wordcraft_doc::props::LineSpacing::Multiple(spacing);
+    }
     let para_style = p.props.style.as_deref();
     let table_chr = env.table.map(|t| &t.chr);
     // Indents in characters are measured in the paragraph mark's font size.
     if rp.indent_chars.iter().any(|c| *c != 0.0) {
         rp.set_char_unit(doc.styles.resolve_char_in(para_style, table_chr, &p.mark).size);
     }
-    // List level indents apply unless the paragraph sets its own.
+    // List level indents apply unless the paragraph sets its own, or, for a list from the style,
+    // the style giving the list (or one based on it) does (`indents_over_list`). A paragraph
+    // that switches its style's list off (`num: 0`) drops the styles' indents, as Word does.
+    let own_left = p.props.indent_left.is_some() || p.props.indent_left_chars.is_some_and(|c| c != 0.0);
+    let own_first = p.props.indent_first.is_some() || p.props.indent_first_chars.is_some_and(|c| c != 0.0);
     if let Some((_, lvl)) = &env.label {
-        if p.props.indent_left.is_none() && p.props.indent_left_chars.is_none_or(|c| c == 0.0) {
+        let (style_left, style_first) =
+            if p.props.numbering.is_some() { (false, false) } else { doc.styles.indents_over_list(para_style.unwrap_or("Normal")) };
+        if !own_left && !style_left {
             rp.indent_left = lvl.indent;
         }
-        if p.props.indent_first.is_none() && p.props.indent_first_chars.is_none_or(|c| c == 0.0) {
+        if !own_first && !style_first {
             rp.indent_first = -lvl.hanging;
+        }
+    } else if p.props.numbering.is_some_and(|n| n.num == 0) {
+        if !own_left {
+            rp.indent_left = 0.0;
+        }
+        if !own_first {
+            rp.indent_first = 0.0;
         }
     }
     let resolve = |c: &CharProps| -> Arc<ResolvedChar> { Arc::new(doc.styles.resolve_char_in(para_style, table_chr, c)) };
@@ -994,8 +1191,11 @@ pub fn layout_para(p: &Paragraph, env: &ParaEnv) -> ParaLayout {
     let math_props = doc.settings.math.clone().unwrap_or_default();
     // The byte ranges of runs left out of the layout, in order, adjacent runs merged.
     let mut left: Vec<std::ops::Range<usize>> = Vec::new();
+    // Each run's proofing language and whether it is checked (spelling, grammar, hyphenation).
+    let mut runs: Vec<ProofRun> = Vec::new();
     for (range, props) in p.run_ranges() {
         let rc = resolve(props);
+        runs.push(ProofRun::of(range.clone(), &rc));
         let Some(text) = p.text.get(range.clone()) else { continue };
         if left_out(&rc, b.env.show_hidden, b.env.hide_deleted) {
             match left.last_mut() {
@@ -1089,9 +1289,11 @@ pub fn layout_para(p: &Paragraph, env: &ParaEnv) -> ParaLayout {
                             if let Some((w, h, float)) = o.frame()
                                 && float.wrap == wordcraft_doc::para::Wrap::Inline
                             {
+                                // A picture wider than the line keeps its size, as in Word: it runs past
+                                // the margin and the page edge clips it (see `ParaEnv::fit_objects`).
                                 let maxw = (env.width - rp.indent_left.max(0.0) - rp.indent_right.max(0.0)).max(18.0);
                                 let (w, h) = (w.clamp(1.0, 4000.0), h.clamp(1.0, 4000.0));
-                                let s = if w > maxw { maxw / w } else { 1.0 };
+                                let s = if env.fit_objects && w > maxw { maxw / w } else { 1.0 };
                                 // The line makes room for effects (shadows) around the picture too, and
                                 // for a rotated one's bounds, as Word does.
                                 let [el, et, er, eb] = float.effect_extent();
@@ -1239,24 +1441,16 @@ pub fn layout_para(p: &Paragraph, env: &ParaEnv) -> ParaLayout {
     let label = env.label.as_ref().map(|(text, lvl)| {
         let lc = p.mark.clone().overlaid(&lvl.chr);
         let rc = resolve(&lc);
-        // A Symbol/Wingdings bullet (U+F0B7…) without that font installed, or in a face that has
-        // no glyph at the private-use code: draw the standard character instead, since a
-        // substitute has another glyph, or none, there.
-        let r = wordcraft_fonts::word::resolve(&rc.font, rc.bold, rc.italic);
-        let text: String = text
-            .chars()
-            .map(|c| match wordcraft_fonts::word::symbol_font_char(&rc.font, c) {
-                Some(u) if r.substituted || !r.face.covers(c) => u,
-                _ => c,
-            })
-            .collect();
+        // A Symbol/Wingdings bullet (U+F0B7…) is drawn as its Unicode equivalent when the font
+        // isn't installed (shaping maps it); the label's text reads as that character too.
+        let shown = |t: &str| -> String { wordcraft_doc::symbol_fonts::map_text(&rc.font, t) };
         let before_c = b.clusters.len();
         let before_g = b.glyphs.len();
-        b.shape_with(&text, 0, &rc, None, false);
+        b.shape_with(text, 0, &rc, None, false);
         let mut cl: Vec<Cluster> = b.clusters.drain(before_c..).collect();
         // A right-to-left paragraph's label reads right to left too ("1." shows as ".1").
         if rp.bidi {
-            let lv = bidi_levels(&text, true);
+            let lv = bidi_levels(text, true);
             let cl_lv: Vec<u8> = cl.iter().map(|c| lv.get(c.start).copied().unwrap_or(1)).collect();
             let order = visual_order(&cl_lv);
             cl = order.iter().filter_map(|&i| cl.get(i).cloned()).collect();
@@ -1271,18 +1465,18 @@ pub fn layout_para(p: &Paragraph, env: &ParaEnv) -> ParaLayout {
             for g in b.glyphs.get(c.g0 as usize..c.g1 as usize).into_iter().flatten() {
                 glyphs.push(Glyph { dx: g.dx + x, ..*g });
             }
-            let chars = text.get(c.start..c.end).unwrap_or("");
+            let chars = shown(text.get(c.start..c.end).unwrap_or(""));
             match runs.last_mut() {
                 Some(r) if r.style == c.style => {
                     r.glyphs.end = glyphs.len();
-                    r.text.push_str(chars);
+                    r.text.push_str(&chars);
                 }
-                _ => runs.push(LabelRun { style: c.style, glyphs: g0..glyphs.len(), text: chars.to_string() }),
+                _ => runs.push(LabelRun { style: c.style, glyphs: g0..glyphs.len(), text: chars }),
             }
             x += c.adv;
         }
         b.glyphs.truncate(before_g);
-        Label { text, style, glyphs, runs, x: 0.0, width: x }
+        Label { text: shown(text), style, glyphs, runs, x: 0.0, width: x }
     });
 
     let mut pl = ParaLayout {
@@ -1297,7 +1491,7 @@ pub fn layout_para(p: &Paragraph, env: &ParaEnv) -> ParaLayout {
         text_len: p.text.len(),
         has_page_fields,
         notes,
-        issues: env.proofing.map(|o| proof_issues(p, &o)).unwrap_or_default(),
+        issues: env.proofing.map(|o| proof_issues(p, &runs, &o)).unwrap_or_default(),
         drop_cap,
         hyph_after: Vec::new(),
         bidi_levels: b.levels,
@@ -1309,7 +1503,7 @@ pub fn layout_para(p: &Paragraph, env: &ParaEnv) -> ParaLayout {
         enclosures,
     };
     let auto = env.doc.settings.auto_hyphenation && !pl.rp.suppress_hyphens;
-    pl.hyph_after = hyphenation_points(&text, to_para, &pl, auto, env.doc.settings.hyphenate_caps);
+    pl.hyph_after = hyphenation_points(&text, to_para, &pl, auto, env.doc.settings.hyphenate_caps, &runs);
     pl.left_out = left;
     for k in pl.hyph_after.clone() {
         if let Some(c) = pl.clusters.get_mut(k as usize) {
@@ -1657,7 +1851,10 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u16, level: Optio
         let mut any = false;
         let dropped = pl.drop_cap.map_or(0, |d| d.0);
         for (k, c) in pl.clusters.get(c0..c1).into_iter().flatten().enumerate() {
-            if c.kind == ClKind::Marker || c0 + k < dropped {
+            // Spaces and tabs never make a line taller, whatever their size: Word sizes a line by
+            // its other characters (a line of only them takes the paragraph mark's), measured in
+            // Word for Windows with 9 pt text and 11–20 pt tabs, spaces and ideographic spaces.
+            if matches!(c.kind, ClKind::Marker | ClKind::Space | ClKind::Tab) || c0 + k < dropped {
                 continue;
             }
             if let Some(st) = pl.styles.get(c.style as usize) {
@@ -1686,10 +1883,12 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u16, level: Optio
             asc = st.ascent;
             desc = st.descent;
         }
+        // A list label can make the line taller above the baseline, never below it: Word keeps
+        // the text's descent (measured in Word for Windows: a Symbol bullet's taller ascent
+        // counts, a Courier New label's deeper descent doesn't).
         if first && let Some(lab) = &pl.label {
             for st in lab.runs.iter().filter_map(|r| pl.styles.get(r.style as usize)) {
                 asc = asc.max(st.ascent);
-                desc = desc.max(st.descent);
             }
         }
         // Line spacing scales the text's height, never a picture's: a line is at least as tall
@@ -2074,10 +2273,11 @@ fn hyphen_glyph(pl: &ParaLayout, style: u16, cache: &mut Vec<(u16, u32, f32)>) -
 }
 
 /// Clusters after which a line may end with a hyphen: soft hyphens always, and dictionary or
-/// pattern hyphenation points of each word when automatic hyphenation is on. Both are found in
-/// `text`, the paragraph as laid out (without what the layout leaves out, [`left_out`]), and
-/// `to_para` maps the end of a char there to the paragraph's text.
-fn hyphenation_points(text: &str, to_para: impl Fn(usize) -> Option<usize>, pl: &ParaLayout, auto: bool, caps: bool) -> Vec<u32> {
+/// pattern hyphenation points of each word, in the language of its run ([`ProofRun`]), when
+/// automatic hyphenation is on (words in capitals only with `caps`). Both are found in `text`, the paragraph as laid out (without what
+/// the layout leaves out, [`left_out`]), and `to_para` maps the end of a char there to the
+/// paragraph's text.
+fn hyphenation_points(text: &str, to_para: impl Fn(usize) -> Option<usize>, pl: &ParaLayout, auto: bool, caps: bool, runs: &[ProofRun]) -> Vec<u32> {
     let mut bytes: Vec<usize> = text.char_indices().filter(|(_, c)| *c == SOFT_HYPHEN).map(|(i, c)| i + c.len_utf8()).collect();
     if auto {
         let lim = wordcraft_proof::hyphen::Limits::default();
@@ -2095,8 +2295,11 @@ fn hyphenation_points(text: &str, to_para: impl Fn(usize) -> Option<usize>, pl: 
                         && !w.chars().any(wordcraft_fonts::is_rtl)
                         && (caps || !all_caps(w))
                     {
+                        // The word's language: its first letter's run, found by its place in `p.text`.
+                        let first = w.chars().next().map_or(1, char::len_utf8);
+                        let lang = to_para(a + first).map(|e| lang_at(runs, e.saturating_sub(first))).unwrap_or_default();
                         let offs: Vec<usize> = w.char_indices().map(|(o, _)| o).collect();
-                        for pt in wordcraft_proof::hyphen::hyphen_points(w, &lim) {
+                        for pt in wordcraft_proof::hyphen::hyphen_points_in(w, &lim, lang) {
                             if let Some(o) = offs.get(pt) {
                                 bytes.push(a + o);
                             }
@@ -2274,24 +2477,54 @@ impl ParaLayout {
     }
 }
 
-/// Spelling and grammar issues in a paragraph (skipping "do not check" and hidden runs).
-fn proof_issues(p: &Paragraph, opts: &crate::ProofOptions) -> Vec<(usize, usize, bool)> {
+/// One run's proofing: its bytes in the paragraph, its language (`w:lang`, resolved through the
+/// styles: the document default, paragraph and character styles, direct formatting) and whether
+/// it is left unchecked ("Do not check spelling or grammar", hidden text, hyperlinks).
+#[derive(Clone, Debug, PartialEq)]
+pub struct ProofRun {
+    pub range: std::ops::Range<usize>,
+    pub lang: wordcraft_proof::ProofLang,
+    pub skip: bool,
+}
+
+impl ProofRun {
+    fn of(range: std::ops::Range<usize>, rc: &ResolvedChar) -> ProofRun {
+        ProofRun { range, lang: wordcraft_proof::ProofLang::from_tag(rc.lang.as_deref()), skip: rc.no_proof || rc.hidden || rc.link.is_some() }
+    }
+}
+
+/// The proofing runs of a paragraph, in order. `table` is the cell's table-style character
+/// formatting ([`CellText::chr`]) for a paragraph in a table, as layout resolves it.
+pub fn proof_runs(doc: &Document, p: &Paragraph, table: Option<&CharProps>) -> Vec<ProofRun> {
+    let style = p.props.style.as_deref();
+    p.run_ranges().map(|(r, c)| ProofRun::of(r, &doc.styles.resolve_char_in(style, table, c))).collect()
+}
+
+/// The language of the run holding byte `off` (English past the last run).
+fn lang_at(runs: &[ProofRun], off: usize) -> wordcraft_proof::ProofLang {
+    let k = runs.partition_point(|r| r.range.end <= off);
+    runs.get(k).filter(|r| r.range.start <= off).map(|r| r.lang).unwrap_or_default()
+}
+
+/// Spelling and grammar issues in a paragraph, in order: each word in its run's language
+/// ([`wordcraft_proof::check_text_with`]: what spelling skips, and grammar only with `grammar`),
+/// and none touching a run left unchecked.
+pub fn paragraph_issues(p: &Paragraph, runs: &[ProofRun], spelling: &wordcraft_proof::Options, grammar: bool) -> Vec<wordcraft_proof::Issue> {
     if p.text.trim().is_empty() || p.text.len() > 100_000 {
         return Vec::new();
     }
     let text = proof_text(p);
-    let skip = |a: usize, b: usize| {
-        p.run_ranges().any(|(r, c)| r.start < b && a < r.end && (c.no_proof == Some(true) || c.hidden == Some(true) || c.link.is_some()))
-    };
-    let mut v: Vec<(usize, usize, bool)> = wordcraft_proof::check_spelling_with(&text, &opts.spelling)
+    let spans: Vec<(std::ops::Range<usize>, wordcraft_proof::ProofLang)> = runs.iter().map(|r| (r.range.clone(), r.lang)).collect();
+    let skip = |a: usize, b: usize| runs.iter().any(|r| r.skip && r.range.start < b && a < r.range.end);
+    wordcraft_proof::check_text_with(&text, &spans, spelling, grammar).into_iter().filter(|i| !skip(i.start, i.end)).collect()
+}
+
+/// Spelling and grammar issues in a paragraph as squiggles: (start, end, is grammar).
+fn proof_issues(p: &Paragraph, runs: &[ProofRun], opts: &crate::ProofOptions) -> Vec<(usize, usize, bool)> {
+    paragraph_issues(p, runs, &opts.spelling, opts.grammar)
         .into_iter()
-        .filter(|i| !skip(i.start, i.end))
-        .map(|i| (i.start, i.end, false))
-        .collect();
-    if opts.grammar {
-        v.extend(wordcraft_proof::check_grammar(&text).into_iter().filter(|i| !skip(i.start, i.end)).map(|i| (i.start, i.end, true)));
-    }
-    v
+        .map(|i| (i.start, i.end, i.kind == wordcraft_proof::IssueKind::Grammar))
+        .collect()
 }
 
 /// Text for proofing with the same byte offsets: inline objects and tracked deletions become

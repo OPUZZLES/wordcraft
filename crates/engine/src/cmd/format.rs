@@ -15,15 +15,14 @@ pub const SIZES: [f32; 17] = [8.0, 9.0, 10.0, 10.5, 11.0, 12.0, 14.0, 16.0, 18.0
 pub fn specs() -> Vec<CommandSpec> {
     vec![
         CommandSpec::new("format.bold", "Bold", "Home › Font", |s, v| {
-            // Like Word's button, for complex-script (Persian, Arabic) text too: an unset `bold_cs`
-            // follows `bold`.
+            // The button formats both plain and complex-script text explicitly.
             toggle(
                 s,
                 v,
                 |r| r.bold,
                 |c, on| {
                     c.bold = Some(on);
-                    c.bold_cs = None;
+                    c.bold_cs = Some(on);
                 },
             )
         })
@@ -36,7 +35,7 @@ pub fn specs() -> Vec<CommandSpec> {
                 |r| r.italic,
                 |c, on| {
                     c.italic = Some(on);
-                    c.italic_cs = None;
+                    c.italic_cs = Some(on);
                 },
             )
         })
@@ -168,13 +167,15 @@ fn target(s: &Session) -> Option<(Pos, Pos)> {
     None
 }
 
-/// The non-empty rows of a column selection, if one is active.
+/// The non-empty rows of a column selection, if one is active. Of whole cells, every paragraph:
+/// an empty one's mark takes the formatting.
 fn column_rows(s: &Session) -> Option<Vec<(Pos, Pos)>> {
     let segs = s.column_segments()?;
+    let cells = s.cell_range().is_some();
     let rows: Vec<(Pos, Pos)> = segs
         .iter()
         .map(|(a, b)| (s.doc.clamp(a), s.doc.clamp(b)))
-        .filter(|(a, b)| a != b && a.path == b.path && a.story == b.story)
+        .filter(|(a, b)| (a != b || cells) && a.path == b.path && a.story == b.story)
         .map(|(a, b)| if a <= b { (a, b) } else { (b, a) })
         .collect();
     // An empty block (column mode just started) formats like a caret.
@@ -187,6 +188,10 @@ pub fn apply(s: &mut Session, f: &dyn Fn(&mut CharProps)) -> CmdResult {
     if let Some(rows) = column_rows(s) {
         for (a, b) in rows {
             s.doc.format_range(&a, &b, f)?;
+            // An empty cell's paragraph only had its mark formatted: lay it out again.
+            if a == b {
+                s.doc.para_mut(a.story, &a.path)?.touch();
+            }
         }
         return sel_result(s);
     }
@@ -217,6 +222,10 @@ fn resolved(s: &Session) -> Vec<ResolvedChar> {
     if let Some(rows) = column_rows(s) {
         for (a, b) in rows {
             let Some(p) = s.doc.para_at(&a) else { continue };
+            // An empty cell: its mark's formatting.
+            if a == b {
+                out.push(s.doc.styles.resolve_char(p.props.style.as_deref(), &p.mark));
+            }
             for (r, c) in p.run_ranges() {
                 if r.end > a.off && r.start < b.off {
                     out.push(s.doc.styles.resolve_char(p.props.style.as_deref(), c));
@@ -319,7 +328,7 @@ fn size(s: &mut Session, v: &Value) -> CmdResult {
     let sz = (sz * 2.0).round() / 2.0;
     apply(s, &|c| {
         c.size = Some(sz);
-        c.size_cs = None;
+        c.size_cs = Some(sz);
     })
 }
 
@@ -338,7 +347,7 @@ fn step_size(s: &mut Session, dir: i32) -> CmdResult {
     // Each run steps from its own size when the selection mixes sizes.
     apply(s, &|c| {
         c.size = Some(next);
-        c.size_cs = None;
+        c.size_cs = Some(next);
     })
 }
 
@@ -346,17 +355,13 @@ fn nudge_size(s: &mut Session, d: f32) -> CmdResult {
     let next = (current_size(s) + d).clamp(1.0, 1638.0);
     apply(s, &|c| {
         c.size = Some(next);
-        c.size_cs = None;
+        c.size_cs = Some(next);
     })
 }
 
 fn color(s: &mut Session, v: &Value) -> CmdResult {
     let c = p::req_str(v, "color")?;
-    let tc = if c.eq_ignore_ascii_case("auto") || c.eq_ignore_ascii_case("automatic") {
-        TextColor::Auto
-    } else {
-        TextColor::Rgb(Rgb::parse(c).ok_or_else(|| CmdError::Params("color must be RRGGBB or auto".into()))?)
-    };
+    let tc = TextColor::parse(c).ok_or_else(|| CmdError::Params("color must be RRGGBB or auto".into()))?;
     apply(s, &|x| x.color = Some(tc))
 }
 
@@ -568,7 +573,12 @@ fn char_style(s: &mut Session, v: &Value) -> CmdResult {
 }
 
 fn set(s: &mut Session, v: &Value) -> CmdResult {
-    let props: CharProps = serde_json::from_value(v.get("props").cloned().unwrap_or(Value::Null)).map_err(|e| CmdError::Params(e.to_string()))?;
+    let mut props: CharProps = serde_json::from_value(v.get("props").cloned().unwrap_or(Value::Null)).map_err(|e| CmdError::Params(e.to_string()))?;
+    // The font dialog and callers supplying one value format both scripts. Explicit
+    // complex-script values still take precedence; importing a DOCX never uses this command.
+    props.size_cs = props.size_cs.or(props.size);
+    props.bold_cs = props.bold_cs.or(props.bold);
+    props.italic_cs = props.italic_cs.or(props.italic);
     apply(s, &|c| c.overlay(&props))
 }
 
@@ -602,6 +612,9 @@ pub fn state(s: &Session) -> Value {
         "highlight": same(&|r| json!(r.highlight.map(|c| c.hex()))),
         "style": style,
         "styleName": style_name,
+        // The proofing language (a BCP 47 tag; null when mixed or unset) and "Do not check".
+        "lang": same(&|r| json!(r.lang)),
+        "noProof": all.iter().all(|r| r.no_proof),
     })
 }
 
