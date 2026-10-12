@@ -161,3 +161,10 @@ fn dialog_buttons_keep_edits_and_render_selected_direction() {
     assert!(h.state().dialog.is_none());
     assert_local(h.state(), &d, &b);
 }
+
+#[test]
+fn save_copy_name_has_no_trailing_dot_without_an_extension() {
+    assert_eq!(copy_name("Report.docx"), "Report copy.docx");
+    assert_eq!(copy_name("Report"), "Report copy");
+    assert_eq!(copy_name("Report."), "Report copy");
+}

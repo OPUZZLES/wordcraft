@@ -2043,6 +2043,12 @@
 	Turkish	Turco
 	Ukrainian	Ucraniano
 	{language} is now the document's default language.	{language} es ahora el idioma predeterminado del documento.
+# Save conflict dialog (#813).
+	Save conflict	Conflicto al guardar
+	The file changed or is unavailable	El archivo ha cambiado o no está disponible
+	Your edits are still here. Save them to a different file to keep both versions.	Tus cambios siguen aquí. Guárdalos en otro archivo para conservar ambas versiones.
+	Keep editing	Seguir editando
+	Save copy…	Guardar copia…
 	Visual effects	Efectos visuales
 	Animation effects:	Efectos de animación:
 	On	Activado

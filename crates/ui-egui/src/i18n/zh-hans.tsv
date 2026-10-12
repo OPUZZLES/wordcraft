@@ -2039,6 +2039,12 @@
 	Turkish	土耳其语
 	Ukrainian	乌克兰语
 	{language} is now the document's default language.	{language} 现在是此文档的默认语言。
+# Save conflict dialog (#813).
+	Save conflict	保存冲突
+	The file changed or is unavailable	文件已更改或不可用
+	Your edits are still here. Save them to a different file to keep both versions.	您的编辑仍保留在此。将其保存到另一个文件，即可同时保留两个版本。
+	Keep editing	继续编辑
+	Save copy…	保存副本…
 	Visual effects	视觉效果
 	Animation effects:	动画效果：
 	On	开

@@ -204,13 +204,24 @@ fn save(s: &mut Session, v: &Value) -> CmdResult {
         crate::io::check_save_destination(&path, s.file_version.as_ref())?;
         password = Some(crate::io::Password::new(pw));
     }
-    let doc = s.document_for_save();
+    // Stamp in place and put the old properties back if the save fails, so a refused save
+    // leaves the live document's metadata as it was (cheaper than cloning the document).
+    let before = s.doc.core.clone();
+    s.stamp_save();
     let pw = password.as_ref().map(crate::io::Password::as_str);
+    let opts = export_options(s, v);
     #[cfg(not(target_arch = "wasm32"))]
-    let version = crate::io::save_path_versioned(&path, &doc, pw, &export_options(s, v), s.file_version.as_ref())?;
+    let saved = crate::io::save_path_versioned(&path, &s.doc, pw, &opts, s.file_version.as_ref());
     #[cfg(target_arch = "wasm32")]
-    crate::io::save_path_with(&path, &doc, pw, &export_options(s, v)).map_err(CmdError::Failed)?;
-    s.doc.core = doc.core;
+    let saved = crate::io::save_path_with(&path, &s.doc, pw, &opts).map_err(CmdError::Failed);
+    #[cfg_attr(target_arch = "wasm32", allow(clippy::let_unit_value, unused_variables))]
+    let version = match saved {
+        Ok(version) => version,
+        Err(e) => {
+            s.doc.core = before;
+            return Err(e);
+        }
+    };
     let encrypted = pw.is_some() && crate::io::can_encrypt(&path.to_string_lossy());
     s.password = password;
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();

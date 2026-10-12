@@ -2419,6 +2419,12 @@ preview	Title	Пример
 # Asian and Latin text fonts (#505).
 	Asian text font:	Шрифт азиатского текста:
 	Latin text font:	Шрифт латинского текста:
+# Save conflict dialog (#813).
+	Save conflict	Конфликт при сохранении
+	The file changed or is unavailable	Файл изменён или недоступен
+	Your edits are still here. Save them to a different file to keep both versions.	Ваши правки сохранились здесь. Сохраните их в другой файл, чтобы оставить обе версии.
+	Keep editing	Продолжить редактирование
+	Save copy…	Сохранить копию…
 	Visual effects	Визуальные эффекты
 	Animation effects:	Эффекты анимации:
 	On	Включено

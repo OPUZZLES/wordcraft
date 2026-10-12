@@ -2041,6 +2041,12 @@
 	Turkish	Турски
 	Ukrainian	Украјински
 	{language} is now the document's default language.	{language} је сада подразумевани језик документа.
+# Save conflict dialog (#813).
+	Save conflict	Сукоб при чувању
+	The file changed or is unavailable	Датотека је измењена или није доступна
+	Your edits are still here. Save them to a different file to keep both versions.	Ваше измене су и даље овде. Сачувајте их у другу датотеку да бисте задржали обе верзије.
+	Keep editing	Настави уређивање
+	Save copy…	Сачувај копију…
 	Visual effects	Визуелни ефекти
 	Animation effects:	Ефекти анимације:
 	On	Укључено

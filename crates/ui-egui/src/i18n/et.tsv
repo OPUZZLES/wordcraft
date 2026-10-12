@@ -2037,6 +2037,12 @@
 	Turkish	Türgi
 	Ukrainian	Ukraina
 	{language} is now the document's default language.	{language} on nüüd dokumendi vaikekeel.
+# Save conflict dialog (#813).
+	Save conflict	Salvestamise konflikt
+	The file changed or is unavailable	Fail on muutunud või pole saadaval
+	Your edits are still here. Save them to a different file to keep both versions.	Sinu muudatused on alles. Salvesta need teise faili, et mõlemad versioonid säiliksid.
+	Keep editing	Jätka redigeerimist
+	Save copy…	Salvesta koopia…
 	Visual effects	Visuaalefektid
 	Animation effects:	Animatsiooniefektid:
 	On	Sees

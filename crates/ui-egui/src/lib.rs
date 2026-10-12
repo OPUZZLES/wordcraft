@@ -752,11 +752,7 @@ impl WordApp {
         if answer == "cancel" {
             return Ok(json!({"saved": false}));
         }
-        let name = self.default_save_name();
-        let path = std::path::Path::new(&name);
-        let stem = path.file_stem().map(|s| s.to_string_lossy()).unwrap_or_default();
-        let ext = path.extension().map(|s| s.to_string_lossy()).unwrap_or_default();
-        let name = format!("{stem} copy.{ext}");
+        let name = copy_name(&self.default_save_name());
         match self.ask_file(file_dialogs::FileDialogRequest::Save { name }, file_dialogs::AfterPick::SaveCopy { document }) {
             file_dialogs::Asked::Done(r) => r,
             _ => Ok(json!({"pending": "saveCopy"})),
@@ -1521,6 +1517,17 @@ impl AutoSaveBlock {
 fn keeps_everything(name: &str) -> bool {
     let ext = std::path::Path::new(name).extension().map(|e| e.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
     matches!(ext.as_str(), "docx" | "docm" | "dotx" | "dotm" | "odt" | "rtf" | "json" | "xml")
+}
+
+/// The name Save copy… suggests for `name`: `Report copy.docx`, or `Report copy` when `name` has
+/// no extension (no trailing dot).
+fn copy_name(name: &str) -> String {
+    let path = std::path::Path::new(name);
+    let stem = path.file_stem().map(|s| s.to_string_lossy()).unwrap_or_default();
+    match path.extension().map(|e| e.to_string_lossy()).filter(|e| !e.is_empty()) {
+        Some(ext) => format!("{stem} copy.{ext}"),
+        None => format!("{stem} copy"),
+    }
 }
 
 /// The dialog a user-run command opens when it lacks the input it needs (scripts and agents get

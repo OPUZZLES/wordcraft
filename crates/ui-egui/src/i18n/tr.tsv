@@ -2041,6 +2041,12 @@
 # Asian and Latin text fonts (#505).
 	Asian text font:	Asya metni yazı tipi:
 	Latin text font:	Latin metni yazı tipi:
+# Save conflict dialog (#813).
+	Save conflict	Kaydetme çakışması
+	The file changed or is unavailable	Dosya değişti veya kullanılamıyor
+	Your edits are still here. Save them to a different file to keep both versions.	Düzenlemeleriniz hâlâ burada. İki sürümü de korumak için bunları farklı bir dosyaya kaydedin.
+	Keep editing	Düzenlemeye devam et
+	Save copy…	Kopyayı kaydet…
 	Visual effects	Görsel efektler
 	Animation effects:	Animasyon efektleri:
 	On	Açık

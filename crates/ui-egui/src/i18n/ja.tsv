@@ -2027,6 +2027,12 @@
 	Turkish	トルコ語
 	Ukrainian	ウクライナ語
 	{language} is now the document's default language.	{language} がこの文書の既定の言語になりました。
+# Save conflict dialog (#813).
+	Save conflict	保存の競合
+	The file changed or is unavailable	ファイルが変更されたか、使用できません
+	Your edits are still here. Save them to a different file to keep both versions.	編集内容は残っています。両方のバージョンを残すには、別のファイルに保存してください。
+	Keep editing	編集を続ける
+	Save copy…	コピーを保存…
 	Visual effects	視覚効果
 	Animation effects:	アニメーション効果:
 	On	オン

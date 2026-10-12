@@ -649,23 +649,12 @@ impl Session {
     /// when it has none) the way Word does on every save. `file.save` calls it, and so does any
     /// front end that writes the bytes itself (the web build's download, #262).
     pub fn stamp_save(&mut self) {
-        Self::stamp_core(&mut self.doc, &self.author);
-    }
-
-    /// Stamping a candidate keeps failed saves from changing the live document's metadata.
-    pub(crate) fn document_for_save(&self) -> Document {
-        let mut doc = self.doc.clone();
-        Self::stamp_core(&mut doc, &self.author);
-        doc
-    }
-
-    fn stamp_core(doc: &mut Document, author: &str) {
-        let core = &mut doc.core;
+        let core = &mut self.doc.core;
         core.modified = crate::cmd::now_iso();
         if core.created.is_empty() {
             core.created = core.modified.clone();
         }
-        core.last_modified_by = author.to_string();
+        core.last_modified_by = self.author.clone();
         core.revision = core.revision.saturating_add(1);
     }
     /// Close an open typing group (caret moved, other command).

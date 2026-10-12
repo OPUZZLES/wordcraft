@@ -322,13 +322,15 @@ pub enum Dialog {
     About {
         tab: u8,
     },
-    /// "Do you want to save changes?" before a user's New, Open, Close, Envelopes, Labels or
-    /// Native Save refused an external change. Neither choice overwrites the external version.
+    /// A native Save or AutoSave refused because the file changed or became unavailable since
+    /// it was opened or last saved (`ui.saveConflict`). Neither choice overwrites the external
+    /// version: Keep editing closes it, Save copy… asks for another file.
     SaveConflict {
         name: String,
         #[serde(skip)]
         document: u64,
     },
+    /// "Do you want to save changes?" before a user's New, Open, Close, Envelopes, Labels or
     /// Finish & Merge replaces the document (see [`WordApp::run`]); `then` runs once it is
     /// answered (`ui.saveChanges`), and only while the document it asked about
     /// (`Session::document_id`) is still the one open.
