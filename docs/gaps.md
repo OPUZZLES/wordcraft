@@ -9,6 +9,10 @@ first (`gh pr list`), and update this file and the parity doc when a gap closes.
 
 Native save reliability: synthetic cases on macOS reproduced loss through the predictable temporary-file name. Saves now use owned, exclusively created siblings, synchronize before replacement and clean up on failure; originals survive pre-replacement errors. This narrows save-path reliability under gap #3; the listed field failures and broader stability work remain open. See [save-path guarantees](file-format-parity.md#native-save-path-guarantees).
 
+Local desktop recovery now covers unsaved drafts and edits to existing files; see
+[recovery.md](recovery.md). This narrows gap #3 but does not resolve the crash/hang reports or
+establish cross-platform reliability.
+
 ## Ranked
 
 | # | Gap | B | Evidence | Impact | Hours | Doc |
@@ -97,6 +101,7 @@ The same gaps grouped the way the parity documents are, for agents working in on
 | 2026-10-11 | trivial | #24: Word's field keys (Alt+F9, Shift+F9, Ctrl+Shift+F9, Ctrl+F11, Ctrl+Shift+F11, F11, Shift+F11) (#339) |
 | 2026-10-10 | trivial | #24: 125 of ~250 keyboard shortcuts after #330 |
 | 2026-10-11 | trivial | Collapsed duplicate rows left by parallel merges |
+| 2026-10-12 | minor | Gap #3 narrowed: local desktop recovery snapshots, discovery, unsaved restore and confirmed discard are implemented. Password sessions skip plaintext copies. Crash prevention, Windows field testing and soak testing remain; readiness estimates unchanged. |
 | 2026-10-11 | trivial | All 12 bibliography styles landed (#383); removed from References depth |
 | 2026-10-11 | trivial | Formatting revisions landed (#41); gap #5 narrowed to move tracking and content controls, 8–12 h |
 | 2026-10-11 | trivial | Omitted `w:pPrDefault` stays omitted across saves; explicit empty/default properties and later spacing edits remain writable. Synthetic preservation checks only; readiness estimates unchanged |

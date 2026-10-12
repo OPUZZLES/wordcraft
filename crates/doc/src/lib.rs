@@ -561,10 +561,10 @@ pub struct Document {
     #[serde(skip_serializing_if = "NoteSeparators::is_empty")]
     pub endnote_separators: NoteSeparators,
     /// Embedded media (images) by key.
-    #[serde(skip)]
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub media: BTreeMap<String, Arc<Vec<u8>>>,
     /// Source-format parts we keep verbatim for round-trip (e.g. custom XML), by part name.
-    #[serde(skip)]
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub passthrough: BTreeMap<String, Arc<Vec<u8>>>,
 }
 

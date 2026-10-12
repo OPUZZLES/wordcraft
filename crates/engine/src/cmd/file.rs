@@ -160,6 +160,9 @@ fn encrypt(s: &mut Session, v: &Value) -> CmdResult {
         _ => return Err(CmdError::Params("`password` must be a string, or null to remove the password".into())),
     };
     if password != s.password {
+        if password.is_some() {
+            s.clear_recovery_before_password()?;
+        }
         s.password = password;
         s.dirty = true;
     }
@@ -182,6 +185,7 @@ fn save(s: &mut Session, v: &Value) -> CmdResult {
             return Err(CmdError::Params("only Word documents (.docx, .docm, .dotx, .dotm) can be saved with a password".into()));
         }
         wordcraft_docx::check_password(pw).map_err(|e| CmdError::Params(e.to_string()))?;
+        s.clear_recovery_before_password()?;
         s.password = Some(crate::io::Password::new(pw));
     }
     s.stamp_save();
