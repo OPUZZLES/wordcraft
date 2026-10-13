@@ -389,7 +389,8 @@ pub fn read_file(path: &str) -> Result<Vec<u8>, String> {
 }
 
 /// [`read_file`] for a file that must be a regular file of at most `max` bytes, checked before
-/// anything is read (a font named by the user, which could be any size).
+/// anything is read (a file named by the user — a font, a citation library — which could be any
+/// size on disk).
 #[cfg(not(target_arch = "wasm32"))]
 pub fn read_file_capped(path: &str, max: u64, what: &str) -> Result<Vec<u8>, String> {
     crate::file_access::check_read(path)?;
@@ -401,6 +402,11 @@ pub fn read_file_capped(path: &str, max: u64, what: &str) -> Result<Vec<u8>, Str
         return Err(format!("{path}: the {what} is larger than {} MB", max >> 20));
     }
     std::fs::read(path).map_err(|e| format!("{path}: {e}"))
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn read_file_capped(path: &str, _max: u64, _what: &str) -> Result<Vec<u8>, String> {
+    Err(format!("{path}: files are opened through the browser on the web"))
 }
 
 /// Write `bytes` to the file at `path`, inside the automation write root when there is one.

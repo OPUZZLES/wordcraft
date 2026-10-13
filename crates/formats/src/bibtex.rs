@@ -24,12 +24,12 @@ use std::collections::HashMap;
 
 use wordcraft_doc::Source;
 
-use crate::{MAX_LIB, MAX_NEST, MAX_SOURCES, MAX_VALUE, clamp_value, utf8_or_latin1};
+use crate::{MAX_LIBRARY_BYTES, MAX_NEST, MAX_SOURCES, MAX_VALUE, clamp_value, utf8_or_latin1};
 
 /// Import the sources of a BibTeX library.
 pub fn import(bytes: &[u8]) -> Result<Vec<Source>, String> {
-    if bytes.len() > MAX_LIB {
-        return Err(format!("BibTeX library is larger than {} MiB", MAX_LIB >> 20));
+    if bytes.len() > MAX_LIBRARY_BYTES {
+        return Err(format!("BibTeX library is larger than {} MiB", MAX_LIBRARY_BYTES >> 20));
     }
     let mut p = Parser { b: utf8_or_latin1(bytes).into_bytes(), at: 0, strings: HashMap::new(), out: Vec::new() };
     p.run()?;

@@ -1884,6 +1884,8 @@ fn hostile_params_never_panic() {
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("empty.bib"), b"").unwrap();
         std::fs::write(dir.join("wrong.txt"), b"not any kind of library").unwrap();
+        // A sparse 100 MB library: refused by its size, before the whole thing is read in.
+        std::fs::File::create(dir.join("big.bib")).unwrap().set_len(100 << 20).unwrap();
         let mut s = Session::new(crate::sample::sample_document());
         for bad in [
             json!({}),
@@ -1894,11 +1896,18 @@ fn hostile_params_never_panic() {
             json!({"path": dir.join("empty.bib").to_string_lossy()}),
             json!({"path": dir.join("wrong.txt").to_string_lossy()}),
             json!({"path": dir.join("missing.ris").to_string_lossy(), "format": "nope"}),
+            json!({"path": dir.join("big.bib").to_string_lossy()}),
         ] {
             match s.run("references.importSources", &bad) {
                 Err(crate::CmdError::Params(_)) => {}
                 other => panic!("expected a Params error for {bad}, got {other:?}"),
             }
+        }
+        // The oversized file is refused at the read, so the error names the cap (and the file
+        // is never read in, however large it is).
+        match s.run("references.importSources", &json!({"path": dir.join("big.bib").to_string_lossy()})) {
+            Err(e) => assert!(e.to_string().contains("larger than 16 MB"), "{e}"),
+            Ok(r) => panic!("expected a Params error for big.bib, got {r}"),
         }
         let _ = std::fs::remove_dir_all(&dir);
     }

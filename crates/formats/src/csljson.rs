@@ -19,12 +19,12 @@
 use serde_json::Value;
 use wordcraft_doc::Source;
 
-use crate::{MAX_LIB, MAX_NEST, MAX_SOURCES, clamp_value};
+use crate::{MAX_LIBRARY_BYTES, MAX_NEST, MAX_SOURCES, clamp_value};
 
 /// Import the sources of a CSL-JSON library.
 pub fn import(bytes: &[u8]) -> Result<Vec<Source>, String> {
-    if bytes.len() > MAX_LIB {
-        return Err(format!("CSL-JSON library is larger than {} MiB", MAX_LIB >> 20));
+    if bytes.len() > MAX_LIBRARY_BYTES {
+        return Err(format!("CSL-JSON library is larger than {} MiB", MAX_LIBRARY_BYTES >> 20));
     }
     let b = bytes.strip_prefix(&[0xEF, 0xBB, 0xBF][..]).unwrap_or(bytes);
     if b.iter().all(|c| c.is_ascii_whitespace()) {

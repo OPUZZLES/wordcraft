@@ -653,7 +653,10 @@ fn import_sources(s: &mut Session, v: &Value) -> CmdResult {
         "csl-json" => Some("json"),
         other => return Err(CmdError::Params(format!("`format` must be bibtex, ris, csl-json or auto, not `{other}`"))),
     };
-    let bytes = crate::io::read_file(path).map_err(|e| CmdError::Params(e.to_string()))?;
+    // Refused by size before it is read in: the file is named by the user and could be any size
+    // on disk. The 1 KiB margin lets the parser's own message govern files between the caps.
+    let cap = wordcraft_formats::MAX_LIBRARY_BYTES as u64 + 1024;
+    let bytes = crate::io::read_file_capped(path, cap, "source library").map_err(|e| CmdError::Params(e.to_string()))?;
     let ext = forced
         .or_else(|| library_ext(path, &bytes))
         .ok_or_else(|| CmdError::Params(format!("{path}: not a BibTeX, RIS or CSL-JSON library; give `format` or a .bib/.ris/.json file")))?;

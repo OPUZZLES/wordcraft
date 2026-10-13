@@ -50,8 +50,9 @@ pub fn import(ext: &str, bytes: &[u8]) -> Option<Result<Document, String>> {
 // Citation libraries (Manage Sources) are read-only and are not documents: they share the
 // crate's caps rather than the flow model.
 
-/// Most bytes of a citation library read (`bib`/`ris`/`json`); longer input is refused.
-const MAX_LIB: usize = 16 << 20;
+/// Most bytes of a citation library read (`bib`/`ris`/`json`); longer input is refused. Public
+/// so `references.importSources` can refuse an oversized file before reading it in.
+pub const MAX_LIBRARY_BYTES: usize = 16 << 20;
 /// Most sources kept from one library; further entries are skipped.
 const MAX_SOURCES: usize = 10_000;
 /// Longest source field value kept, in characters; longer values are cut off.

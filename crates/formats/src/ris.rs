@@ -18,12 +18,12 @@
 
 use wordcraft_doc::Source;
 
-use crate::{MAX_LIB, MAX_SOURCES, clamp_value, utf8_or_latin1};
+use crate::{MAX_LIBRARY_BYTES, MAX_SOURCES, clamp_value, utf8_or_latin1};
 
 /// Import the sources of an RIS library.
 pub fn import(bytes: &[u8]) -> Result<Vec<Source>, String> {
-    if bytes.len() > MAX_LIB {
-        return Err(format!("RIS library is larger than {} MiB", MAX_LIB >> 20));
+    if bytes.len() > MAX_LIBRARY_BYTES {
+        return Err(format!("RIS library is larger than {} MiB", MAX_LIBRARY_BYTES >> 20));
     }
     let text = utf8_or_latin1(bytes);
     let mut out = Vec::new();
