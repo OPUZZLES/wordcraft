@@ -116,6 +116,33 @@ fn package_and_document_roots_share_parts_and_keep_multiple_stores() {
 }
 
 #[test]
+fn bibliography_part_with_no_usable_sources_is_replaced_when_sources_are_added() {
+    let mut p = fixture();
+    // A `b:Sources` part whose only entry has no usable field: nothing is read from it.
+    let garbage = r#"<b:Sources xmlns:b="http://schemas.openxmlformats.org/officeDocument/2006/bibliography"><b:Source><b:Author><b:NameList/></b:Author></b:Source></b:Sources>"#;
+    p.insert("customXml/item2.xml".into(), garbage.as_bytes().to_vec());
+    p.insert(
+        "word/_rels/document.xml.rels".into(),
+        rels(&[("data", "customXml", "../customXml/item1.xml", false), ("bib", "customXml", "../customXml/item2.xml", false)]).into_bytes(),
+    );
+    let mut doc = wordcraft_docx::read(&zip(&p)).unwrap();
+    assert!(doc.sources.is_empty(), "{:?}", doc.sources);
+    // Without sources of our own, the part rides along unchanged, like any other store.
+    let out = unzip(&wordcraft_docx::write(&doc).unwrap());
+    assert_eq!(out.get("customXml/item2.xml").map(Vec::as_slice), Some(garbage.as_bytes()));
+    // Once the document has sources, the same part is rewritten in place, with no stale copy.
+    doc.sources.push(wordcraft_doc::Source { tag: "Added".into(), title: "Added later".into(), ..Default::default() });
+    let out = unzip(&wordcraft_docx::write(&doc).unwrap());
+    assert_eq!(out.get("customXml/item1.xml").map(Vec::as_slice), Some(DATA.as_bytes()));
+    let bib = text(&out, "customXml/item2.xml");
+    assert!(bib.contains("<b:Tag>Added</b:Tag>"), "{bib}");
+    assert!(!bib.contains("NameList"), "the old empty store's markup is gone: {bib}");
+    assert!(out.contains_key("customXml/itemProps2.xml"));
+    assert!(!out.contains_key("customXml/item3.xml"));
+    assert!(text(&out, "word/_rels/document.xml.rels").contains(r#"Target="../customXml/item2.xml""#));
+}
+
+#[test]
 fn absent_and_external_stores_are_not_fetched_or_written() {
     let mut p = fixture();
     p.insert(
@@ -138,14 +165,65 @@ fn absent_and_external_stores_are_not_fetched_or_written() {
 }
 
 #[test]
-fn custom_stores_do_not_shadow_reserved_bibliography_names() {
+fn custom_store_keeps_its_name_and_bibliography_takes_the_first_free_slot() {
     let mut doc = wordcraft_docx::read(&zip(&fixture())).unwrap();
     doc.sources.push(wordcraft_doc::Source { tag: "OriginalSource".into(), title: "Original synthetic reference".into(), ..Default::default() });
     let out = unzip(&wordcraft_docx::write(&doc).unwrap());
-    assert_eq!(out.get("customXml/item1_2.xml").map(Vec::as_slice), Some(DATA.as_bytes()));
-    assert_eq!(out.get("customXml/itemProps1_2.xml").map(Vec::as_slice), Some(PROPS.as_bytes()));
-    assert!(text(&out, "word/_rels/document.xml.rels").contains(r#"Target="../customXml/item1_2.xml""#));
-    assert!(text(&out, "customXml/_rels/item1_2.xml.rels").contains(r#"Target="itemProps1_2.xml""#));
+    // The store we don't own is copied through unchanged, under its own name.
+    assert_eq!(out.get("customXml/item1.xml").map(Vec::as_slice), Some(DATA.as_bytes()));
+    assert_eq!(out.get("customXml/itemProps1.xml").map(Vec::as_slice), Some(PROPS.as_bytes()));
+    assert!(text(&out, "customXml/_rels/item1.xml.rels").contains(r#"Target="itemProps1.xml""#));
+    // The bibliography takes the first free slot, related from the main document part.
+    assert!(out.contains_key("customXml/item2.xml"), "parts: {:?}", out.keys().collect::<Vec<_>>());
+    assert!(out.contains_key("customXml/itemProps2.xml"));
+    let rels = text(&out, "word/_rels/document.xml.rels");
+    assert!(rels.contains(r#"Target="../customXml/item1.xml""#), "{rels}");
+    assert!(rels.contains(r#"Target="../customXml/item2.xml""#), "{rels}");
+    assert!(!text(&out, "_rels/.rels").contains("customXml"));
+    assert!(text(&out, "[Content_Types].xml").contains(r#"PartName="/customXml/item2.xml""#));
+    assert!(text(&out, "[Content_Types].xml").contains(r#"PartName="/customXml/itemProps2.xml""#));
+    // Another save/read cycle keeps both where they are.
+    let reread = wordcraft_docx::read(&wordcraft_docx::write(&doc).unwrap()).unwrap();
+    assert_eq!(reread.sources.len(), 1);
+    let out2 = unzip(&wordcraft_docx::write(&reread).unwrap());
+    assert_eq!(out2.get("customXml/item1.xml").map(Vec::as_slice), Some(DATA.as_bytes()));
+    assert!(out2.contains_key("customXml/item2.xml"));
+    assert!(!out2.contains_key("customXml/item3.xml"), "no slot churn");
+}
+
+#[test]
+fn existing_bibliography_part_is_rewritten_in_place() {
+    let mut p = fixture();
+    let sources = r#"<b:Sources xmlns:b="http://schemas.openxmlformats.org/officeDocument/2006/bibliography"><b:Source><b:Tag>FromWord</b:Tag><b:SourceType>Book</b:SourceType><b:Author><b:Author><b:NameList><b:Person><b:Last>Rivera</b:Last><b:First>Alex</b:First></b:Person></b:NameList></b:Author></b:Author><b:Title>Shared Spaces</b:Title><b:Year>2021</b:Year></b:Source></b:Sources>"#;
+    p.insert("customXml/item2.xml".into(), sources.as_bytes().to_vec());
+    p.insert(
+        "word/_rels/document.xml.rels".into(),
+        rels(&[("data", "customXml", "../customXml/item1.xml", false), ("bib", "customXml", "../customXml/item2.xml", false)]).into_bytes(),
+    );
+    let mut doc = wordcraft_docx::read(&zip(&p)).unwrap();
+    assert_eq!(doc.sources.len(), 1);
+    assert_eq!(doc.sources[0].tag, "FromWord");
+    assert_eq!(doc.sources[0].author, "Rivera, Alex");
+    doc.sources.push(wordcraft_doc::Source { tag: "Added".into(), title: "Added later".into(), ..Default::default() });
+    let out = unzip(&wordcraft_docx::write(&doc).unwrap());
+    // The unrelated store is untouched; the bibliography is rewritten in its own part.
+    assert_eq!(out.get("customXml/item1.xml").map(Vec::as_slice), Some(DATA.as_bytes()));
+    assert_eq!(out.get("customXml/itemProps1.xml").map(Vec::as_slice), Some(PROPS.as_bytes()));
+    let bib = text(&out, "customXml/item2.xml");
+    assert!(bib.contains("<b:Tag>FromWord</b:Tag>") && bib.contains("<b:Tag>Added</b:Tag>"), "{bib}");
+    assert!(!out.contains_key("customXml/item3.xml"), "no new slot while the file's own part is rewritten");
+    assert!(out.contains_key("customXml/itemProps2.xml"));
+    let rels = text(&out, "word/_rels/document.xml.rels");
+    assert!(rels.contains(r#"Target="../customXml/item1.xml""#) && rels.contains(r#"Target="../customXml/item2.xml""#), "{rels}");
+    assert!(!text(&out, "_rels/.rels").contains("customXml"));
+    // And it stays that way over another cycle.
+    let reread = wordcraft_docx::read(&wordcraft_docx::write(&doc).unwrap()).unwrap();
+    assert_eq!(reread.sources.len(), 2);
+    assert_eq!(reread.sources[0].author, "Rivera, Alex");
+    let out2 = unzip(&wordcraft_docx::write(&reread).unwrap());
+    assert_eq!(out2.get("customXml/item1.xml").map(Vec::as_slice), Some(DATA.as_bytes()));
+    assert!(out2.contains_key("customXml/item2.xml"));
+    assert!(!out2.contains_key("customXml/item3.xml"));
 }
 
 #[test]

@@ -14,7 +14,8 @@ use wordcraft_doc::para::Float;
 
 use super::PartRels;
 use crate::package::{
-    CUSTOM_XML_ROOTS, EMBEDDED_PARTS, EmbeddedManifest, MAX_EMBEDDED_PARTS, MAX_EMBEDDED_RELS, VBA_PROJECT_PART, VBA_RELATED, rel_is, relative, rt,
+    BIBLIOGRAPHY_PART, CUSTOM_XML_ROOTS, EMBEDDED_PARTS, EmbeddedManifest, MAX_EMBEDDED_PARTS, MAX_EMBEDDED_RELS, VBA_PROJECT_PART, VBA_RELATED,
+    custom_xml_slot, rel_is, relative, rt,
 };
 use crate::units::{MAX_LEN_PT, emu, int};
 use crate::xml::{self, El, MAX_DEPTH};
@@ -25,6 +26,9 @@ const MAX_COPY_BYTES: u64 = 256 * 1024 * 1024;
 const MAX_MARKUP_BYTES: u64 = 128 * 1024 * 1024;
 /// What one part copy costs at least against [`MAX_COPY_BYTES`] (its relationships, entry…).
 const PART_COST: u64 = 4096;
+/// Most `customXml/itemN.xml` slots tried before the bibliography is left out of a package
+/// whose slots are all taken (far beyond any real package).
+const MAX_BIBLIOGRAPHY_SLOTS: u32 = 1024;
 
 /// Where the stories' parts live: every story this writer makes is a part in `word/`.
 const STORY_PART: &str = "word/document.xml";
@@ -42,6 +46,9 @@ pub(crate) struct EmbedWriter<'d> {
     next: HashMap<String, u32>,
     /// Original part name → name written, for parts written by an object's first copy.
     first: HashMap<String, String>,
+    /// The `customXml/itemN.xml` slot the bibliography writer rewrites (see
+    /// [`BIBLIOGRAPHY_PART`]); `None` when the file had no bibliography part.
+    bibliography: Option<u32>,
     /// Budget left for copies.
     copy_bytes: u64,
     /// Budget left for kept markup.
@@ -69,9 +76,16 @@ impl<'d> EmbedWriter<'d> {
         .map(|s| s.to_string())
         .collect();
         taken.insert(VBA_PROJECT_PART.to_ascii_lowercase());
-        // The bibliography writer uses these names when sources are present (#532).
-        if !doc.sources.is_empty() {
-            taken.extend(["customxml/item1.xml".into(), "customxml/itemprops1.xml".into()]);
+        // The bibliography writer rewrites the package-root part the file's sources were read
+        // from; its slot (and its item properties') stays reserved against every other part.
+        let bibliography = if !doc.sources.is_empty() {
+            doc.passthrough.get(BIBLIOGRAPHY_PART).and_then(|b| custom_xml_slot(&String::from_utf8_lossy(b)))
+        } else {
+            None
+        };
+        if let Some(n) = bibliography {
+            taken.insert(format!("customxml/item{n}.xml"));
+            taken.insert(format!("customxml/itemprops{n}.xml"));
         }
         // The macro project's parts keep their names (see `write_as`).
         if let Some(m) = doc.passthrough.get(VBA_RELATED) {
@@ -87,6 +101,7 @@ impl<'d> EmbedWriter<'d> {
             taken,
             next: HashMap::new(),
             first: HashMap::new(),
+            bibliography,
             copy_bytes: MAX_COPY_BYTES,
             markup_bytes: MAX_MARKUP_BYTES,
             parts: Vec::new(),
@@ -188,12 +203,47 @@ impl<'d> EmbedWriter<'d> {
             if *source != owner || !rel_is(kind, rt::CUSTOM_XML) {
                 continue;
             }
+            // A bibliography already loaded into the source model belongs to its writer.
+            if let Some(n) = self.bibliography
+                && target.eq_ignore_ascii_case(&format!("customXml/item{n}.xml"))
+            {
+                continue;
+            }
             if let Some(name) = self.copy_tree(target, &mut memo, &mut written) {
                 let source_part = if owner == "P" { "" } else { STORY_PART };
                 rels.add(kind, &relative(source_part, &name), false);
             }
         }
         self.first = memo;
+    }
+
+    /// The `customXml/itemN.xml` slot the bibliography writes into: the package-root part the
+    /// file's sources were read from, rewritten in place, else the first free slot. Both the
+    /// item's and its properties part's names are taken. `written` names the parts already
+    /// written, so a hostile relationship can't steer the bibliography onto them.
+    pub fn claim_bibliography(&mut self, written: &[String]) -> Option<u32> {
+        if let Some(n) = self.bibliography
+            && !written.iter().any(|w| w.eq_ignore_ascii_case(&format!("customXml/item{n}.xml")))
+        {
+            return Some(n);
+        }
+        // A hostile part took the file's own slot: fall through to a fresh one.
+        for n in 1..=MAX_BIBLIOGRAPHY_SLOTS {
+            let item = format!("customXml/item{n}.xml");
+            let props = format!("customXml/itemProps{n}.xml");
+            if !self.name_busy(&item, written) && !self.name_busy(&props, written) {
+                self.taken.insert(item.to_ascii_lowercase());
+                self.taken.insert(props.to_ascii_lowercase());
+                return Some(n);
+            }
+        }
+        log::warn!("docx: no free customXml slot for bibliography sources; they are left out");
+        None
+    }
+
+    /// Is part `name` already used, by this writer's reservations or a part already written?
+    fn name_busy(&self, name: &str, written: &[String]) -> bool {
+        self.taken.contains(&name.to_ascii_lowercase()) || written.iter().any(|w| w.eq_ignore_ascii_case(name))
     }
 
     /// What copying the parts reached from `roots` costs against the copy budget.

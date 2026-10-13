@@ -13,7 +13,7 @@ use wordcraft_doc::numbering::{Level, LevelSuffix};
 use wordcraft_doc::styles::{Style, StyleKind};
 use wordcraft_doc::{Blocks, Document, PartKind};
 
-use crate::package::{MAX_VBA_RELATED, VBA_PROJECT_PART, VBA_RELATED, rt, zip_entries};
+use crate::package::{MAX_VBA_RELATED, VBA_PROJECT_PART, VBA_RELATED, relative, rt, zip_entries};
 use crate::xml::{self, W};
 use crate::{DocxError, Flavor};
 
@@ -426,6 +426,36 @@ pub(crate) fn write_parts(doc: &Document, flavor: Flavor) -> Result<Vec<(String,
         }
     }
 
+    // Bibliography sources: a custom XML data store at the package root, related from the main
+    // document part (Word's own layout). The file's own store is rewritten in place; a document
+    // without one takes the first free `customXml/itemN.xml` slot.
+    if !doc.sources.is_empty() {
+        let written: Vec<String> = entries.iter().map(|(n, _)| n.clone()).collect();
+        if let Some(slot) = wr.embeds.claim_bibliography(&written) {
+            let item = format!("customXml/item{slot}.xml");
+            let props = format!("customXml/itemProps{slot}.xml");
+            rels.add(rt::CUSTOM_XML, &relative("word/document.xml", &item), false);
+            let mut item_rels = PartRels::default();
+            item_rels.add(rt::CUSTOM_XML_PROPS, &relative(&item, &props), false);
+            push_part(
+                &mut entries,
+                &mut overrides,
+                &item,
+                bibliography_xml(doc),
+                "application/vnd.openxmlformats-officedocument.customXml+xml",
+                item_rels,
+            );
+            push_part(
+                &mut entries,
+                &mut overrides,
+                &props,
+                bibliography_props_xml(),
+                "application/vnd.openxmlformats-officedocument.customXmlProperties+xml",
+                PartRels::default(),
+            );
+        }
+    }
+
     // Main part goes first in the zip after content types.
     entries.insert(0, ("word/document.xml".into(), body));
     overrides.insert(0, ("/word/document.xml".into(), flavor.main_content_type().into()));
@@ -443,27 +473,6 @@ pub(crate) fn write_parts(doc: &Document, flavor: Flavor) -> Result<Vec<(String,
         root.add(rt::CUSTOM, "docProps/custom.xml", false);
         entries.push(("docProps/custom.xml".into(), crate::custom::write(&doc.custom_props)));
         overrides.push(("/docProps/custom.xml".into(), "application/vnd.openxmlformats-officedocument.custom-properties+xml".into()));
-    }
-    if !doc.sources.is_empty() {
-        root.add(rt::CUSTOM_XML, "customXml/item1.xml", false);
-        let mut item_rels = PartRels::default();
-        item_rels.add(rt::CUSTOM_XML_PROPS, "itemProps1.xml", false);
-        push_part(
-            &mut entries,
-            &mut overrides,
-            "customXml/item1.xml",
-            bibliography_xml(doc),
-            "application/vnd.openxmlformats-officedocument.customXml+xml",
-            item_rels,
-        );
-        push_part(
-            &mut entries,
-            &mut overrides,
-            "customXml/itemProps1.xml",
-            bibliography_props_xml(),
-            "application/vnd.openxmlformats-officedocument.customXmlProperties+xml",
-            PartRels::default(),
-        );
     }
     entries.insert(0, ("_rels/.rels".into(), root.xml()));
 
@@ -1114,7 +1123,7 @@ pub(crate) fn from_source_type(st: &str) -> String {
         "Book" | "book" => "book".into(),
         "BookSection" | "booksection" => "bookSection".into(),
         "JournalArticle" | "journalarticle" | "article" => "article".into(),
-        "ArticleInAPeriodical" | "articleinaperiodical" => "periodical".into(),
+        "ArticleInAPeriodical" | "ArticleInPeriodical" | "articleinaperiodical" | "articleinperiodical" => "periodical".into(),
         "InternetSite" | "internetsite" | "website" => "website".into(),
         "DocumentFromInternetSite" | "documentfrominternetsite" => "website".into(),
         "ElectronicSource" | "electronicsource" => "electronicsource".into(),
@@ -1130,7 +1139,8 @@ pub(crate) fn from_source_type(st: &str) -> String {
         "Thesis" | "thesis" => "thesis".into(),
         "Misc" | "misc" => "other".into(),
         "" => "book".into(),
-        other => other.to_ascii_lowercase(),
+        // An unknown type isn't a kind this editor knows: `other`, not a pass-through.
+        _ => "other".into(),
     }
 }
 

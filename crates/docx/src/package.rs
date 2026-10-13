@@ -58,6 +58,10 @@ pub const MAX_VBA_RELATED: usize = 64;
 /// types and own relationships, as [`EmbeddedManifest`] lines. Each part's bytes are kept under its
 /// part name. Not a package part: WordCraft's own bookkeeping.
 pub const EMBEDDED_PARTS: &str = "wordcraft:embedded.parts";
+/// `Document::passthrough` key holding the package-root part (`customXml/itemN.xml`) the file's
+/// bibliography sources were read from, so the writer rewrites that part in place. Not a
+/// package part: WordCraft's own bookkeeping.
+pub const BIBLIOGRAPHY_PART: &str = "wordcraft:bibliography.part";
 /// Custom XML roots kept by the package (P) or main document (D): `owner\ttype\tpart`.
 /// Their opaque bytes and related parts use the same bounded manifest as embedded objects.
 pub const CUSTOM_XML_ROOTS: &str = "wordcraft:customXml.roots";
@@ -133,6 +137,29 @@ impl EmbeddedManifest {
 pub fn rel_is(t: &str, full: &str) -> bool {
     let tail = |s: &str| s.rsplit('/').next().unwrap_or(s).to_string();
     t == full || tail(t) == tail(full)
+}
+
+/// Word's conventional package-root customXml slot number of `part`: `customXml/itemN.xml` (or
+/// `itemPropsN.xml`) → `Some(N)`, starting at 1. Case-insensitive; decorated names (`item01`,
+/// `item_2`) are not slots.
+pub fn custom_xml_slot(part: &str) -> Option<u32> {
+    let p = part.trim_start_matches('/');
+    let (dir, file) = p.rsplit_once('/')?;
+    if !dir.eq_ignore_ascii_case("customXml") {
+        return None;
+    }
+    let file = file.to_ascii_lowercase();
+    let stem = file.strip_suffix(".xml")?;
+    for prefix in ["item", "itemprops"] {
+        if let Some(digits) = stem.strip_prefix(prefix)
+            && let Ok(n) = digits.parse::<u32>()
+            && n > 0
+            && format!("{prefix}{n}") == stem
+        {
+            return Some(n);
+        }
+    }
+    None
 }
 
 /// The decompressed parts of a package (bounded).
@@ -388,6 +415,20 @@ mod tests {
         assert_eq!(resolve("word", "/word/styles.xml"), "word/styles.xml");
         assert_eq!(resolve("", "word/document.xml"), "word/document.xml");
         assert_eq!(resolve("word", "../../../x"), "x");
+    }
+
+    #[test]
+    fn custom_xml_slots_are_recognised() {
+        assert_eq!(custom_xml_slot("customXml/item1.xml"), Some(1));
+        assert_eq!(custom_xml_slot("customXml/itemProps17.xml"), Some(17));
+        assert_eq!(custom_xml_slot("/CUSTOMXML/ITEM2.XML"), Some(2));
+        assert_eq!(custom_xml_slot("customXml/item0.xml"), None, "slots start at 1");
+        assert_eq!(custom_xml_slot("customXml/item01.xml"), None, "no leading zeros");
+        assert_eq!(custom_xml_slot("customXml/item_2.xml"), None);
+        assert_eq!(custom_xml_slot("customXml/items.xml"), None);
+        assert_eq!(custom_xml_slot("word/customXml/item1.xml"), None, "package root only");
+        assert_eq!(custom_xml_slot("customXml/item1.rels"), None);
+        assert_eq!(custom_xml_slot("customXml"), None);
     }
 
     #[test]

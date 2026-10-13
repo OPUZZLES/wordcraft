@@ -1808,10 +1808,16 @@ fn bibliography_sources_round_trip() {
     assert!(zip.by_name("customXml/itemProps1.xml").is_ok());
     assert!(zip.by_name("customXml/_rels/item1.xml.rels").is_ok());
 
-    let mut rels_xml = String::new();
-    std::io::Read::read_to_string(&mut zip.by_name("_rels/.rels").unwrap(), &mut rels_xml).unwrap();
-    assert!(rels_xml.contains("relationships/customXml"), "{rels_xml}");
-    assert!(rels_xml.contains("Target=\"customXml/item1.xml\""), "{rels_xml}");
+    // Word's own layout: the part sits at the package root, related from the main document
+    // part (`word/document.xml`), never from the package root's relationships.
+    let mut doc_rels = String::new();
+    std::io::Read::read_to_string(&mut zip.by_name("word/_rels/document.xml.rels").unwrap(), &mut doc_rels).unwrap();
+    assert!(doc_rels.contains("relationships/customXml"), "{doc_rels}");
+    assert!(doc_rels.contains(r#"Target="../customXml/item1.xml""#), "{doc_rels}");
+
+    let mut root_rels = String::new();
+    std::io::Read::read_to_string(&mut zip.by_name("_rels/.rels").unwrap(), &mut root_rels).unwrap();
+    assert!(!root_rels.contains("customXml"), "{root_rels}");
 
     let mut ct_xml = String::new();
     std::io::Read::read_to_string(&mut zip.by_name("[Content_Types].xml").unwrap(), &mut ct_xml).unwrap();
@@ -1886,6 +1892,59 @@ fn bibliography_sources_round_trip() {
     assert_eq!(back.sources[4].kind, "other");
     assert_eq!(back.sources[4].title, "Archive Manuscript");
     assert_eq!(back.sources[4].city, "Oxford");
+
+    assert_eq!(back.sources, d.sources, "every field round-trips equal");
+}
+
+#[test]
+fn bibliography_word_layout_is_read_leniently() {
+    // Word's own layout: the `b:Sources` part sits at the package root, related from the main
+    // document part. A corporate author is kept verbatim, an unknown `b:SourceType` reads as
+    // `other`, and garbage entries, an unparseable part and an unlinked part far down the
+    // conventional `itemN` run are all read leniently, never fatally.
+    let doc = r#"<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>body</w:t></w:r></w:p></w:body></w:document>"#;
+    let root_rels = r#"<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>"#;
+    let doc_rels = r#"<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/customXml" Target="../customXml/item2.xml"/></Relationships>"#;
+    let sources = r#"<b:Sources xmlns:b="http://schemas.openxmlformats.org/officeDocument/2006/bibliography" SelectedStyle="\APA.XSL" StyleName="APA"><b:Source><b:Tag>W3C2024</b:Tag><b:SourceType>SolarFlare</b:SourceType><b:Author><b:CorporateAuthor>World Wide Web Consortium</b:CorporateAuthor></b:Author><b:Title>HTML Living Standard</b:Title><b:Year>2024</b:Year><b:URL>https://html.spec.whatwg.org</b:URL></b:Source><b:Source><b:Tag></b:Tag><b:SourceType>Book</b:SourceType><b:Author><b:NameList/></b:Author></b:Source><b:Source><b:Tag>Doe2001</b:Tag><b:SourceType>ArticleInAPeriodical</b:SourceType><b:Author><b:Author><b:NameList><b:Person><b:Last>Doe</b:Last><b:First>Jane</b:First></b:Person></b:NameList></b:Author></b:Author><b:Title>News writing</b:Title><b:Year>2001</b:Year></b:Source></b:Sources>"#;
+    let far_part = r#"<b:Sources xmlns:b="http://schemas.openxmlformats.org/officeDocument/2006/bibliography"><b:Source><b:Tag>Far2020</b:Tag><b:SourceType>Film</b:SourceType><b:Title>A far part</b:Title><b:Year>2020</b:Year></b:Source></b:Sources>"#;
+    let parts: Vec<(&str, Vec<u8>)> = vec![
+        ("_rels/.rels", root_rels.as_bytes().to_vec()),
+        ("word/document.xml", doc.as_bytes().to_vec()),
+        ("word/_rels/document.xml.rels", doc_rels.as_bytes().to_vec()),
+        ("customXml/item2.xml", sources.as_bytes().to_vec()),
+        ("customXml/item3.xml", b"\xff\xfe<truncated".to_vec()),
+        ("customXml/item17.xml", far_part.as_bytes().to_vec()),
+    ];
+    let mut zw = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    for (name, bytes) in &parts {
+        zw.start_file(name.to_string(), zip::write::SimpleFileOptions::default()).unwrap();
+        std::io::Write::write_all(&mut zw, bytes).unwrap();
+    }
+    let bytes = zw.finish().unwrap().into_inner();
+
+    let d = wordcraft_docx::read(&bytes).expect("a garbage part is skipped, not fatal");
+    assert_eq!(d.sources.len(), 3, "{:?}", d.sources);
+    assert_eq!(d.sources[0].tag, "W3C2024");
+    assert_eq!(d.sources[0].kind, "other", "an unknown b:SourceType reads as other");
+    assert_eq!(d.sources[0].author, "World Wide Web Consortium", "a corporate author is kept verbatim");
+    assert_eq!(d.sources[0].title, "HTML Living Standard");
+    assert_eq!(d.sources[0].year, "2024");
+    assert_eq!(d.sources[0].url, "https://html.spec.whatwg.org");
+    assert_eq!(d.sources[1].tag, "Doe2001");
+    assert_eq!(d.sources[1].kind, "periodical");
+    assert_eq!(d.sources[1].author, "Doe, Jane");
+    assert_eq!(d.sources[2].tag, "Far2020", "an unlinked part beyond item16 is still read");
+    assert_eq!(d.sources[2].kind, "film");
+
+    // Saving merges everything into the file's own part, rewritten in place.
+    let out = wordcraft_docx::write(&d).unwrap();
+    let mut zip = zip::ZipArchive::new(std::io::Cursor::new(&out)).unwrap();
+    assert!(zip.by_name("customXml/item2.xml").is_ok(), "the file's part is rewritten in place");
+    let mut item = String::new();
+    std::io::Read::read_to_string(&mut zip.by_name("customXml/item2.xml").unwrap(), &mut item).unwrap();
+    assert!(item.contains("<b:Tag>W3C2024</b:Tag>"), "{item}");
+    assert!(item.contains("<b:Tag>Far2020</b:Tag>"), "{item}");
+    assert!(item.contains("<b:SourceType>Misc</b:SourceType>"), "{item}");
 }
 
 #[test]

@@ -25,7 +25,10 @@ use wordcraft_doc::styles::{Style, StyleKind, StyleSheet, TableStyleParts};
 use wordcraft_doc::{Block, Blocks, Comment, Document, InlineObject, Paragraph, PartKind, Revision, RevisionKind, para_block};
 
 use crate::DocxError;
-use crate::package::{ContentTypes, EMBEDDED_PARTS, EmbeddedManifest, MAX_VBA_RELATED, Package, Rels, VBA_PROJECT_PART, VBA_RELATED, rel_is, rt};
+use crate::package::{
+    BIBLIOGRAPHY_PART, ContentTypes, EMBEDDED_PARTS, EmbeddedManifest, MAX_VBA_RELATED, Package, Rels, VBA_PROJECT_PART, VBA_RELATED,
+    custom_xml_slot, rel_is, rt,
+};
 use crate::units::{flag, int, on_off, tw, u32_of};
 use crate::xml::El;
 pub(crate) use props::PropCtx;
@@ -211,7 +214,7 @@ pub(crate) fn read_opened(pkg: &Package) -> Result<Document, DocxError> {
             }
         }
     }
-    for i in 1..=16 {
+    for i in 1..=MAX_BIBLIOGRAPHY_PARTS {
         let path = format!("customXml/item{i}.xml");
         if bib_parts.len() < MAX_BIBLIOGRAPHY_PARTS && pkg.get(&path).is_some() && !bib_parts.contains(&path) {
             bib_parts.push(path);
@@ -1185,11 +1188,18 @@ impl Reader<'_> {
     }
 
     /// Sources from a `b:Sources` custom XML part (other custom XML is left alone); at most
-    /// [`MAX_SOURCES`] in all, and the document's citation style from `StyleName`.
+    /// [`MAX_SOURCES`] in all, and the document's citation style from `StyleName`. The first
+    /// conventional package-root part is remembered in [`BIBLIOGRAPHY_PART`] for the writer to
+    /// rewrite in place.
     fn read_bibliography(&mut self, path: &str, seen: &mut BibSeen) -> Result<(), DocxError> {
         let Some(root) = self.xml(path)? else { return Ok(()) };
         if root.local() != "Sources" {
             return Ok(());
+        }
+        if let Some(slot) = custom_xml_slot(path)
+            && !self.doc.passthrough.contains_key(BIBLIOGRAPHY_PART)
+        {
+            self.doc.passthrough.insert(BIBLIOGRAPHY_PART.into(), Arc::new(format!("customXml/item{slot}.xml").into_bytes()));
         }
         if self.doc.settings.bib_style.is_none()
             && let Some(name) = root.attrs.iter().find(|(k, _)| k.rsplit(':').next() == Some("StyleName")).map(|(_, v)| v.trim())
@@ -1233,8 +1243,12 @@ impl Reader<'_> {
             let kind = crate::write::from_source_type(&raw_kind);
             let (author, editor) = match src_el.els().find(|e| e.local() == "Author") {
                 Some(a) => {
-                    let auth =
-                        a.els().find(|e| e.local() == "Author").map(parse_persons).filter(|s| !s.is_empty()).unwrap_or_else(|| parse_persons(a));
+                    let auth = a.els().find(|e| e.local() == "Author").map(parse_persons).filter(|s| !s.is_empty()).unwrap_or_else(|| {
+                        // A source with no person names may name a corporate author, verbatim.
+                        let corporate =
+                            a.els().find(|e| e.local() == "CorporateAuthor").map(|c| c.text().trim().to_string()).filter(|s| !s.is_empty());
+                        corporate.unwrap_or_else(|| parse_persons(a))
+                    });
                     let ed = a.els().find(|e| e.local() == "Editor").map(parse_persons).unwrap_or_default();
                     (auth, ed)
                 }
