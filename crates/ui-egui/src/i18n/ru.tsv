@@ -328,6 +328,7 @@
 	Immersive Reader	Иммерсивное чтение
 	Immersive\nReader	Иммерсивное\nчтение
 	Import Sources Library	Импорт библиотеки источников
+	Import…	Импорт…
 	Increase Font Size	Увеличить размер шрифта
 	Increase Indent	Увеличить отступ
 	Indent	Отступ
@@ -1977,6 +1978,7 @@ preview	Title	Пример
 	a, b, c, …	a, b, c, …
 	i, ii, iii, …	i, ii, iii, …
 	{n} entries marked.	Помечено записей: {n}.
+	{added} added, {updated} updated	Добавлено: {added}, обновлено: {updated}
 	Lasso Select	Лассо
 	Move Selected Ink	Переместить выделенные штрихи
 	Delete Selected Ink	Удалить выделенные штрихи
@@ -2175,6 +2177,7 @@ preview	Title	Пример
 	Word document	Документ Word
 	All files	Все файлы
 	Recipient lists	Списки получателей
+	Source libraries	Библиотеки источников
 	The system file dialog isn't available, so WordCraft shows its own. To get the system dialog, install a file chooser portal (such as xdg-desktop-portal-gtk) or zenity.	Системное диалоговое окно выбора файлов недоступно, поэтому WordCraft показывает собственное. Чтобы пользоваться системным, установите портал выбора файлов (например, xdg-desktop-portal-gtk) или zenity.
 	Up one level	На уровень вверх
 	Home folder	Домашняя папка

@@ -514,6 +514,7 @@
 	Immersive Reader	Asistivní čtečka
 	Immersive\nReader	Asistivní\nčtečka
 	Import Sources Library	Importovat knihovnu pramenů
+	Import…	Importovat…
 	Include level number from:	Zahrnout číslo úrovně z:
 	Increase Font Size	Zvětšit velikost písma
 	Increase Indent	Zvětšit odsazení
@@ -1603,6 +1604,7 @@
 	a, b, c, …	a, b, c, …
 	i, ii, iii, …	i, ii, iii, …
 	{n} entries marked.	Označeno položek: {n}.
+	{added} added, {updated} updated	Přidáno: {added}, aktualizováno: {updated}
 	Lasso Select	Výběr lasem
 	Move Selected Ink	Přesunout vybraný rukopis
 	Delete Selected Ink	Odstranit vybraný rukopis
@@ -1919,6 +1921,7 @@
 	Word document	Dokument Word
 	All files	Všechny soubory
 	Recipient lists	Seznamy příjemců
+	Source libraries	Knihovny pramenů
 	The system file dialog isn't available, so WordCraft shows its own. To get the system dialog, install a file chooser portal (such as xdg-desktop-portal-gtk) or zenity.	Systémový dialog pro práci se soubory není k dispozici, proto WordCraft zobrazuje vlastní. Chcete-li používat systémový dialog, nainstalujte portál pro výběr souborů (například xdg-desktop-portal-gtk) nebo zenity.
 	Up one level	O úroveň výš
 	Home folder	Domovská složka

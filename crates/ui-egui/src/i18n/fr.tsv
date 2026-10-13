@@ -87,6 +87,7 @@
 	Formatting	Mise en forme
 	Formatting exceptions	Exceptions de mise en forme
 	Import Sources Library	Importer une bibliothèque de sources
+	Import…	Importer…
 	Include level number from:	Inclure le numéro de niveau de :
 	Ink	Encre
 	Insertions and Deletions	Insertions et suppressions
@@ -1748,6 +1749,7 @@
 	a, b, c, …	a, b, c, …
 	i, ii, iii, …	i, ii, iii, …
 	{n} entries marked.	{n} entrées sélectionnées.
+	{added} added, {updated} updated	{added} ajoutées, {updated} mises à jour
 	Lasso Select	Sélection au lasso
 	Move Selected Ink	Déplacer l’encre sélectionnée
 	Delete Selected Ink	Supprimer l’encre sélectionnée
@@ -1937,6 +1939,7 @@
 	Word document	Document Word
 	All files	Tous les fichiers
 	Recipient lists	Listes de destinataires
+	Source libraries	Bibliothèques de sources
 	The system file dialog isn't available, so WordCraft shows its own. To get the system dialog, install a file chooser portal (such as xdg-desktop-portal-gtk) or zenity.	La boîte de dialogue de fichiers du système n’est pas disponible, WordCraft affiche donc la sienne. Pour utiliser celle du système, installez un portail de sélection de fichiers (comme xdg-desktop-portal-gtk) ou zenity.
 	Up one level	Dossier parent
 	Home folder	Dossier personnel

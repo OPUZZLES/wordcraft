@@ -88,6 +88,7 @@
 	Follow number with:	След номера:
 	Formatting	Форматиране
 	Import Sources Library	Импортиране на библиотека с източници
+	Import…	Импортиране…
 	Include level number from:	Включване на номер на ниво от:
 	Ink	Мастило
 	Insertions and Deletions	Вмъквания и изтривания
@@ -1638,6 +1639,7 @@
 	a, b, c, …	a, b, c, …
 	i, ii, iii, …	i, ii, iii, …
 	{n} entries marked.	Маркирани записи: {n}.
+	{added} added, {updated} updated	Добавени: {added}, обновени: {updated}
 	Lasso Select	Избор с ласо
 	Move Selected Ink	Преместване на избраното мастило
 	Delete Selected Ink	Изтриване на избраното мастило
@@ -2384,6 +2386,7 @@
 	Word document	Документ на Word
 	All files	Всички файлове
 	Recipient lists	Списъци с получатели
+	Source libraries	Библиотеки с източници
 	The system file dialog isn't available, so WordCraft shows its own. To get the system dialog, install a file chooser portal (such as xdg-desktop-portal-gtk) or zenity.	Системният диалогов прозорец за файлове не е наличен, затова WordCraft показва своя. За да получите системния, инсталирайте портал за избор на файлове (например xdg-desktop-portal-gtk) или zenity.
 	Up one level	Едно ниво нагоре
 	Home folder	Домашна папка

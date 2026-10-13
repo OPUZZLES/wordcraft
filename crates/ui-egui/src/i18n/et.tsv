@@ -338,6 +338,7 @@
 	Immersive Reader	Süvaluger
 	Immersive\nReader	Süva-\nluger
 	Import Sources Library	Impordi allikate kogu
+	Import…	Impordi…
 	Inches	Tollid
 	Increase Font Size	Suurenda fondi suurust
 	Increase Indent	Suurenda taanet
@@ -1731,6 +1732,7 @@
 	Word document	Wordi dokument
 	All files	Kõik failid
 	Recipient lists	Adressaatide loendid
+	Source libraries	Allikate kogud
 	The system file dialog isn't available, so WordCraft shows its own. To get the system dialog, install a file chooser portal (such as xdg-desktop-portal-gtk) or zenity.	Süsteemi failidialoog pole saadaval, seega näitab WordCraft enda oma. Süsteemi dialoogi saamiseks paigalda failivalija portaal (näiteks xdg-desktop-portal-gtk) või zenity.
 	Up one level	Taseme võrra üles
 	Home folder	Kodukaust
@@ -1919,6 +1921,7 @@
 	a, b, c, …	a, b, c, …
 	i, ii, iii, …	i, ii, iii, …
 	{n} entries marked.	Märgitud kirjeid: {n}.
+	{added} added, {updated} updated	Lisatud: {added}, uuendatud: {updated}
 	Lasso Select	Lassoga valimine
 	Move Selected Ink	Teisalda valitud tint
 	Delete Selected Ink	Kustuta valitud tint

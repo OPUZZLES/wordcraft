@@ -107,6 +107,7 @@
 	Ignore words in capitals	忽略全部大写的单词
 	Ignore words with numbers	忽略包含数字的单词
 	Import Sources Library	导入源库
+	Import…	导入…
 	Inches	英寸
 	Formatting exceptions	格式例外
 	Include level number from:	包含的级别编号来自：
@@ -1742,6 +1743,7 @@
 	Word document	Word 文档
 	All files	所有文件
 	Recipient lists	收件人列表
+	Source libraries	源库
 	The system file dialog isn't available, so WordCraft shows its own. To get the system dialog, install a file chooser portal (such as xdg-desktop-portal-gtk) or zenity.	系统文件对话框不可用，因此 WordCraft 显示自己的对话框。要使用系统对话框，请安装文件选择器门户（例如 xdg-desktop-portal-gtk）或 zenity。
 	Up one level	向上一级
 	Home folder	主文件夹
@@ -1928,6 +1930,7 @@
 	a, b, c, …	a, b, c, …
 	i, ii, iii, …	i, ii, iii, …
 	{n} entries marked.	已标记 {n} 个条目。
+	{added} added, {updated} updated	已添加 {added} 个，已更新 {updated} 个
 	Lasso Select	套索选择
 	Move Selected Ink	移动所选墨迹
 	Delete Selected Ink	删除所选墨迹

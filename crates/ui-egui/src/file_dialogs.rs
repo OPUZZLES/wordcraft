@@ -35,13 +35,15 @@ const PICTURES: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "bmp", "wmf", "
 const DOCUMENTS: &[&str] = &["docx", "docm", "dotx", "dotm", "doc", "dot", "odt", "rtf", "txt", "md", "html", "htm", "tex", "json", "xml"];
 
 /// The file types Open offers, as (label, extensions; `*` is any file): pictures for Insert/Change
-/// Picture, recipient lists for Select Recipients › Use an Existing List…, documents otherwise.
-/// The host's system dialog and the built-in browser offer the same.
+/// Picture, recipient lists for Select Recipients › Use an Existing List…, source libraries for
+/// Manage Sources › Import…, documents otherwise. The host's system dialog and the built-in
+/// browser offer the same.
 pub fn open_filters(purpose: &str) -> &'static [(&'static str, &'static [&'static str])] {
     match purpose {
         "picture" => &[("Pictures", PICTURES)],
         "font" => &[("Fonts", wordcraft_fonts::FONT_FILE_EXTS)],
         "recipients" => &[("Recipient lists", &["csv", "tsv", "txt", "xlsx", "xlsm", "ods"]), ("All files", &["*"])],
+        "sources" => &[("Source libraries", &["bib", "ris", "json"]), ("All files", &["*"])],
         _ => &[("Documents", DOCUMENTS), ("Word document", &["docx"]), ("All files", &["*"])],
     }
 }
@@ -60,6 +62,9 @@ pub(crate) enum AfterPick {
     PrintPdf { settings: Value },
     /// Load the picked CSV/TSV/text file or spreadsheet as the mail-merge recipients (#240, #334).
     Recipients,
+    /// Import the picked BibTeX/RIS/CSL-JSON library as the document's sources (Manage Sources ▸
+    /// Import…, #1058).
+    ImportSources,
     /// Add the picked font file (#582).
     Font,
     /// Hand the picked path to the open dialog (`WordApp::dialog_pick`): Templates and Add-ins,
@@ -207,6 +212,20 @@ impl WordApp {
             AfterPick::Recipients => {
                 let Some(path) = picked else { return Ok(json!({"cancelled": true})) };
                 self.load_recipients(json!({"path": path}))
+            }
+            AfterPick::ImportSources => {
+                let Some(path) = picked else { return Ok(json!({"cancelled": true})) };
+                let r = self.run("references.importSources", json!({"path": path}));
+                match &r {
+                    Ok(v) => {
+                        let added = v.get("added").and_then(Value::as_u64).unwrap_or(0).to_string();
+                        let updated = v.get("updated").and_then(Value::as_u64).unwrap_or(0).to_string();
+                        let said = crate::i18n::fmt(tl!("{added} added, {updated} updated"), &[("added", &added), ("updated", &updated)]);
+                        crate::dialogs_refs::sources_status(self, said);
+                    }
+                    Err(e) => crate::dialogs_refs::sources_status(self, e.clone()),
+                }
+                r
             }
             AfterPick::ComparePath { revised } => {
                 let Some(path) = picked else { return Ok(json!({"cancelled": true})) };

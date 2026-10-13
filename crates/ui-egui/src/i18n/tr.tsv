@@ -326,6 +326,7 @@
 	Immersive Reader	Odaklı Okuyucu
 	Immersive\nReader	Odaklı\nOkuyucu
 	Import Sources Library	Kaynak Kitaplığını İçe Aktar
+	Import…	İçe Aktar…
 	Increase Font Size	Yazı Tipi Boyutunu Büyüt
 	Increase Indent	Girintiyi Artır
 	Indent	Girinti
@@ -1979,6 +1980,7 @@ preview	Title	Örnek
 	a, b, c, …	a, b, c, …
 	i, ii, iii, …	i, ii, iii, …
 	{n} entries marked.	{n} girdi işaretlendi.
+	{added} added, {updated} updated	{added} eklendi, {updated} güncellendi
 	Lasso Select	Kement Seçimi
 	Move Selected Ink	Seçili Mürekkebi Taşı
 	Delete Selected Ink	Seçili Mürekkebi Sil
@@ -2174,6 +2176,7 @@ preview	Title	Örnek
 	Word document	Word belgesi
 	All files	Tüm dosyalar
 	Recipient lists	Alıcı listeleri
+	Source libraries	Kaynak kitaplıkları
 	The system file dialog isn't available, so WordCraft shows its own. To get the system dialog, install a file chooser portal (such as xdg-desktop-portal-gtk) or zenity.	Sistemin dosya iletişim kutusu kullanılamadığı için WordCraft kendi iletişim kutusunu gösteriyor. Sistem iletişim kutusunu kullanmak için bir dosya seçici portalı (örneğin xdg-desktop-portal-gtk) ya da zenity yükleyin.
 	Up one level	Bir düzey yukarı
 	Home folder	Ana klasör

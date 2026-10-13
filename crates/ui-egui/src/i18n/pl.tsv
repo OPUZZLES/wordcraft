@@ -323,6 +323,7 @@
 	Immersive Reader	Czytnik immersyjny
 	Immersive\nReader	Czytnik\nimmersyjny
 	Import Sources Library	Importuj bibliotekę źródeł
+	Import…	Importuj…
 	Increase Font Size	Zwiększ rozmiar czcionki
 	Increase Indent	Zwiększ wcięcie
 	Indent	Wcięcie
@@ -1669,6 +1670,7 @@
 	i, ii, iii, …	i, ii, iii, …
 	{language} is now the document's default language.	{language} to teraz domyślny język dokumentu.
 	{n} entries marked.	Oznaczone pozycje: {n}.
+	{added} added, {updated} updated	Dodano: {added}, zaktualizowano: {updated}
 	0 or More Characters	0 lub więcej znaków
 	1. Formatting restrictions	1. Ograniczenia formatowania
 	2. Editing restrictions	2. Ograniczenia edycji
@@ -1932,6 +1934,7 @@
 	Recent Colors	Ostatnio używane kolory
 	Recent documents to show:	Liczba ostatnich dokumentów do pokazania:
 	Recipient lists	Listy adresatów
+	Source libraries	Biblioteki źródeł
 	Red:	Czerwony:
 	Reflection	Odbicie
 	Regular expressions	Wyrażenia regularne

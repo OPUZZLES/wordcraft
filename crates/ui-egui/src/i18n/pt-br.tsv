@@ -98,6 +98,7 @@
 	Ignore words in capitals	Ignorar palavras em maiúsculas
 	Ignore words with numbers	Ignorar palavras com números
 	Import Sources Library	Importar biblioteca de fontes
+	Import…	Importar…
 	Inches	Polegadas
 	Formatting exceptions	Exceções de formatação
 	Include level number from:	Incluir número do nível:
@@ -1742,6 +1743,7 @@
 	Word document	Documento do Word
 	All files	Todos os arquivos
 	Recipient lists	Listas de destinatários
+	Source libraries	Bibliotecas de fontes
 	The system file dialog isn't available, so WordCraft shows its own. To get the system dialog, install a file chooser portal (such as xdg-desktop-portal-gtk) or zenity.	A caixa de diálogo de arquivos do sistema não está disponível, então o WordCraft mostra a sua própria. Para usar a do sistema, instale um portal seletor de arquivos (como xdg-desktop-portal-gtk) ou o zenity.
 	Up one level	Subir um nível
 	Home folder	Pasta pessoal
@@ -1928,6 +1930,7 @@
 	a, b, c, …	a, b, c, …
 	i, ii, iii, …	i, ii, iii, …
 	{n} entries marked.	Entradas marcadas: {n}.
+	{added} added, {updated} updated	{added} adicionadas, {updated} atualizadas
 	Lasso Select	Seleção com laço
 	Move Selected Ink	Mover a tinta selecionada
 	Delete Selected Ink	Excluir a tinta selecionada

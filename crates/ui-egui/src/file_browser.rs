@@ -1,7 +1,7 @@
-//! The built-in file browser (#576): Open, Save As, Export, Insert Picture and recipient lists
-//! when the system's file dialog can't be shown — a Linux desktop with neither a file chooser
-//! portal nor zenity (labwc, sway… with only xdg-desktop-portal-wlr) — or when the user asks for
-//! it (File › Open › Browse in WordCraft…).
+//! The built-in file browser (#576): Open, Save As, Export, Insert Picture, recipient lists and
+//! source libraries when the system's file dialog can't be shown — a Linux desktop with neither a
+//! file chooser portal nor zenity (labwc, sway… with only xdg-desktop-portal-wlr) — or when the
+//! user asks for it (File › Open › Browse in WordCraft…).
 //!
 //! A folder path field with Up and Home folder, the folder's subfolders and the files of the
 //! chosen type, a file name field and the file types. It only lists folders the user navigates to
@@ -270,8 +270,9 @@ impl WordApp {
         self.file_browser.open = Some(Box::new(FileBrowser::new(req, after, start, unavailable)));
     }
 
-    /// `ui.fileBrowser`: the built-in browser for `purpose` (document, picture, recipients, save),
-    /// even when a system dialog was asked for and never showed up (it is given up as cancelled).
+    /// `ui.fileBrowser`: the built-in browser for `purpose` (document, picture, recipients,
+    /// sources, save), even when a system dialog was asked for and never showed up (it is given
+    /// up as cancelled).
     pub(crate) fn browse_builtin(&mut self, purpose: &str) {
         self.give_up_file_dialog();
         if self.file_browser.open.is_some() {
@@ -280,6 +281,7 @@ impl WordApp {
         let (req, after) = match purpose {
             "picture" => (FileDialogRequest::Open { purpose: "picture".into() }, AfterPick::Picture),
             "recipients" => (FileDialogRequest::Open { purpose: "recipients".into() }, AfterPick::Recipients),
+            "sources" => (FileDialogRequest::Open { purpose: "sources".into() }, AfterPick::ImportSources),
             "save" => (FileDialogRequest::Save { name: self.default_save_name() }, AfterPick::SaveAs(crate::file_dialogs::AfterSave::Nothing)),
             _ => (FileDialogRequest::Open { purpose: "document".into() }, AfterPick::OpenDocument),
         };
@@ -524,6 +526,30 @@ mod tests {
         b.name = "old".into();
         assert_eq!(b.accept(), Step::Stay, "asks before replacing");
         assert_eq!(b.accept(), Step::Pick(dir.join("drafts").join("old.docx")));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// `ui.fileBrowser` with purpose "sources" (#1058): the browser offers the source-library
+    /// types (.bib/.ris/.json) and its pick imports the library as the document's sources.
+    #[test]
+    fn browsing_for_sources_lists_and_imports_libraries() {
+        let dir = scratch("sources");
+        std::fs::write(dir.join("studio.bib"), b"@book{knuth84,\n  author = {Knuth, Donald E.},\n  title = {The TeXbook},\n  year = {1984}\n}\n")
+            .unwrap();
+        std::fs::write(dir.join("notes.txt"), b"not a library").unwrap();
+        let mut a = WordApp::new(Session::new(wordcraft_doc::Document::new()), Services::default());
+        a.browse_builtin("sources");
+        let b = a.file_browser.open.as_mut().expect("the browser is open");
+        assert_eq!(b.filters.first().map(|(l, _)| l.as_str()), Some("Source libraries"));
+        b.navigate(dir.clone());
+        let names: Vec<&str> = b.listing.as_ref().map(|l| l.entries.iter().map(|e| e.name.as_str()).collect()).unwrap_or_default();
+        assert_eq!(names, ["studio.bib"], "only source libraries are listed");
+        b.name = "studio.bib".into();
+        let Step::Pick(path) = b.accept() else { panic!("picked") };
+        a.close_file_browser(Some(path));
+        assert_eq!(a.session.doc.sources.len(), 1);
+        assert_eq!(a.session.doc.sources[0].tag, "knuth84");
+        assert!(a.session.dirty, "the import changed the document");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

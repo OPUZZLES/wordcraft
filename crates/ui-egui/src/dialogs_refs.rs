@@ -13,6 +13,7 @@ use wordcraft_engine::cmd::references::FieldCode;
 
 use crate::WordApp;
 use crate::dialogs::{Dialog, buttons};
+use crate::file_dialogs::{AfterPick, FileDialogRequest};
 use crate::theme::{Tokens, semibold};
 
 #[derive(Clone, Debug, Serialize)]
@@ -43,6 +44,8 @@ pub enum RefsDialog {
     },
     Sources {
         selected: Option<usize>,
+        /// Status line under the list actions: the import's outcome (#1058).
+        message: String,
     },
     Source(Box<SourceForm>),
 }
@@ -90,7 +93,7 @@ pub fn open(name: &str, app: &WordApp) -> Option<RefsDialog> {
         "index" => RefsDialog::Index(IndexForm::read(app)),
         "markEntry" => RefsDialog::MarkEntry(MarkForm::read(app)),
         "toc" => RefsDialog::Toc(TocForm::read(app)),
-        "sourceManager" => RefsDialog::Sources { selected: None },
+        "sourceManager" => RefsDialog::Sources { selected: None, message: String::new() },
         "createSource" => RefsDialog::Source(Box::new(SourceForm::new(true, false))),
         _ => return None,
     })
@@ -107,7 +110,7 @@ pub fn body(app: &mut WordApp, ui: &mut Ui, d: &mut RefsDialog) -> bool {
         RefsDialog::Toc(f) => toc_ui(app, ui, f),
         RefsDialog::TocOptions { form, was } => toc_options_ui(app, ui, form, was),
         RefsDialog::TocStyles { form, level } => toc_styles_ui(app, ui, form, level),
-        RefsDialog::Sources { selected } => sources_ui(app, ui, selected),
+        RefsDialog::Sources { selected, message } => sources_ui(app, ui, selected, message),
         RefsDialog::Source(f) => source_ui(app, ui, f),
     };
     match next {
@@ -967,12 +970,12 @@ fn source_ui(app: &mut WordApp, ui: &mut Ui, f: &mut SourceForm) -> Next {
         }
     }
     if (ok || cancel) && f.back {
-        return go(RefsDialog::Sources { selected: None });
+        return go(RefsDialog::Sources { selected: None, message: String::new() });
     }
     if ok || cancel { Next::Close } else { Next::Stay }
 }
 
-fn sources_ui(app: &mut WordApp, ui: &mut Ui, selected: &mut Option<usize>) -> Next {
+fn sources_ui(app: &mut WordApp, ui: &mut Ui, selected: &mut Option<usize>, message: &mut String) -> Next {
     let t = Tokens::get(ui.ctx());
     let list: Vec<String> = app
         .session
@@ -1018,6 +1021,11 @@ fn sources_ui(app: &mut WordApp, ui: &mut Ui, selected: &mut Option<usize>) -> N
             }
             *selected = None;
         }
+        // #1058: pick a BibTeX/RIS/CSL-JSON library and import its sources; the outcome shows
+        // in the status line below and the list picks the sources up.
+        if ui.button(tl!("Import…")).clicked() {
+            let _ = app.ask_file(FileDialogRequest::Open { purpose: "sources".into() }, AfterPick::ImportSources);
+        }
         if ui.add_enabled(src.is_some(), egui::Button::new(tl!("Insert Citation"))).clicked()
             && let Some(s) = &src
         {
@@ -1027,6 +1035,10 @@ fn sources_ui(app: &mut WordApp, ui: &mut Ui, selected: &mut Option<usize>) -> N
             next = Next::Close;
         }
     });
+    if !message.is_empty() {
+        ui.add_space(4.0);
+        ui.label(egui::RichText::new(&*message).small());
+    }
     ui.add_space(8.0);
     ui.horizontal(|ui| {
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -1036,6 +1048,18 @@ fn sources_ui(app: &mut WordApp, ui: &mut Ui, selected: &mut Option<usize>) -> N
         });
     });
     next
+}
+
+/// Say the source import's outcome in the Source Manager's status line; when the dialog was
+/// closed while the file was picked, the window's status bar says it instead (#1058).
+pub(crate) fn sources_status(app: &mut WordApp, msg: String) {
+    if let Some(Dialog::Refs(d)) = &mut app.dialog
+        && let RefsDialog::Sources { message, .. } = &mut **d
+    {
+        *message = msg;
+        return;
+    }
+    app.status(msg);
 }
 
 #[cfg(test)]
@@ -1147,6 +1171,85 @@ mod tests {
         let text = a.session.doc.plain_text(StoryRef::Body);
         assert!(text.contains("Intro\t1") && text.contains("Note\t1"), "{text}");
         assert_eq!(TocForm::read(&a), f);
+    }
+
+    /// #1058: Manage Sources ▸ Import… asks the host's file dialog for a source library and,
+    /// once the answer arrives, imports it: the sources show in the list and the dialog's status
+    /// line says how many were added and updated. Importing the same file again updates them.
+    #[test]
+    fn import_button_imports_a_source_library() {
+        use std::cell::RefCell;
+        use std::rc::Rc;
+        use std::sync::mpsc::{Sender, channel};
+
+        use egui_kittest::kittest::Queryable;
+
+        use crate::file_dialogs::{FileDialogAnswer, FileDialogRequest};
+
+        let dir = std::env::temp_dir().join(format!("wordcraft-ui-refs-import-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let bib = dir.join("studio.bib");
+        std::fs::write(
+            &bib,
+            "@book{knuth84,\n  author = {Knuth, Donald E.},\n  title = {The TeXbook},\n  publisher = {Addison-Wesley},\n  year = {1984}\n}\n@article{rivera2024,\n  author = {Rivera, Alex},\n  title = {Shared Spaces},\n  journal = {Journal of Studios},\n  year = {2024}\n}\n",
+        )
+        .unwrap();
+        // A host that shows file dialogs asynchronously: nothing is answered until the test does.
+        let shown: Rc<RefCell<Vec<(FileDialogRequest, Sender<FileDialogAnswer>)>>> = Rc::default();
+        let log = shown.clone();
+        let services = Services {
+            file_dialog: Some(Box::new(move |req| {
+                let (tx, rx) = channel();
+                log.borrow_mut().push((req, tx));
+                rx
+            })),
+            ..Default::default()
+        };
+        let mut a = WordApp::new(Session::new(wordcraft_doc::Document::new()), services);
+        a.run("references.sources", json!({})).unwrap();
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        h.run_steps(4);
+        // The button sits beside the other list actions, in their row, between Delete and
+        // Insert Citation (checked here in place of eyeballing the screenshot).
+        let (new, del) = (h.get_by_label("New…").rect(), h.get_by_label("Delete").rect());
+        let (import, cite) = (h.get_by_label("Import…").rect(), h.get_by_label("Insert Citation").rect());
+        assert!((new.center().y - import.center().y).abs() < 1.0, "Import… is in the list-actions row");
+        assert!(del.right() <= import.left() && import.right() <= cite.left(), "Import… is between Delete and Insert Citation");
+        h.get_by_label("Import…").click();
+        h.run_steps(2);
+        assert_eq!(shown.borrow()[0].0, FileDialogRequest::Open { purpose: "sources".into() });
+        assert!(h.state().file_dialog_open(), "the host's file dialog is open");
+        let (_, tx) = shown.borrow_mut().pop().unwrap();
+        tx.send(Ok(Some(bib.to_string_lossy().into_owned()))).unwrap();
+        h.run_steps(3);
+        let a = h.state();
+        assert!(!a.file_dialog_open());
+        assert_eq!(a.session.doc.sources.len(), 2);
+        assert_eq!(a.session.doc.sources[0].tag, "knuth84");
+        assert!(h.query(egui_kittest::kittest::By::new().label_contains("knuth84")).is_some(), "the list shows the imported source");
+        let Some(Dialog::Refs(d)) = &a.dialog else { panic!("the Source Manager stays open") };
+        let RefsDialog::Sources { message, .. } = &**d else { panic!("the Source Manager is open") };
+        assert_eq!(message, "2 added, 0 updated");
+        assert!(h.query_by_label("2 added, 0 updated").is_some(), "the status line is drawn");
+        // The same file again updates the sources in place rather than duplicating them.
+        h.get_by_label("Import…").click();
+        h.run_steps(2);
+        let (_, tx) = shown.borrow_mut().pop().unwrap();
+        tx.send(Ok(Some(bib.to_string_lossy().into_owned()))).unwrap();
+        h.run_steps(3);
+        assert_eq!(h.state().session.doc.sources.len(), 2, "no duplicates");
+        let Some(Dialog::Refs(d)) = &h.state().dialog else { panic!("still open") };
+        let RefsDialog::Sources { message, .. } = &**d else { panic!("the Source Manager is open") };
+        assert_eq!(message, "0 added, 2 updated");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// #402: Insert Citation without a source opens Create Source; the type picks the fields,

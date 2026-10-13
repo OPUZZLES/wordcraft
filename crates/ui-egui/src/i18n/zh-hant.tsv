@@ -96,6 +96,7 @@
 	Ignore words in capitals	忽略全部大寫的單字
 	Ignore words with numbers	忽略包含數字的單字
 	Import Sources Library	匯入來源庫
+	Import…	匯入…
 	Inches	英寸
 	Formatting exceptions	格式例外
 	Include level number from:	包含的層級編號來自：
@@ -1731,6 +1732,7 @@
 	Word document	Word 文件
 	All files	所有檔案
 	Recipient lists	收件者清單
+	Source libraries	來源庫
 	The system file dialog isn't available, so WordCraft shows its own. To get the system dialog, install a file chooser portal (such as xdg-desktop-portal-gtk) or zenity.	系統檔案對話方塊無法使用，因此 WordCraft 顯示自己的對話方塊。若要使用系統對話方塊，請安裝檔案選擇器入口（例如 xdg-desktop-portal-gtk）或 zenity。
 	Up one level	上移一層
 	Home folder	個人資料夾
@@ -1917,6 +1919,7 @@
 	a, b, c, …	a, b, c, …
 	i, ii, iii, …	i, ii, iii, …
 	{n} entries marked.	已標記 {n} 個項目。
+	{added} added, {updated} updated	已新增 {added} 個，已更新 {updated} 個
 	Lasso Select	套索選取
 	Move Selected Ink	移動選取的筆跡
 	Delete Selected Ink	刪除選取的筆跡
