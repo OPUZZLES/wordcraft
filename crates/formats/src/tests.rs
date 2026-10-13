@@ -6,7 +6,7 @@ use wordcraft_doc::para::InlineObject;
 use wordcraft_doc::{Align, Block, CharProps, Document, Paragraph, Table, para_block};
 
 use crate::model::{self, FBlock, Kind};
-use crate::{export, import};
+use crate::{export, import, import_sources};
 
 /// A small PNG made with the image crate.
 fn png() -> Vec<u8> {
@@ -661,4 +661,21 @@ fn exported_links_keep_only_safe_targets() {
         assert!(!html.contains(&format!(">{text}</a>")), "html: {html}");
         assert!(!md.contains(&format!("[{text}](")), "md: {md}");
     }
+}
+
+/// Citation libraries route by extension and are refused, not coaxed, when unusable.
+#[test]
+fn source_libraries_route_by_extension() {
+    let bib = b"@article{doe2020, title = {A study}, year = {2020}}";
+    let ris = b"TY  - JOUR\nTI  - A study\nER  - \n";
+    let json = br#"[{"id":"doe2020","type":"journal-article","title":"A study"}]"#;
+    for (ext, bytes, kind) in [("bib", &bib[..], "article"), (".RIS", ris, "article"), ("JSON", json, "article")] {
+        let out = import_sources(ext, bytes).unwrap().unwrap();
+        assert_eq!((out.len(), out[0].kind.as_str(), out[0].title.as_str()), (1, kind, "A study"));
+    }
+    // Unknown extensions are not ours; ours-but-unusable is an Err, and no extension mangling.
+    assert!(import_sources("docx", bib).is_none());
+    assert!(import_sources("bib", b"").unwrap().is_err());
+    assert!(import_sources("ris", b"").unwrap().is_err());
+    assert!(import_sources("json", b"").unwrap().is_err());
 }

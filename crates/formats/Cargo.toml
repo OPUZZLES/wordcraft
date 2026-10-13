@@ -13,6 +13,7 @@ wordcraft-doc = { workspace = true }
 wordcraft-geom = { workspace = true }
 image = { workspace = true }
 quick-xml = { workspace = true }
+serde_json = { workspace = true }
 zip = { workspace = true }
 log = { workspace = true }
 

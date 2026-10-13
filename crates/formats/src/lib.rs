@@ -1,6 +1,8 @@
 //! WordCraft import/export for the "other" text formats: plain text, Markdown (CommonMark subset
 //! plus GFM tables and strikethrough), HTML, RTF, OpenDocument Text and LaTeX — and, read-only,
-//! spreadsheet cells for mail-merge recipient lists ([`sheet`]: .xlsx/.xlsm/.ods).
+//! spreadsheet cells for mail-merge recipient lists ([`sheet`]: .xlsx/.xlsm/.ods) and citation
+//! libraries for Manage Sources ([`bibtex`], [`ris`], [`csljson`]: .bib/.ris/CSL-JSON, via
+//! [`import_sources`]).
 //!
 //! Every format maps to a small flow model ([`model::Flow`]: paragraphs with a kind, list
 //! membership, alignment and formatted spans; tables of cells), which [`model::to_doc`] and
@@ -9,17 +11,20 @@
 //! depth-limited and sizes are capped.
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
+pub mod bibtex;
 pub mod comments;
+pub mod csljson;
 pub mod html;
 pub mod latex;
 pub mod markdown;
 pub mod model;
 pub mod odt;
+pub mod ris;
 pub mod rtf;
 pub mod sheet;
 pub mod txt;
 
-use wordcraft_doc::Document;
+use wordcraft_doc::{Document, Source};
 
 /// Extensions this crate handles.
 pub const EXTENSIONS: &[&str] = &["txt", "text", "md", "markdown", "html", "htm", "xhtml", "rtf", "odt", "tex", "latex", "ltx"];
@@ -40,6 +45,54 @@ pub fn import(ext: &str, bytes: &[u8]) -> Option<Result<Document, String>> {
         d.ensure_nonempty();
         d
     }))
+}
+
+// Citation libraries (Manage Sources) are read-only and are not documents: they share the
+// crate's caps rather than the flow model.
+
+/// Most bytes of a citation library read (`bib`/`ris`/`json`); longer input is refused.
+const MAX_LIB: usize = 16 << 20;
+/// Most sources kept from one library; further entries are skipped.
+const MAX_SOURCES: usize = 10_000;
+/// Longest source field value kept, in characters; longer values are cut off.
+const MAX_VALUE: usize = 4_000;
+/// Deepest brace/bracket nesting read; deeper input is refused.
+const MAX_NEST: usize = 32;
+
+/// A field value cut off at [`MAX_VALUE`] characters, at a character boundary.
+fn clamp_value(mut s: String) -> String {
+    if s.chars().count() > MAX_VALUE {
+        let cut = s.char_indices().nth(MAX_VALUE).map_or(s.len(), |(i, _)| i);
+        s.truncate(cut);
+    }
+    s
+}
+
+/// Citation-library bytes as text: UTF-8 first (BOM stripped), then byte-preserving latin-1
+/// (Mendeley exports both), so no byte is lost or replaced.
+fn utf8_or_latin1(b: &[u8]) -> String {
+    let b = b.strip_prefix(&[0xEF, 0xBB, 0xBF][..]).unwrap_or(b);
+    match std::str::from_utf8(b) {
+        Ok(s) => s.to_string(),
+        // Latin-1 maps every byte to the character of its value.
+        Err(_) => b.iter().map(|c| char::from(*c)).collect(),
+    }
+}
+
+/// Import a citation library (References ▸ Manage Sources) in the format named by `ext`.
+///
+/// Extensions this handles: "bib", "ris", "json" (CSL-JSON). `None` = not our format;
+/// `Some(Err(msg))` = ours but unusable. Sources are not a [`Document`], so this stands apart
+/// from [`import`]; the caps shared by the three parsers are 16 MiB of input, 10,000 sources,
+/// 4,000 characters per field value and 32 levels of nesting.
+pub fn import_sources(ext: &str, bytes: &[u8]) -> Option<Result<Vec<Source>, String>> {
+    let ext = ext.trim_start_matches('.').to_ascii_lowercase();
+    Some(match ext.as_str() {
+        "bib" => bibtex::import(bytes),
+        "ris" => ris::import(bytes),
+        "json" => csljson::import(bytes),
+        _ => return None,
+    })
 }
 
 /// Export `doc` in the format named by `ext`. `None` = not our format.
