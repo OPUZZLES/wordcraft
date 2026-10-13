@@ -1,6 +1,6 @@
 # File-format parity with Microsoft Word
 
-> **Last reviewed:** 2026-10-11 · **Last updated:** 2026-10-11 · **Change:** trivial (symbol-font text exported as Unicode, #776; previously trivial: text-box margins, Resize shape to fit text and freeforms in groups, #743; previously trivial: formatted paste from the system clipboard's HTML and RTF, #687; previously trivial: independent complex-script formatting inheritance and round-trip regression tests; previously trivial: import/export fixes for TXT, RTF, ODT, HTML and LaTeX, #433–#440; previously major: first version; every format Word reads or writes, measured from the readers and writers on origin/main) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4, plus Word for Windows' extra formats
+> **Last reviewed:** 2026-10-11 · **Last updated:** 2026-10-13 · **Change:** minor (bibliography sources round-trip in Word's customXml layout and `.bib`/`.ris`/`.json` source libraries import, #1058; previously trivial: symbol-font text exported as Unicode, #776; previously trivial: text-box margins, Resize shape to fit text and freeforms in groups, #743; previously trivial: formatted paste from the system clipboard's HTML and RTF, #687; previously trivial: independent complex-script formatting inheritance and round-trip regression tests; previously trivial: import/export fixes for TXT, RTF, ODT, HTML and LaTeX, #433–#440; previously major: first version; every format Word reads or writes, measured from the readers and writers on origin/main) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4, plus Word for Windows' extra formats
 
 Every format Word opens or saves, what WordCraft does with it, and how it's tested. Fidelity is the
 share of a typical real-world file's content and formatting that survives (read: shows correctly;
@@ -35,6 +35,7 @@ Weights are the share of a Word user's file traffic (estimate). Read/write: ✅ 
 | `.wps` Works 6–9, WordPerfect `.wpd` (Windows) | <1% | R | ❌ | — | 0% | 10–20 | — | Windows-only converters; low value |
 | Encrypted/password-protected `.docx`/`.doc` | 1% | R/W | ❌ | ❌ | 0% | 6–10 | — | ECMA-376 Agile Encryption; `.doc` RC4/XOR detected and refused (`docbin` fib). Issue #55 |
 | `.xlsx`/`.xlsm`/`.ods` as a mail-merge recipient list | — | R (data source) | ✅ | — | ~90% | 1–3 | `crates/formats/src/sheet.rs`, `cmd/mailings.rs` | Read-only, one sheet's cell values (#334): shared/inline/rich strings, numbers, booleans, cached formula results, dates and times as ISO 8601 (`yyyy-mm-dd`) from the cell's number format, sparse cells; ODS value types, repeated rows/columns, covered cells. Select Table picks the sheet. Capped (64 MiB per part, 100,000 rows, 1,000 columns, 2 M cells, 32,767 characters a cell). Not shown: number formats other than dates (currency, percent, thousands separators) in `.xlsx`; no `.xls`, Access or Outlook sources |
+| `.bib`/`.ris`/`.json` source libraries (BibTeX, RIS, CSL-JSON) | — | (via a reference manager) | ✅ | — | — | — | unit tests in `crates/formats/src/{bibtex,ris,csljson}.rs` and `tests.rs`, `cmd/citations.rs` | Beyond Word as a document format: `references.importSources` reads them into the source list (format from the extension or the content, entries upserted by tag, one undo step; #1058). Capped (16 MiB a library, 10,000 sources, 4,000 characters a value, 32-deep BibTeX braces) |
 | `.md` Markdown | — | (no) | ✅ | ✅ | — | — | `crates/formats/src/tests.rs` | Beyond Word |
 | `.tex` LaTeX | — | — | ✅ | ✅ | — | — | `crates/formats/src/tests.rs` | Beyond Word (#11), incl. math |
 | Pictures for Insert › Picture, drag-and-drop and paste | — | R | ✅ | — | — | — | `insert_picture_takes_a_windows_metafile` (engine), `paste_picture.rs` | PNG, JPEG, GIF, WebP, BMP, and Windows Metafile `.wmf` / Enhanced Metafile `.emf` at their own frame size (#802), drawn by `crates/metafile`. Not yet: SVG, TIFF, ICO, HEIC |
@@ -72,7 +73,7 @@ Measured by grepping `crates/docx/src/read` and `src/write` for the OOXML elemen
 | 3D models | ❌ | ❌ | Dropped on read, not preserved on save |
 | Equations (OMML `m:oMath`) | ✅ | ✅ | #191; manual breaks (`m:brk`) and the settings' `m:mathPr` wrapping options (#326) |
 | Themes, font table, settings, compatibility mode | ✅ | ✅ | Embedded fonts (`w:embedRegular`) not used for rendering, but the font table, its relationships and the embedded font parts are written back unchanged (#770); attached template (`w:attachedTemplate` and its external relationship) and `w:linkStyles` round-trip (#377). The template path comes from the file, so opening never reads it: styles update from it only on an explicit Update Styles |
-| Custom XML parts, document properties, bibliography sources | 🟡 | 🟡 | Custom XML stores reached from the package/main document preserve opaque data, properties and relationships; binding evaluation remains absent. Custom properties round-trip; bibliography model I/O remains separate (#532 open) |
+| Custom XML parts, document properties, bibliography sources | 🟡 | 🟡 | Custom XML stores reached from the package/main document preserve opaque data, properties and relationships; binding evaluation remains absent. Custom properties round-trip. Bibliography sources round-trip (#169, #1058): a custom XML data store at the package root (`customXml/itemN.xml` + `itemPropsN.xml`, content-type overrides) related from the main document part — Word's own layout, correcting #790's package-root relationship; the file's own store is rewritten in place, a document without one takes the first free slot, unrelated customXml parts are untouched |
 | Section text direction (`w:textDirection` in `w:sectPr`, §17.6.20) | ✅ | ✅ | `tbRl`, `btLr` (and `tbRlV`/`tbLrV`, read as `tbRl`); `lrTbV` and unknown values read as horizontal (#491) |
 | Ruby (`w:ruby`: `w:rubyPr`, `w:rt`, `w:rubyBase`) | ✅ | ✅ | #288; base and ruby text with their run formatting, alignment, sizes, raise, language |
 | Document grid (`w:docGrid`: type, line pitch, `w:charSpace`), paragraph `w:snapToGrid` | ✅ | ✅ | #391; run-level `w:snapToGrid` not read |
@@ -122,8 +123,10 @@ identify the store. Keeping displayed text alone does not preserve that mapping.
 preserves stores without evaluating XPath or synchronizing control edits into XML.
 Focused original tests cover package/main roots, multiple/shared stores, cycles, external schema
 references, missing parts, UTF-16 payloads, strict relationship types and reserved filenames.
-The bibliography names used by #532 are reserved; bibliography already loaded into the source
-model belongs to its writer. Word-derived files are not fixtures. No readiness estimate rises
+The bibliography's `customXml/itemN.xml` slot belongs to the bibliography writer, which rewrites
+it in place in Word's layout (sources round-trip, #1058); the opaque path skips it, and a
+relationship can't steer the bibliography onto parts another writer already took. Word-derived
+files are not fixtures. No readiness estimate rises
 from these synthetic package checks, and native Word rendering/binding behavior remains untested.
 ## Native save-path guarantees
 Native `io::save_path_with` serializes (and, for password-protected DOCX, encrypts) before creating an exclusively owned sibling temporary file. It writes and synchronizes that file, closes it, then replaces the destination. Failed preparation or replacement keeps the original bytes; cleanup removes only the save's temporary file, on a best-effort basis. Existing `<name>.tmp` files, directories and links are untouched. A new document gets the default mode (`0666` less the umask). When replacing an existing regular file, the Unix temporary file starts with mode `0600` and then takes the existing file's basic permissions. Serialization and format support are unchanged.
@@ -163,6 +166,7 @@ raise readiness estimates. No Word-derived files are fixtures.
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-13 | minor | Bibliography sources round-trip in Word's own customXml layout — package-root `customXml/itemN.xml` + `itemPropsN.xml` with content-type overrides, related from the document part (correcting #790's package-root relationship) — and `.bib`/`.ris`/`.json` source libraries import (`references.importSources`, #1058) |
 | 2026-10-12 | trivial | Paste keeps the formatting of HTML and RTF on the system clipboard; Paste Special lists them and pictures (#687, #833) |
 | 2026-10-12 | trivial | ODT page size, orientation and margins read back from `styles.xml` on open, so they survive a save and reopen (#810) |
 | 2026-10-12 | minor | RTF reads 8-bit text in the document's or the font's code page (`\ansicpg`, `\fcharset`, `\cpg`) instead of always Windows-1252; a `.doc`/`.docx`/`.rtf` whose content is another of these formats opens by signature. Found on a private corpus of real Russian documents: 38 of 44 `.doc` files were RTF, all now open with their Cyrillic text |
