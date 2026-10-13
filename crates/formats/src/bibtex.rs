@@ -24,7 +24,7 @@ use std::collections::HashMap;
 
 use wordcraft_doc::Source;
 
-use crate::{MAX_LIB, MAX_NEST, MAX_SOURCES, clamp_value, utf8_or_latin1};
+use crate::{MAX_LIB, MAX_NEST, MAX_SOURCES, MAX_VALUE, clamp_value, utf8_or_latin1};
 
 /// Import the sources of a BibTeX library.
 pub fn import(bytes: &[u8]) -> Result<Vec<Source>, String> {
@@ -303,12 +303,17 @@ impl Parser {
     }
 
     /// A value: braced `{…}`, quoted `"…"` and bare `@string`/macro tokens, joined with `#`.
-    /// Inner braces are content and stay; an unterminated part yields what there is.
+    /// Inner braces are content and stay; an unterminated part yields what there is. Only the
+    /// first [`MAX_VALUE`] characters are ever kept (the field clamp keeps just those anyway), so
+    /// a value cannot amplify past the caps however many `#` parts it has.
     fn value(&mut self) -> Result<String, String> {
         let mut out = String::new();
+        let mut len = 0usize; // characters in `out`
         loop {
             self.ws();
             let start = self.at;
+            // Parts past the clamp are parsed (so the file advances) but no longer kept.
+            let room = MAX_VALUE.saturating_sub(len);
             match self.b.get(self.at).copied() {
                 Some(b'{') => {
                     self.at += 1;
@@ -334,7 +339,9 @@ impl Parser {
                         self.at += 1;
                     }
                     let end = if closed { self.at } else { self.b.len() };
-                    out.push_str(&self.slice(start + 1, end));
+                    if room > 0 {
+                        len += push_upto(&mut out, &self.slice(start + 1, end), room);
+                    }
                     if closed {
                         self.at += 1;
                     }
@@ -361,7 +368,9 @@ impl Parser {
                         self.at += 1;
                     }
                     let end = if closed { self.at } else { self.b.len() };
-                    out.push_str(&self.slice(start + 1, end));
+                    if room > 0 {
+                        len += push_upto(&mut out, &self.slice(start + 1, end), room);
+                    }
                     if closed {
                         self.at += 1;
                     }
@@ -370,13 +379,15 @@ impl Parser {
                     while self.b.get(self.at).copied().is_some_and(|c| !token_end(c)) {
                         self.at += 1;
                     }
-                    let token = self.slice(start, self.at);
-                    if let Some(v) = self.strings.get(&token.to_ascii_lowercase()) {
-                        out.push_str(v);
-                    } else if let Some(m) = month_macro(&token) {
-                        out.push_str(m);
-                    } else {
-                        out.push_str(&token);
+                    if room > 0 {
+                        let token = self.slice(start, self.at);
+                        if let Some(v) = self.strings.get(&token.to_ascii_lowercase()) {
+                            len += push_upto(&mut out, v, room);
+                        } else if let Some(m) = month_macro(&token) {
+                            len += push_upto(&mut out, m, room);
+                        } else {
+                            len += push_upto(&mut out, &token, room);
+                        }
                     }
                 }
                 _ => {} // no value here (a comma, the close, or the end): nothing to add
@@ -394,6 +405,21 @@ impl Parser {
 /// Does the byte end a bare token?
 fn token_end(c: u8) -> bool {
     c.is_ascii_whitespace() || matches!(c, b',' | b'#' | b'{' | b'}' | b'(' | b')' | b'"')
+}
+
+/// Push at most `room` characters of `part`, returning how many that was: a value keeps only
+/// its first [`MAX_VALUE`] characters ([`set_field`] clamps to those anyway), so nothing past
+/// them is ever observable and a `#` chain cannot amplify past the caps.
+fn push_upto(out: &mut String, part: &str, room: usize) -> usize {
+    let mut n = 0usize;
+    for c in part.chars() {
+        if n == room {
+            break;
+        }
+        out.push(c);
+        n += 1;
+    }
+    n
 }
 
 /// Does the byte end a field name?
@@ -579,6 +605,19 @@ mod tests {
         // At a character boundary: a multi-byte last character is not split.
         let uni = "@misc{x, title = {".to_string() + &"é".repeat(4_002) + "}";
         assert_eq!(import(uni.as_bytes()).unwrap()[0].title.chars().count(), 4_000);
+    }
+
+    #[test]
+    fn concatenated_values_stay_bounded() {
+        // A small file whose @string is referenced millions of times must not amplify into
+        // gigabytes: parts past the 4,000-character clamp are consumed, not kept.
+        let lib = "@string{big = {".to_string() + &"x".repeat(16 << 10) + "}}\n@misc{x, title = big" + &" # big".repeat(2_000_000) + "}\n";
+        assert!(lib.len() < 16 << 20, "{}", lib.len());
+        let started = std::time::Instant::now();
+        let out = import(lib.as_bytes()).unwrap();
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].title.chars().count(), 4_000);
+        assert!(started.elapsed() < std::time::Duration::from_secs(10), "{:?}", started.elapsed());
     }
 
     #[test]
