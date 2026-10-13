@@ -94,6 +94,7 @@
 	Ignore web and file addresses	Web アドレスとファイル パスを無視する
 	Ignore words in capitals	すべて大文字の単語を無視する
 	Ignore words with numbers	数字を含む単語を無視する
+	Import Sources Library	資料文献ライブラリのインポート
 	Inches	インチ
 	Formatting exceptions	書式の例外
 	Include level number from:	含めるレベルの番号:

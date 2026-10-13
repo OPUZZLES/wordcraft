@@ -291,6 +291,9 @@ pub fn specs() -> Vec<CommandSpec> {
     vec![
         CommandSpec::new("references.sources", "Manage Sources", "References › Citations & Bibliography", sources)
             .params(r#"{"add"?: Source, "remove"?: tag} → list"#),
+        CommandSpec::new("references.importSources", "Import Sources Library", "References › Citations & Bibliography", import_sources).params(
+            r#"{"path": string, "format"?: "bibtex|ris|csl-json|auto" (default: the extension, else the content)} → {"added": n, "updated": n, "skipped": [{"tag"?, "reason"}], "total": n} (entries the file held)"#,
+        ),
         CommandSpec::new("references.citation", "Insert Citation", "References › Citations & Bibliography", citation).params(r#"{"tag"?: string, "source"?: Source (added if new), "pages"?: string}"#),
         CommandSpec::new("references.citationStyle", "Style", "References › Citations & Bibliography", |s, v| {
             let st = p::str(v, "style").unwrap_or("APA");
@@ -519,18 +522,63 @@ pub fn entry(src: &Source, style_name: &str, n: usize) -> String {
     render(if src.journal.is_empty() { st.book } else { st.article }, &field)
 }
 
+/// The tag a source with none is given: the first author's surname and the year ("Source"
+/// without an author), as Manage Sources does.
+fn generated_tag(src: &Source) -> String {
+    let base: String =
+        authors(&src.author).first().map(|x| x.0.clone()).unwrap_or_else(|| "Source".into()).chars().filter(|c| c.is_alphanumeric()).collect();
+    format!("{base}{}", src.year)
+}
+
+/// A tag no source in `sources` holds: [`generated_tag`], with `-2`, `-3`… appended while the
+/// tag is taken. A library without keys (RIS) mints its tags fresh rather than matching an
+/// unrelated source that happens to share the generated one.
+fn fresh_tag(sources: &[Source], src: &Source) -> String {
+    let base = generated_tag(src);
+    let taken = |t: &str| sources.iter().any(|x| x.tag == t);
+    if !taken(&base) {
+        return base;
+    }
+    // One of `base-2`..`base-(n+2)` is free by pigeonhole, so the loop always returns.
+    for n in 2..=(sources.len() as u64).saturating_add(2) {
+        let t = format!("{base}-{n}");
+        if !taken(&t) {
+            return t;
+        }
+    }
+    base
+}
+
+/// Does the source hold any field at all? The parsers drop keyless, empty records; a CSL-JSON
+/// `{}` item reaches the engine with nothing and is skipped rather than imported.
+fn has_any_field(src: &Source) -> bool {
+    [
+        &src.author,
+        &src.title,
+        &src.year,
+        &src.journal,
+        &src.volume,
+        &src.pages,
+        &src.publisher,
+        &src.city,
+        &src.url,
+        &src.editor,
+        &src.edition,
+        &src.issue,
+        &src.month,
+        &src.day,
+        &src.accessed,
+        &src.doi,
+    ]
+    .iter()
+    .any(|f| !f.is_empty())
+}
+
 fn sources(s: &mut Session, v: &Value) -> CmdResult {
     if let Some(a) = v.get("add") {
         let mut src: Source = serde_json::from_value(a.clone()).map_err(|e| CmdError::Params(e.to_string()))?;
         if src.tag.is_empty() {
-            let base: String = authors(&src.author)
-                .first()
-                .map(|x| x.0.clone())
-                .unwrap_or_else(|| "Source".into())
-                .chars()
-                .filter(|c| c.is_alphanumeric())
-                .collect();
-            src.tag = format!("{base}{}", src.year);
+            src.tag = generated_tag(&src);
         }
         // Edit Source keeps the source's place in the list and refreshes its citations.
         match s.doc.sources.iter().position(|x| x.tag == src.tag) {
@@ -548,6 +596,100 @@ fn sources(s: &mut Session, v: &Value) -> CmdResult {
         s.doc.sources.retain(|x| x.tag != t);
     }
     Ok(serde_json::to_value(&s.doc.sources).unwrap_or(Value::Null))
+}
+
+/// The library format the bytes look like when the extension doesn't say: leading `TY  -` (any
+/// case) → RIS; a first non-space `{`/`[` that parses as JSON whose items hold `id`/`type` →
+/// CSL-JSON; an `@`-entry at a line start → BibTeX.
+fn sniffed_format(b: &[u8]) -> Option<&'static str> {
+    /// The slice from its first non-whitespace byte.
+    fn after_ws(x: &[u8]) -> &[u8] {
+        x.iter().position(|c| !c.is_ascii_whitespace()).and_then(|i| x.get(i..)).unwrap_or(&[])
+    }
+    let b = b.strip_prefix(&[0xEF, 0xBB, 0xBF][..]).unwrap_or(b);
+    let t = after_ws(b);
+    // `TY  - …` (spacing around the hyphen tolerated): an RIS record opens the file.
+    if t.get(..2).is_some_and(|x| x.eq_ignore_ascii_case(b"TY")) && after_ws(t.get(2..).unwrap_or(&[])).first() == Some(&b'-') {
+        return Some("ris");
+    }
+    if t.first() == Some(&b'{') || t.first() == Some(&b'[') {
+        let top: Value = serde_json::from_slice(b).ok()?;
+        let items = match &top {
+            Value::Array(a) => a.as_slice(),
+            Value::Object(o) => o.get("items").and_then(Value::as_array).map_or(&[][..], Vec::as_slice),
+            _ => &[],
+        };
+        if items.iter().any(|it| it.as_object().is_some_and(|o| o.contains_key("id") || o.contains_key("type"))) {
+            return Some("json");
+        }
+    }
+    // An `@`-entry opening a line anywhere: BibTeX.
+    b.split(|c| *c == b'\n').any(|line| after_ws(line).first() == Some(&b'@')).then_some("bib")
+}
+
+/// The format to read `path` as: its extension when it is one of ours, else what the bytes
+/// look like ([`sniffed_format`]).
+fn library_ext(path: &str, bytes: &[u8]) -> Option<&'static str> {
+    match std::path::Path::new(path).extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase).as_deref() {
+        Some("bib") => Some("bib"),
+        Some("ris") => Some("ris"),
+        Some("json") => Some("json"),
+        _ => sniffed_format(bytes),
+    }
+}
+
+/// References ▸ Manage Sources ▸ Import: read a BibTeX, RIS or CSL-JSON library and upsert its
+/// sources by tag through the `references.sources {"add"}` semantics (an existing tag is
+/// updated in place, a new one pushed). Entries the file gives no tag get one generated, with
+/// a `-2` suffix on collision; an entry with no field at all is skipped with a reason. One
+/// `update_citations` refreshes the document after the whole import; the result always
+/// summarises it (`total` counts the entries the file held).
+fn import_sources(s: &mut Session, v: &Value) -> CmdResult {
+    let path = p::req_str(v, "path")?;
+    let forced = match p::str(v, "format").unwrap_or("auto").to_ascii_lowercase().as_str() {
+        "auto" => None,
+        "bibtex" => Some("bib"),
+        "ris" => Some("ris"),
+        "csl-json" => Some("json"),
+        other => return Err(CmdError::Params(format!("`format` must be bibtex, ris, csl-json or auto, not `{other}`"))),
+    };
+    let bytes = crate::io::read_file(path).map_err(|e| CmdError::Params(e.to_string()))?;
+    let ext = forced
+        .or_else(|| library_ext(path, &bytes))
+        .ok_or_else(|| CmdError::Params(format!("{path}: not a BibTeX, RIS or CSL-JSON library; give `format` or a .bib/.ris/.json file")))?;
+    let sources = wordcraft_formats::import_sources(ext, &bytes)
+        .unwrap_or_else(|| Err("not a BibTeX, RIS or CSL-JSON library".into()))
+        .map_err(|e| CmdError::Params(format!("{path}: {e}")))?;
+    let mut added = 0;
+    let mut updated = 0;
+    let mut skipped: Vec<Value> = Vec::new();
+    for mut src in sources {
+        if src.tag.is_empty() && !has_any_field(&src) {
+            skipped.push(json!({"reason": "no usable field"}));
+            continue;
+        }
+        if src.tag.is_empty() {
+            src.tag = fresh_tag(&s.doc.sources, &src);
+        }
+        match s.doc.sources.iter().position(|x| x.tag == src.tag) {
+            Some(i) => {
+                if let Some(x) = s.doc.sources.get_mut(i) {
+                    *x = src;
+                }
+                updated += 1;
+            }
+            None => {
+                s.doc.sources.push(src);
+                added += 1;
+            }
+        }
+    }
+    if added + updated > 0 {
+        update_citations(s)?;
+        s.touch();
+    }
+    let total = added + updated + skipped.len();
+    Ok(json!({"added": added, "updated": updated, "skipped": skipped, "total": total}))
 }
 
 fn citation(s: &mut Session, v: &Value) -> CmdResult {
@@ -1259,5 +1401,153 @@ mod tests {
         assert_eq!(find_style("ISO 690 - Numerical Reference").map(|x| x.name), Some("ISO 690 (numerical)"));
         assert_eq!(find_style("Harvard - Anglia 2008").map(|x| x.name), Some("Harvard (Anglia)"));
         assert!(find_style("").is_none() && find_style("Vancouver").is_none());
+    }
+
+    /// A temp file `label/name` holding `bytes`, with `label`'s dir removed first (leftovers of a
+    /// failed run never stop the next one).
+    fn lib_file(label: &str, name: &str, bytes: &[u8]) -> String {
+        let dir = std::env::temp_dir().join(format!("wordcraft-import-{label}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(name);
+        std::fs::write(&path, bytes).unwrap();
+        path.to_string_lossy().into_owned()
+    }
+
+    fn lib_cleanup(label: &str) {
+        let _ = std::fs::remove_dir_all(std::env::temp_dir().join(format!("wordcraft-import-{label}-{}", std::process::id())));
+    }
+
+    #[test]
+    fn import_sources_upserts_by_tag() {
+        let mut s = Session::new(wordcraft_doc::Document::new());
+        s.run("text.insert", &json!({"text": "See "})).unwrap();
+        s.run("references.sources", &json!({"add": {"tag": "doe2020", "author": "Doe, Jane", "title": "The old title", "year": "2020"}})).unwrap();
+        s.run("references.citation", &json!({"tag": "doe2020"})).unwrap();
+        assert!(s.doc.plain_text(StoryRef::Body).contains("(Doe, 2020)"), "{}", s.doc.plain_text(StoryRef::Body));
+        let path = lib_file(
+            "upsert",
+            "lib.bib",
+            b"@article{doe2020, author = {Doe, Jane}, title = {The new title}, year = {2021}}\n@book{knuth84, author = {Knuth, Donald E.}, title = {The TeXbook}, year = {1984}}\n",
+        );
+        let r = s.run("references.importSources", &json!({"path": path})).unwrap();
+        assert_eq!(r["added"], json!(1), "{r}");
+        assert_eq!(r["updated"], json!(1), "{r}");
+        assert_eq!(r["total"], json!(2), "{r}");
+        assert_eq!(r["skipped"], json!([]), "{r}");
+        // The matching tag is updated in place: its place in the list is kept.
+        assert_eq!(s.doc.sources.len(), 2);
+        assert_eq!(s.doc.sources[0].tag, "doe2020");
+        assert_eq!(s.doc.sources[0].title, "The new title");
+        assert_eq!(s.doc.sources[1].tag, "knuth84");
+        // The import's one update_citations refreshed the citation to the new year.
+        let t = s.doc.plain_text(StoryRef::Body);
+        assert!(t.contains("(Doe, 2021)") && !t.contains("(Doe, 2020)"), "{t}");
+        lib_cleanup("upsert");
+    }
+
+    #[test]
+    fn import_sources_generates_tags() {
+        let mut s = Session::new(wordcraft_doc::Document::new());
+        // `references.sources` generates author+year for a source with no tag.
+        s.run("references.sources", &json!({"add": {"author": "Roe, Sam", "title": "An untitled year", "year": "2021"}})).unwrap();
+        assert_eq!(s.doc.sources[0].tag, "Roe2021");
+        // RIS carries no key: tags are generated, and a collision gets a `-2` suffix.
+        let ris = "TY  - JOUR\nAU  - Doe, Jane\nTI  - First paper\nPY  - 2020\nER  - \n\
+                   TY  - JOUR\nAU  - Doe, Jane\nTI  - Second paper\nPY  - 2020\nER  - \n\
+                   TY  - BOOK\nTI  - Anonymous editing\nPY  - 2019\nER  - \n";
+        let path = lib_file("tags", "lib.ris", ris.as_bytes());
+        let r = s.run("references.importSources", &json!({"path": path})).unwrap();
+        assert_eq!(r["added"], json!(3), "{r}");
+        let tags: Vec<&str> = s.doc.sources.iter().map(|x| x.tag.as_str()).collect();
+        assert_eq!(tags, ["Roe2021", "Doe2020", "Doe2020-2", "Source2019"], "{tags:?}");
+        lib_cleanup("tags");
+    }
+
+    #[test]
+    fn import_sources_sniffs_and_forces_the_format() {
+        let mut s = Session::new(wordcraft_doc::Document::new());
+        // No library extension: the content says BibTeX (`@` opening a line).
+        let path = lib_file("sniff", "notes.txt", b"free text\n@misc{noext, title = {Sniffed}}\n");
+        let r = s.run("references.importSources", &json!({"path": path})).unwrap();
+        assert_eq!(r["added"], json!(1), "{r}");
+        assert_eq!(s.doc.sources[0].tag, "noext");
+        // Leading `TY  -`: RIS without the extension.
+        let path = lib_file("sniff", "library", b"TY  - BOOK\nTI  - Sniffed RIS\nPY  - 2019\nER  - \n");
+        let r = s.run("references.importSources", &json!({"path": path})).unwrap();
+        assert_eq!(r["added"], json!(1), "{r}");
+        assert_eq!(s.doc.sources[1].tag, "Source2019");
+        // A JSON array of items with `id`/`type`: CSL-JSON.
+        let path = lib_file("sniff", "items.txt", r#"[{"id": "x1", "type": "book", "title": "Sniffed JSON"}]"#.as_bytes());
+        let r = s.run("references.importSources", &json!({"path": path})).unwrap();
+        assert_eq!(r["added"], json!(1), "{r}");
+        assert_eq!(s.doc.sources[2].tag, "x1");
+        // RIS under a .json name: `format` forces the reader.
+        let path = lib_file("sniff", "forced.json", b"TY  - JOUR\nAU  - Doe, Jane\nTI  - Forced\nPY  - 2020\nER  - \n");
+        let r = s.run("references.importSources", &json!({"path": path, "format": "ris"})).unwrap();
+        assert_eq!(r["added"], json!(1), "{r}");
+        assert_eq!(s.doc.sources[3].tag, "Doe2020");
+        // An unknown `format` and a wrong-format file are parameter errors, never crashes.
+        assert!(s.run("references.importSources", &json!({"path": path, "format": "endnote"})).is_err());
+        let path = lib_file("sniff", "wrong.txt", b"just some text, nothing to import");
+        assert!(matches!(s.run("references.importSources", &json!({"path": path})), Err(CmdError::Params(_))));
+        lib_cleanup("sniff");
+    }
+
+    #[test]
+    fn import_sources_skips_empty_entries() {
+        let mut s = Session::new(wordcraft_doc::Document::new());
+        // A CSL-JSON `{}` item parses but holds nothing: skipped with a reason, not an error.
+        let path = lib_file(
+            "skip",
+            "lib.json",
+            r#"[{}, {"id": "web1", "type": "webpage", "title": "Fact sheet", "URL": "https://example.com"}]"#.as_bytes(),
+        );
+        let r = s.run("references.importSources", &json!({"path": path})).unwrap();
+        assert_eq!(r["added"], json!(1), "{r}");
+        assert_eq!(r["skipped"], json!([{"reason": "no usable field"}]), "{r}");
+        assert_eq!(r["total"], json!(2), "{r}");
+        assert_eq!(s.doc.sources.len(), 1);
+        assert_eq!(s.doc.sources[0].tag, "web1");
+        lib_cleanup("skip");
+    }
+
+    #[test]
+    fn import_sources_is_one_undo_step_and_cites_after() {
+        let mut s = Session::new(wordcraft_doc::Document::new());
+        s.run("text.insert", &json!({"text": "Cite here: "})).unwrap();
+        let path = lib_file(
+            "undo",
+            "lib.bib",
+            b"@article{doe2020, author = {Doe, Jane}, title = {A study}, year = {2020}, journal = {Journal of Things}}\n",
+        );
+        let depth = s.undo_depth();
+        let r = s.run("references.importSources", &json!({"path": path})).unwrap();
+        assert_eq!(r["added"], json!(1), "{r}");
+        assert_eq!(s.undo_depth(), depth + 1, "one undo step for the whole import");
+        // One undo takes the whole import back out.
+        s.run("edit.undo", &json!({})).unwrap();
+        assert!(s.doc.sources.is_empty(), "{:?}", s.doc.sources);
+        // Import again: a citation works right after it.
+        s.run("references.importSources", &json!({"path": path})).unwrap();
+        s.run("references.citation", &json!({"tag": "doe2020"})).unwrap();
+        let t = s.doc.plain_text(StoryRef::Body);
+        assert!(t.contains("Cite here: (Doe, 2020)"), "{t}");
+        lib_cleanup("undo");
+    }
+
+    #[test]
+    fn import_sources_is_listed_in_engine_commands() {
+        // `engine.commands` (control channel, MCP, the CLI's command list) is the registry's
+        // describe(); the catalog row makes command search and keytips see it too.
+        let listed = crate::cmd::registry().describe();
+        let me = listed.as_array().unwrap().iter().find(|c| c["id"] == "references.importSources").unwrap();
+        assert_eq!(me["label"], "Import Sources Library");
+        assert_eq!(me["location"], "References › Citations & Bibliography");
+        assert!(
+            crate::catalog::entries()
+                .iter()
+                .any(|(tab, group, _, id)| { *tab == "References" && *group == "Citations" && *id == "references.importSources" })
+        );
     }
 }

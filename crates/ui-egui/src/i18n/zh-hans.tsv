@@ -106,6 +106,7 @@
 	Ignore web and file addresses	忽略网址和文件路径
 	Ignore words in capitals	忽略全部大写的单词
 	Ignore words with numbers	忽略包含数字的单词
+	Import Sources Library	导入源库
 	Inches	英寸
 	Formatting exceptions	格式例外
 	Include level number from:	包含的级别编号来自：

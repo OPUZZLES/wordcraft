@@ -1876,6 +1876,32 @@ fn hostile_params_never_panic() {
             let _ = s.layout();
         }
     }
+    // `references.importSources` reads files, so the junk above (no string `path`) can't reach
+    // its read path: give it real hostile ones — every one is a `Params` error, never a panic.
+    {
+        let dir = std::env::temp_dir().join(format!("wordcraft-import-hostile-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("empty.bib"), b"").unwrap();
+        std::fs::write(dir.join("wrong.txt"), b"not any kind of library").unwrap();
+        let mut s = Session::new(crate::sample::sample_document());
+        for bad in [
+            json!({}),
+            json!({"path": 5}),
+            json!({"path": ""}),
+            json!({"path": dir.to_string_lossy()}),
+            json!({"path": dir.join("missing.bib").to_string_lossy()}),
+            json!({"path": dir.join("empty.bib").to_string_lossy()}),
+            json!({"path": dir.join("wrong.txt").to_string_lossy()}),
+            json!({"path": dir.join("missing.ris").to_string_lossy(), "format": "nope"}),
+        ] {
+            match s.run("references.importSources", &bad) {
+                Err(crate::CmdError::Params(_)) => {}
+                other => panic!("expected a Params error for {bad}, got {other:?}"),
+            }
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
 
 #[test]
