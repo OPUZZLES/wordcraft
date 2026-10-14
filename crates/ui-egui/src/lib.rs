@@ -859,7 +859,8 @@ impl WordApp {
         if id == "view.readMode" {
             self.canvas.read_first_visible = None;
         }
-        if !id.starts_with("view.") && !id.starts_with("document.") && !id.starts_with("format.state") {
+        // Drawing leaves the caret where it was: following it would pull the view off the ink.
+        if !id.starts_with("view.") && !id.starts_with("document.") && !id.starts_with("format.state") && !id.starts_with("draw.") {
             self.canvas.scroll_to_caret = true;
         }
         for req in std::mem::take(&mut self.session.ui_requests) {
@@ -4173,6 +4174,27 @@ mod tests {
         a.run("ui.openRecipientList", json!({})).unwrap();
         a.run("format.bold", json!({})).unwrap();
         assert!(!a.recipient_list_pending);
+    }
+
+    /// Issue #859: lifting the pen jumped the view back to the caret, usually on page 1. Drawing
+    /// leaves the caret where it was, so the view stays on the ink; typing still follows the caret.
+    #[test]
+    fn drawing_ink_keeps_the_view_where_it_is() {
+        let mut a = typed();
+        let keeps_view = |a: &mut WordApp, id: &str, params: Value| {
+            a.canvas.scroll_to_caret = false;
+            let r = a.run(id, params);
+            assert!(r.is_ok(), "{id}: {r:?}");
+            assert!(!a.canvas.scroll_to_caret, "{id} scrolled to the caret");
+        };
+        keeps_view(&mut a, "draw.stroke", json!({"page": 0, "points": [[100, 300], [200, 320]], "tool": "pen"}));
+        keeps_view(&mut a, "draw.lasso", json!({"page": 0, "points": [[80, 280], [220, 280], [220, 340], [80, 340]]}));
+        keeps_view(&mut a, "draw.lassoMove", json!({"dx": 10, "dy": 10}));
+        keeps_view(&mut a, "draw.stroke", json!({"page": 0, "points": [[300, 500], [400, 500]], "tool": "pencil"}));
+        keeps_view(&mut a, "draw.erase", json!({"page": 0, "x": 350, "y": 500}));
+        a.canvas.scroll_to_caret = false;
+        a.run("text.insert", json!({"text": "x"})).unwrap();
+        assert!(a.canvas.scroll_to_caret, "typing still brings the caret into view");
     }
 
     /// `ui.render` and `ui.screenshot` without a `path` return the PNG in the reply instead of
