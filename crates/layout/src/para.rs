@@ -13,7 +13,7 @@ use wordcraft_doc::{Document, Paragraph};
 use wordcraft_fonts::FaceRef;
 
 use crate::NumeralMode;
-use crate::fields::{FIELD_SHADING, FieldCtx, field_code_text, field_text};
+use crate::fields::{FIELD_SHADING, FieldCtx, field_code_text, field_text_on};
 
 /// How a run set in one of Word's symbol fonts (Symbol, Wingdings, Wingdings 2/3, Webdings)
 /// shows its characters. Those fonts are proprietary and usually missing: a substitute has other
@@ -514,6 +514,18 @@ impl SegKey {
     }
 }
 
+/// The capital All Caps and Small Caps draw for `c`: one character in, one out (ß draws as S).
+fn upper_char(c: char) -> char {
+    c.to_uppercase().next().unwrap_or(c)
+}
+
+/// The character drawn for `c` in a run formatted `rc`: All Caps capitalises every letter,
+/// Small Caps the lowercase ones (as the shaper draws them). The PDF text layer uses it so
+/// the text read back is the text shown (#1473).
+pub(crate) fn caps_char(rc: &ResolvedChar, c: char) -> char {
+    if rc.caps || (rc.small_caps && c.is_lowercase()) { upper_char(c) } else { c }
+}
+
 /// Combining marks and joiners (bidi classes NSM, BN: harakat, ZWNJ, ZWJ) belong to the
 /// character before them: same font, same shaping run, so Arabic joining isn't broken.
 fn is_mark(c: char) -> bool {
@@ -817,7 +829,7 @@ impl<'a> Builder<'a> {
                 if d != c {
                     d
                 } else if upper {
-                    c.to_uppercase().next().unwrap_or(c)
+                    upper_char(c)
                 } else {
                     c
                 }
@@ -1286,8 +1298,10 @@ pub fn layout_para(p: &Paragraph, env: &ParaEnv) -> ParaLayout {
                     obj_index += 1;
                     match p.objects.get(k) {
                         Some(o) if o.is_drawing() => {
+                            // A hidden one takes no room, and with no height its line doesn't draw it.
                             if let Some((w, h, float)) = o.frame()
                                 && float.wrap == wordcraft_doc::para::Wrap::Inline
+                                && !float.hidden
                             {
                                 // A picture wider than the line keeps its size, as in Word: it runs past
                                 // the margin and the page edge clips it (see `ParaEnv::fit_objects`).
@@ -1315,7 +1329,7 @@ pub fn layout_para(p: &Paragraph, env: &ParaEnv) -> ParaLayout {
                                 match wordcraft_doc::eq::parse_overstrike(instr) {
                                     Some(o) => overstrike(&mut b, &o, instr, start, end, &rc, &mut enclosures),
                                     None => {
-                                        let (t, page_dep) = field_text(instr, result, env.fields);
+                                        let (t, page_dep) = field_text_on(instr, result, env.fields, env.fields.page_at(start));
                                         has_page_fields |= page_dep;
                                         b.shape_atomic(&t, start, end, &rc);
                                     }
@@ -1465,7 +1479,8 @@ pub fn layout_para(p: &Paragraph, env: &ParaEnv) -> ParaLayout {
             for g in b.glyphs.get(c.g0 as usize..c.g1 as usize).into_iter().flatten() {
                 glyphs.push(Glyph { dx: g.dx + x, ..*g });
             }
-            let chars = shown(text.get(c.start..c.end).unwrap_or(""));
+            // A label in an All Caps paragraph reads as the capitals drawn (#1473).
+            let chars: String = shown(text.get(c.start..c.end).unwrap_or("")).chars().map(|ch| caps_char(&rc, ch)).collect();
             match runs.last_mut() {
                 Some(r) if r.style == c.style => {
                     r.glyphs.end = glyphs.len();
@@ -1728,7 +1743,9 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u16, level: Optio
             });
             let shrink = if shrink_spaces && !has_tab { space_w * MAX_SPACE_SHRINK } else { 0.0 };
             let fits = absorbs || x + c.adv <= right_edge + shrink + 0.01 || c.kind == ClKind::Space || c.kind == ClKind::Marker;
-            if !fits && j > c0 {
+            // A line's first item stays on it even when it doesn't fit; markers before it
+            // (a content control's start, a bookmark) take no room and don't count (Word).
+            if !fits && (c0..j).any(|k| pl.clusters.get(k).is_some_and(|c| c.kind != ClKind::Marker)) {
                 // Wrap: back up to the last break opportunity on this line.
                 end = LineEnd::Wrap;
                 // Hyphenate only when the plain break leaves more than the hyphenation zone empty.
@@ -1938,6 +1955,15 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u16, level: Optio
         if shift > 0.0 && slack > 0.0 {
             for v in xs.iter_mut().skip(align_from - c0) {
                 *v += shift;
+            }
+            // The list label belongs to the start of the line: it moves with the text (Word keeps
+            // the bullet attached when a list item is centred or aligned to the end). After a tab
+            // stop in the line the label stays, as the text before the tab does.
+            if first
+                && last_tab.is_none()
+                && let Some(lab) = pl.label.as_mut()
+            {
+                lab.x += shift;
             }
         }
         let justify = display.is_none() && ((rp.align == Align::Justify && end == LineEnd::Wrap) || rp.align == Align::Distribute);
