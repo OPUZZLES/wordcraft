@@ -2596,3 +2596,6 @@
 	Sort by	Sắp xếp theo
 	Then by	Sau đó theo
 	{count} of {total} recipients will be merged.	Sẽ phối {count} trên {total} người nhận.
+
+# Backstage › Recover (#586)
+	Recover	Khôi phục

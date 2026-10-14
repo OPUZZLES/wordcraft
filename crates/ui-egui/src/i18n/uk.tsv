@@ -2185,3 +2185,6 @@
 	Hunspell .aff and .dic files here (pl_PL, pt_BR, it_IT, hr_HR, tr_TR) are used before the system's.	Файли Hunspell .aff і .dic із цієї папки (pl_PL, pt_BR, it_IT, hr_HR, tr_TR) використовуються раніше за системні.
 	{language}: {file}	{language}: {file}
 	{language}: no dictionary found	{language}: словник не знайдено
+
+# Backstage › Recover (#586)
+	Recover	Відновити

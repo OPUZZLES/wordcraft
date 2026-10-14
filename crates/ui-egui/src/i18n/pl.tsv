@@ -2562,3 +2562,6 @@ preview	Title	Tytuł
 	Hunspell .aff and .dic files here (pl_PL, pt_BR, it_IT, hr_HR, tr_TR) are used before the system's.	Pliki Hunspell .aff i .dic z tego folderu (pl_PL, pt_BR, it_IT, hr_HR, tr_TR) mają pierwszeństwo przed systemowymi.
 	{language}: {file}	{language}: {file}
 	{language}: no dictionary found	{language}: nie znaleziono słownika
+
+# Backstage › Recover (#586)
+	Recover	Odzyskaj

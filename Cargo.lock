@@ -5204,6 +5204,7 @@ dependencies = [
  "miniz_oxide 0.8.9",
  "proptest",
  "serde_json",
+ "sha1",
  "thiserror 2.0.21",
  "wordcraft-doc",
  "wordcraft-geom",
@@ -5235,7 +5236,9 @@ dependencies = [
 name = "wordcraft-engine"
 version = "0.7.0"
 dependencies = [
+ "cfb",
  "encoding_rs",
+ "getrandom 0.3.4",
  "image",
  "js-sys",
  "log",

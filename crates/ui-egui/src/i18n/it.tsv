@@ -2555,3 +2555,6 @@ preview	Title	Esempio
 	Hunspell .aff and .dic files here (pl_PL, pt_BR, it_IT, hr_HR, tr_TR) are used before the system's.	I file Hunspell .aff e .dic in questa cartella (pl_PL, pt_BR, it_IT, hr_HR, tr_TR) hanno la precedenza su quelli di sistema.
 	{language}: {file}	{language}: {file}
 	{language}: no dictionary found	{language}: nessun dizionario trovato
+
+# Backstage › Recover (#586)
+	Recover	Ripristina

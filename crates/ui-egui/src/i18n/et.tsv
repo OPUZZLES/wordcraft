@@ -2207,3 +2207,6 @@
 	Hunspell .aff and .dic files here (pl_PL, pt_BR, it_IT, hr_HR, tr_TR) are used before the system's.	Selle kausta Hunspelli .aff- ja .dic-failid (pl_PL, pt_BR, it_IT, hr_HR, tr_TR) on eelistatud süsteemi omadele.
 	{language}: {file}	{language}: {file}
 	{language}: no dictionary found	{language}: sõnastikku ei leitud
+
+# Backstage › Recover (#586)
+	Recover	Taasta

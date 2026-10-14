@@ -26,6 +26,32 @@ fn doc_extension_dispatches_to_docbin() {
 }
 
 #[test]
+fn encrypted_doc_asks_for_a_password_and_rejects_a_wrong_one() {
+    // #1079: a Word 97-2003 file with the encryption flag and an RC4 header whose verifier does
+    // not match any password asks for one, and a given password is reported as wrong.
+    use std::io::Write;
+    let mut fib = vec![0u8; 0x100];
+    fib[0..2].copy_from_slice(&0xA5ECu16.to_le_bytes());
+    fib[0x0A..0x0C].copy_from_slice(&0x0100u16.to_le_bytes());
+    let mut header = vec![1u8, 0, 1, 0];
+    header.extend_from_slice(&[0x5A; 48]);
+    let mut comp = cfb::CompoundFile::create(std::io::Cursor::new(Vec::new())).unwrap();
+    for (name, data) in [("WordDocument", &fib), ("0Table", &header)] {
+        comp.create_stream(format!("/{name}")).unwrap().write_all(data).unwrap();
+    }
+    let bytes = comp.into_inner().into_inner();
+    for name in ["x.doc", "x.dot"] {
+        let e = crate::io::open_bytes_with(name, &bytes, None).unwrap_err();
+        assert!(crate::io::needs_password(&e), "{e}");
+        let e = crate::io::open_bytes_with(name, &bytes, Some("nope")).unwrap_err();
+        assert!(crate::io::wrong_password(&e), "{e}");
+    }
+    // Opened by content (no extension) it asks the same way.
+    let e = crate::io::open_bytes_with("noext", &bytes, None).unwrap_err();
+    assert!(crate::io::needs_password(&e), "{e}");
+}
+
+#[test]
 fn txt_open_decodes_windows_1252_and_unmarked_utf16() {
     // #433: the TXT open path sniffs encodings like the formats importer.
     let open = |b: &[u8]| crate::io::open_bytes("x.txt", b).unwrap().plain_text(StoryRef::Body);

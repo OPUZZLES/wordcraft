@@ -349,6 +349,14 @@ fn main() -> eframe::Result {
                 app.session.set_document(doc);
             }
             app.watch_desktop_theme(&cc.egui_ctx);
+            if prefs_enabled()
+                && let Some(dir) = wordcraft_control_key::settings_dir()
+            {
+                let ctx = cc.egui_ctx.clone();
+                if let Err(e) = app.session.enable_recovery(dir.join("recovery"), std::sync::Arc::new(move || ctx.request_repaint())) {
+                    log::warn!("local recovery unavailable: {e}");
+                }
+            }
             app.ui.window = restored;
             app.integrated_titlebar = cfg!(target_os = "macos");
             #[cfg(target_os = "macos")]

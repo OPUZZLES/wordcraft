@@ -2539,3 +2539,6 @@ preview	Title	Título
 	Hunspell .aff and .dic files here (pl_PL, pt_BR, it_IT, hr_HR, tr_TR) are used before the system's.	Los archivos .aff y .dic de Hunspell de esta carpeta (pl_PL, pt_BR, it_IT, hr_HR, tr_TR) se usan antes que los del sistema.
 	{language}: {file}	{language}: {file}
 	{language}: no dictionary found	{language}: no se encontró ningún diccionario
+
+# Backstage › Recover (#586)
+	Recover	Recuperar

@@ -2183,3 +2183,6 @@
 	Hunspell .aff and .dic files here (pl_PL, pt_BR, it_IT, hr_HR, tr_TR) are used before the system's.	Hunspell .aff i .dic datoteke iz ove fascikle (pl_PL, pt_BR, it_IT, hr_HR, tr_TR) koriste se pre sistemskih.
 	{language}: {file}	{language}: {file}
 	{language}: no dictionary found	{language}: rečnik nije pronađen
+
+# Backstage › Recover (#586)
+	Recover	Oporavi

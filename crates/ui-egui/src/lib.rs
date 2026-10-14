@@ -521,6 +521,7 @@ pub struct WordApp {
     /// keystroke, so one visit's keystrokes make a single undo step (and anything else in
     /// between, such as an Undo, starts a new one).
     pub(crate) info_editing: Option<(&'static str, u64)>,
+    recovery_seen: bool,
     /// Started on the Start screen with nothing to open (#1129): the id of the placeholder
     /// blank document the session holds until the user creates or opens one. While it is still
     /// the session's document, no document is open: the window shows no page and only the File
@@ -618,6 +619,7 @@ impl WordApp {
             #[cfg(not(target_arch = "wasm32"))]
             file_browser: file_browser::State::default(),
             info_editing: None,
+            recovery_seen: false,
             no_document: None,
         }
     }
@@ -713,6 +715,10 @@ impl WordApp {
     /// Close, Envelopes, Labels and Finish & Merge on a document with unsaved changes first ask
     /// Save / Don't Save / Cancel, and the command runs once that is answered (`ui.saveChanges`).
     pub fn run(&mut self, id: &str, params: Value) -> Result<Value, String> {
+        if id == "file.recover" && params.as_object().is_none_or(|p| p.is_empty()) {
+            self.ui.backstage = true;
+            self.ui.backstage_page = "recover".into();
+        }
         // A button whose command needs input the user hasn't given yet opens its dialog (#240).
         if let Some(name) = input_dialog(id, &params)
             && widgets::enabled(self, id)
@@ -1363,6 +1369,36 @@ impl WordApp {
                 let lang = i18n::Lang::from_pref(&self.ui.language);
                 json!({"language": self.ui.language, "effective": lang.code(), "available": i18n::Lang::all().map(|l| json!({"code": l.code(), "name": l.name()})).collect::<Vec<_>>()})
             }
+            "ui.recoveryDiscard" => {
+                if let Some(answer) = s("answer") {
+                    let Some(dialogs::Dialog::DiscardRecovery { id, .. }) = self.dialog.clone() else {
+                        return Some(Err("no recovery discard is pending".into()));
+                    };
+                    match answer {
+                        "cancel" => {
+                            self.dialog = None;
+                            json!({"discarded": false})
+                        }
+                        "discard" => {
+                            let result = self.execute("file.recover", json!({"discard": id}));
+                            if result.is_ok() {
+                                self.dialog = None;
+                            }
+                            return Some(result);
+                        }
+                        _ => return Some(Err("`answer` must be discard or cancel".into())),
+                    }
+                } else {
+                    let Some(id) = s("id") else {
+                        return Some(Err("`id` is required".into()));
+                    };
+                    let Some(info) = self.session.recovery_documents().into_iter().find(|d| d.id == id) else {
+                        return Some(Err("no such recovery copy".into()));
+                    };
+                    self.dialog = Some(dialogs::Dialog::DiscardRecovery { id: info.id, name: info.name });
+                    json!({"pending": "discardRecovery"})
+                }
+            }
             "ui.saveChanges" => {
                 let Some(choice) = s("answer").and_then(SaveChoice::parse) else {
                     return Some(Err("`answer` must be save, dontSave or cancel".into()));
@@ -1673,6 +1709,24 @@ impl WordApp {
         self.drain_inbox();
         self.drain_pasted();
         self.watch_fonts(ctx);
+        let document = self.session.document_id();
+        self.session.recovery_tick();
+        if self.session.document_id() != document {
+            self.autosave_path = None;
+            self.dialog = None;
+            self.ui.backstage = false;
+            self.canvas.want_focus = true;
+        }
+        if !self.recovery_seen && self.session.recovery_ready() {
+            self.recovery_seen = true;
+            if !self.session.recovery_documents().is_empty() && !self.session.dirty {
+                self.ui.backstage = true;
+                self.ui.backstage_page = "recover".into();
+            }
+        }
+        if let Some(wait) = self.session.recovery_wait() {
+            ctx.request_repaint_after(wait);
+        }
         self.autosave_tick(now_ms());
         if self.autosaves() && self.session.dirty {
             ctx.request_repaint_after(std::time::Duration::from_millis(1000));
@@ -2218,6 +2272,7 @@ fn discards_document(id: &str, params: &Value) -> bool {
         "file.new" | "file.close" | "mailings.labels" => true,
         "mailings.envelopes" => params.get("add").and_then(Value::as_bool) != Some(true),
         "file.open" => params.get("path").is_some(),
+        "file.recover" => params.get("restore").is_some(),
         "mailings.finish" => params.get("path").and_then(Value::as_str).is_none(),
         _ => false,
     }

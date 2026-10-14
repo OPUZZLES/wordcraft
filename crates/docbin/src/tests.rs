@@ -8,6 +8,7 @@ use proptest::prelude::*;
 use super::read;
 
 mod drawing;
+mod encrypted;
 
 /// Offset in the WordDocument stream where test text pieces are placed (past the FIB).
 const TEXT_FC: u32 = 0x600;
@@ -171,10 +172,10 @@ fn word_6_95_rejected() {
 }
 
 #[test]
-fn encrypted_rejected() {
+fn encrypted_asks_for_a_password() {
     let spec = FibSpec { flags: 0x1100, ..Default::default() };
     let f = cfb_file(&[("WordDocument", &fib_bytes(&spec))]);
-    assert!(matches!(read(&f), Err(super::DocbinError::Encrypted)));
+    assert!(matches!(read(&f), Err(super::DocbinError::PasswordRequired)));
 }
 
 #[test]

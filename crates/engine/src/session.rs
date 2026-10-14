@@ -449,6 +449,8 @@ pub struct Session {
     /// Password, `file.encrypt`); `None` saves them unencrypted. Kept from a password-protected
     /// file that was opened, cleared when the document is replaced.
     pub password: Option<crate::io::Password>,
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) recovery: Option<crate::recovery::Recovery>,
     /// More pictures and shapes selected along with the one the selection holds (Shift+click),
     /// for Group. Cleared by any edit or selection change other than adding to it.
     pub also_selected: Vec<Pos>,
@@ -641,6 +643,8 @@ impl Session {
             editing_lang: None,
             read_aloud: Default::default(),
             password: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            recovery: None,
             column: None,
             column_mode: false,
             widened: None,
@@ -1088,6 +1092,8 @@ impl Session {
             math_normal_text: _,
             // The save password, like the file path: not an edit to the document.
             password: _,
+            #[cfg(not(target_arch = "wasm32"))]
+                recovery: _,
             also_selected: _,
             // Column selection and a widened selection's ends, like `sel`'s shape: valid only while
             // `sel` matches them.
