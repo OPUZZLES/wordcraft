@@ -2570,3 +2570,6 @@ preview	Title	Пример
 	Hunspell .aff and .dic files here (pl_PL, pt_BR, it_IT, hr_HR, tr_TR) are used before the system's.	Файлы Hunspell .aff и .dic из этой папки (pl_PL, pt_BR, it_IT, hr_HR, tr_TR) используются раньше системных.
 	{language}: {file}	{language}: {file}
 	{language}: no dictionary found	{language}: словарь не найден
+
+# Backstage › Recover (#586)
+	Recover	Восстановить

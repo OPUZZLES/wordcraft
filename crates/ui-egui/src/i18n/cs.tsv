@@ -2564,3 +2564,6 @@ preview	Title	Ukázka
 	Hunspell .aff and .dic files here (pl_PL, pt_BR, it_IT, hr_HR, tr_TR) are used before the system's.	Soubory Hunspell .aff a .dic z této složky (pl_PL, pt_BR, it_IT, hr_HR, tr_TR) mají přednost před systémovými.
 	{language}: {file}	{language}: {file}
 	{language}: no dictionary found	{language}: slovník nebyl nalezen
+
+# Backstage › Recover (#586)
+	Recover	Obnovit

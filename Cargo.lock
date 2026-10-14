@@ -5235,8 +5235,8 @@ dependencies = [
 name = "wordcraft-engine"
 version = "0.7.0"
 dependencies = [
- "getrandom 0.3.4",
  "encoding_rs",
+ "getrandom 0.3.4",
  "image",
  "js-sys",
  "log",

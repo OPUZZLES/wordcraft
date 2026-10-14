@@ -2185,3 +2185,6 @@
 	Hunspell .aff and .dic files here (pl_PL, pt_BR, it_IT, hr_HR, tr_TR) are used before the system's.	此文件夹中的 Hunspell .aff 和 .dic 文件 (pl_PL, pt_BR, it_IT, hr_HR, tr_TR) 优先于系统中的文件。
 	{language}: {file}	{language}：{file}
 	{language}: no dictionary found	{language}：未找到词典
+
+# Backstage › Recover (#586)
+	Recover	恢复
