@@ -116,7 +116,7 @@ Also shipped: Traditional Chinese (`zh-hant`), Ukrainian (`uk`), Serbian (`sr`, 
 system-locale selection and a saved language choice (Italian also has 51 strings none of the others had yet); Estonian, Turkish, Italian and Czech proofing are not included. Hungarian (`hu`) has a
 complete 2,419-entry catalog, also without proofing. Vietnamese (`vi`, #1434) has a complete
 2,448-entry catalog, also without proofing.
-Proofing: English, Polish and Portuguese (spelling, grammar, hyphenation), chosen per run from its language. Word ships
+Proofing: English, Polish, Portuguese and Russian (spelling, grammar, hyphenation), chosen per run from its language. Word ships
 30 interface languages and proofing for ~50. Detail: [docs/localization-parity.md](docs/localization-parity.md).
 
 ## Upcoming
@@ -136,6 +136,7 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 
 | Date | What landed |
 |---|---|
+| 2026-10-12 | Password-protected Word 97-2003 `.doc` files open after a password prompt (XOR obfuscation, RC4, RC4 CryptoAPI; wrong passwords are rejected by the stored verifier, #1079); written from the public specs and tested on synthetic files only, AES-encrypted `.doc` files are still refused |
 | 2026-10-12 | Comments can show only for the selected text (#1055): Track Changes Options › Comments › "Only for the selected text" drops the margin column, and the comment under the caret, or the clicked one, floats beside the page (over its edge in a narrow window). The default stays "In the margin", as in Word; `review.trackingOptions {"commentDisplay"}` for agents |
 | 2026-10-12 | Clicking inside a selected comment's balloon moves the caret in its text (#1013); the click used to leave the balloon, so the caret could only be moved with the arrow keys. A press on any balloon now belongs to the balloon, not the page behind it |
 | 2026-10-12 | Page background pictures and textures (Design › Page Color › Fill Effects) are drawn (tiled or stretched) and kept on save instead of being dropped from the package (#999); PDF export paints them too |
@@ -318,6 +319,7 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 | 2026-10-11 | Turkish (`tr`) interface: all 1,307 catalog entries, `tr-TR`/`tr-CY` system locales and a saved language choice; command search keeps Turkish dotted and dotless I apart (`italik` finds İtalik); locale, catalog, search and bundled-font tests; no Turkish proofing resources |
 | 2026-10-11 | Italian (`it`) interface (#594): 2,399 entries, feature names as Italian Word users know them, locale and saved-preference tests, bundled-font checks; no Italian proofing resources |
 | 2026-10-12 | Native drawing-level Word ink preserved through DOCX edits and repeated saves, including its InkML part and optional VML picture fallback; native ink rendering and editing remain missing |
+| 2026-10-12 | List-label line height: automatic spacing scales body text before adding label ascent overflow; AtLeast spacing keeps text descent. Original Word for Mac probes and deterministic layout tests cover symbol/decimal labels, wrapped lines, fixed/minimum spacing and inline pictures. Overall readiness unchanged; [evidence](docs/layout-parity.md#list-label-line-spacing) |
 | 2026-10-12 | Local desktop recovery: unsaved drafts and edits are snapshotted in the profile; File › Recover restores an unsaved copy or confirms discard. Full model storage includes media and opaque parts. Password sessions skip plaintext snapshots. See [recovery.md](docs/recovery.md); stability estimates remain unchanged. |
 | 2026-10-11 | Contextual paragraph spacing: same-style first-only 12/8 pt and 10/12 pt gaps corrected to 0 pt and 2 pt in body and header layout, with per-side controls; measured against Word 16.113.3. Ordinary overlap remains #108 |
 | 2026-10-11 | Citations and bibliography in all 12 of Word's styles: Harvard, ISO 690 (author-date and numerical), Turabian, GB/T 7714, GOST (name and title sort) and SIST02 join APA, MLA, Chicago and IEEE; numbered styles count in order of first citation (#383) |
@@ -460,6 +462,7 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 | 2026-10-11 | trivial | Hungarian interface (`hu`): progress log and shipped languages |
 | 2026-10-11 | trivial | Turkish interface (`tr`): progress log and shipped languages |
 | 2026-10-12 | minor | Native drawing-level ink and its picture fallback survive DOCX edits and repeated saves; adapted to the current graphic writer; rendering and editing InkML remain missing |
+| 2026-10-12 | minor | List-label automatic/AtLeast line-height inflation corrected; gap #4 remains open and readiness unchanged |
 | 2026-10-12 | minor | Local desktop recovery: unsaved drafts and edits are snapshotted in the profile; File › Recover restores an unsaved copy or confirms discard. Full model storage includes media and opaque parts. Password sessions skip plaintext snapshots. See [recovery.md](docs/recovery.md); stability estimates remain unchanged. |
 | 2026-10-11 | minor | Progress log: contextual paragraph spacing in body paragraphs and headers |
 | 2026-10-11 | trivial | Progress log: eight more bibliography styles (#383) |

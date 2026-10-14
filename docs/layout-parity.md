@@ -27,7 +27,7 @@ font can't match Word's metrics.
 | Colour emoji and colour fonts on screen and in page renders: COLR v0/v1 paint graphs (solid fills, linear, radial and sweep gradients, composite modes) and bitmap strikes (Apple Color Emoji `sbix`, Noto Color Emoji `CBDT`) drawn in the font's colours at the layout's position and size; a dark page doesn't invert them, the same as pictures | 🟡 | `fonts::color` (skrifa), `render::color_glyph`; `render::tests_color_glyphs::emoji_are_drawn_in_colour` and `emoji_keep_their_colours_on_a_dark_page` (system font, skip without one), `render::color_glyph::tests`, `fonts::color::tests` (#1269). CBDT is verified on a real page with Noto Color Emoji; COLR v0/v1 and sbix are implemented to the OpenType spec and tested with synthetic data, but not yet seen on a real font (Segoe UI Emoji, COLRv1 Noto, Apple Color Emoji). PDF export already drew them through krilla | 1–2 |
 | Symbol fonts (Symbol, Wingdings, Wingdings 2/3, Webdings) without the proprietary font: each character, stored as U+F020–U+F0FF or a plain 8-bit code, is drawn as its Unicode equivalent from a face that has it; PDF text and copies read as those symbols | ✅ | `doc::symbol_fonts` tables (Adobe Symbol table and Unicode L2/12-368), `layout::tests::wingdings_text_draws_and_reads_as_its_unicode_symbols` (#776). Shapes come from Noto Sans Symbols / Symbols 2, DejaVu Sans or Segoe UI Symbol, so they differ from Word's; Wingdings 0xFF (not in Unicode) still has no symbol | — |
 | Indents in characters (`w:firstLineChars`, `w:leftChars`…), measured in the paragraph mark's font size | ✅ | #534, `layout::tests::character_indents_use_the_paragraph_mark_size`; spacing in lines (`w:beforeLines`/`w:afterLines`) uses the stored points (needs the document grid) | — |
-| Line spacing (single, 1.5, double, at least, exactly, multiple), spacing before/after, contextual spacing | 🟡 | Contextual spacing measured in body paragraphs and headers (below), with a four-paragraph table-cell regression; other line-spacing combinations remain (#108, #135 open) | 3–5 |
+| Line spacing (single, 1.5, double, at least, exactly, multiple), spacing before/after, contextual spacing | 🟡 | Contextual spacing measured in body paragraphs and headers (below), with a four-paragraph table-cell regression; list-label ascent overflow is unscaled by multiple spacing and uses descent for automatic and at-least spacing (#601); other line-spacing combinations remain (#108, #135 open) | 3–5 |
 | Kerning only where Kerning for fonts asks for it (`w:kern`, at or above its size) | ✅ | Measured in Word for Windows: no `w:kern` or `w:kern="0"` is unkerned; WordCraft kerned every run, so its lines held more text than Word's. `layout::tests::kerning_follows_kerning_for_fonts_like_word` | — |
 | Automatic (HTML-style) paragraph spacing (`w:beforeAutospacing`, `w:afterAutospacing`) | ✅ | Measured in Word for Windows: 14 pt at any size, none at the top of the document or a cell or after a cell's last paragraph, the larger of two neighbouring spaces. `layout::tests::automatic_paragraph_spacing_like_word`, `…_drops_at_cell_edges` | — |
 | Widow/orphan control, keep with next, keep lines together, page break before | ✅ | `lib.rs` keep_next/keep_lines; a line holding only a page break stays at the bottom of a full page instead of leaving a blank page (#534); a paragraph ending with a page break keeps its space after on the old page, so the next page starts at the top (compatibility modes 12 to 15, `layout::tests::space_before_at_the_top_of_a_page_like_word`) | — |
@@ -66,6 +66,34 @@ font can't match Word's metrics.
 | Fields: PAGE, NUMPAGES, SECTIONPAGES, TOC page numbers, PAGEREF in headers and footers | ✅ | #52; totals in the body need a second pass once the page count is known (#451); a PAGE field in a paragraph that runs onto a later page (a page break inside it, or a natural split) shows that page's number, the rest of the paragraph broken again for the wider result (#1352); PAGEREF in headers and footers shows its bookmark's page, filled in after pagination like their totals (#1477); in the body it keeps its result until fields are updated | — |
 | Compatibility modes (Word 2003/2007/2010 layout for old files: `w:compat` options) | 🟡 | mode 15 behaviour; the ~60 legacy compat options are mostly ignored | 10–20 |
 | Page-by-page comparison harness against Word | ❌ | Run Word locally on our own synthetic documents, export PDF, compare line breaks; Word output stays under `plan/` (never committed) | 8–12 |
+
+## List-label line spacing
+
+Controlled original DOCX probes against Word for Mac 16.113.3 (26092714), macOS 26.6.2,
+compatibility mode 15, zero paragraph gaps, Roboto Regular 12 pt body text: a label's positive
+ascent overflow adds to the text line pitch without being multiplied by automatic spacing.
+Label descent does not enlarge automatic or AtLeast spacing. A label's ascent includes positive
+hhea leading. The original base split text leading across ascent/descent; current main assigns
+its full gap to ascent too, so labels now use that shared metric. The table records the original
+measurements, not a new native comparison of this rebase. These are
+observations of synthetic documents, not a claim about Word's internal implementation.
+
+| Label / spacing | Word baseline gap | Fixed WordCraft | Before fix |
+|---|---:|---:|---:|
+| Roboto 24 pt / single | 25.20 pt | 25.1953 pt | 28.125 pt |
+| Roboto 24 pt / 1.25 | 28.80 pt | 28.7109 pt | 35.1563 pt |
+| Roboto 24 pt / double | 39.36 pt | 39.2578 pt | 56.25 pt |
+| Apple Symbols 12 pt / AtLeast 12 pt | 13.92 pt | 14.0625 pt | 14.6338 pt |
+| Apple Symbols 24 pt / AtLeast 12 pt | 20.88 pt | 20.9297 pt | 24.0 pt |
+
+Actual font metrics and original-input provenance were checked locally; Word-derived exports
+remain uncommitted. Tolerance is 0.25 pt; this evidence covers Latin text with the tested symbol
+and decimal labels, automatic single/1.25/double spacing, AtLeast controls, Exactly 24 pt,
+wrapped paragraphs and save/reopen. Regression tests inject the independently measured metrics
+so CI does not require those installed fonts. Inline pictures retain their existing height floor.
+Picture bullets are not implemented, and the private Linux Symbol substitution report has not
+been reproduced. Absolute baseline-leading placement remains the separate #108 contribution.
+This narrows gap #4 without raising the overall readiness estimate.
 
 ## Contextual paragraph spacing
 
@@ -145,6 +173,7 @@ No overall parity estimate changes from these probes.
 | 2026-10-11 | trivial | Right-to-left tables and sections laid out mirrored (#362) |
 | 2026-10-10 | trivial | The document's own note separators and continuation notice are drawn (#352) |
 | 2026-10-11 | trivial | Newspaper columns balance before a continuous section break (#350) |
+| 2026-10-12 | minor | Measured synthetic list-label line height; automatic and AtLeast spacing keep text descent and unscaled label ascent overflow |
 | 2026-10-11 | minor | Body/header contextual spacing corrected from original Word probes; ordinary overlap remains #108 |
 | 2026-10-11 | trivial | Group and Ungroup keep turned members' orientation and placement (#441, #443); Size resizes a group (#442); the eraser hits turned ink where it is drawn (#445) |
 | 2026-10-10 | trivial | Long footnotes continue onto the next page with a continuation separator (#352) |

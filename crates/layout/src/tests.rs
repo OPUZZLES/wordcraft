@@ -2814,6 +2814,26 @@ fn multiple_line_spacing_adds_its_leading_below_the_text() {
 }
 
 #[test]
+fn list_label_does_not_inflate_an_inline_picture_floor() {
+    use wordcraft_doc::props::{LineSpacing, NumRef};
+    for spacing in [LineSpacing::Multiple(1.25), LineSpacing::AtLeast(12.0)] {
+        let mut d = Document::from_text("");
+        let id = d.numbering.add_list(wordcraft_doc::ListKind::Bullet);
+        d.numbering.abstracts[0].levels[0].chr.size = Some(24.0);
+        let p = d.para_mut(StoryRef::Body, &Path::top(0)).unwrap();
+        p.props.line_spacing = Some(spacing);
+        p.props.numbering = Some(NumRef { num: id, level: 0 });
+        p.insert_object(0, picture(144.0, 144.0, Default::default()), &Default::default()).unwrap();
+        let l = lay(&d);
+        let Some(Placed::Lines { para, .. }) = l.pages[0].items.iter().find(|i| matches!(i, Placed::Lines { .. })) else { panic!() };
+        let line = &para.lines[0];
+        let desc = para.styles[para.clusters[0].style as usize].descent;
+        assert!((line.height - (144.0 + desc)).abs() < 0.01, "{spacing:?}: {}", line.height);
+        assert!((line.baseline - line.top - 144.0).abs() < 0.01);
+    }
+}
+
+#[test]
 fn body_starts_right_below_a_tall_header() {
     let mut d = Document::from_text("Body");
     let mut hp = wordcraft_doc::Paragraph::with_text("", Default::default());

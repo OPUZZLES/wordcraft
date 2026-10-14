@@ -102,8 +102,23 @@ pub fn open_bytes(name: &str, bytes: &[u8]) -> Result<Document, String> {
     open_bytes_with(name, bytes, None).map(|(doc, _)| doc)
 }
 
+/// Open a Word 97-2003 binary file, decrypting it with `password` when it is password-protected
+/// (XOR, RC4, RC4 CryptoAPI). The errors for a missing or wrong password are the same texts the
+/// `.docx` reader gives, so [`needs_password`] and [`wrong_password`] recognise them.
+fn open_binary_doc(bytes: &[u8], password: Option<&str>) -> Result<(Document, bool), String> {
+    use wordcraft_docbin::DocbinError;
+    let encrypted = wordcraft_docbin::is_encrypted(bytes);
+    match wordcraft_docbin::read_with_password(bytes, password) {
+        Ok(doc) => Ok((doc, encrypted)),
+        Err(DocbinError::PasswordRequired) => Err(wordcraft_docx::PASSWORD_REQUIRED.to_string()),
+        Err(DocbinError::WrongPassword) => Err(wordcraft_docx::WRONG_PASSWORD.to_string()),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
 /// [`open_bytes`] for a file that may be password-protected: a Word document encrypted with a
-/// password ([MS-OFFCRYPTO] agile encryption) is decrypted with `password` first. Also says
+/// password ([MS-OFFCRYPTO] agile encryption, or the Word 97-2003 schemes) is decrypted with
+/// `password` first. Also says
 /// whether the file was encrypted. Without the password needed the error satisfies
 /// [`needs_password`]; with a wrong one, [`wrong_password`].
 pub fn open_bytes_with(name: &str, bytes: &[u8], password: Option<&str>) -> Result<(Document, bool), String> {
@@ -147,6 +162,11 @@ fn read_bytes(name: &str, bytes: &[u8], password: Option<&str>, page: &wordcraft
         return open_by_content(name, &ext, bytes, password, page);
     }
     let mut doc = match ext.as_str() {
+        "doc" | "dot" => {
+            let (mut doc, encrypted) = open_binary_doc(bytes, password)?;
+            doc.ensure_nonempty();
+            return Ok((doc, encrypted));
+        }
         // Plain text goes through the formats importer: BOMs, unmarked UTF-16, Windows-1252.
         "txt" | "text" | "" => wordcraft_formats::txt::import_on(bytes, page),
         "json" => serde_json::from_slice::<Document>(bytes).map_err(|e| format!("{name}: {e}"))?,
@@ -239,7 +259,8 @@ fn open_by_content(
     } else if bytes.starts_with(ZIP) {
         (wordcraft_docx::read(bytes).map_err(|e| format!("{name}: not a document WordCraft can open ({e})"))?, false)
     } else if bytes.starts_with(OLE) {
-        (wordcraft_docbin::read(bytes).map_err(|e| format!("{name}: not a document WordCraft can open ({e})"))?, false)
+        open_binary_doc(bytes, password)
+            .map_err(|e| if needs_password(&e) || wrong_password(&e) { e } else { format!("{name}: not a document WordCraft can open ({e})") })?
     } else if bytes.starts_with(b"{\\rtf") {
         (wordcraft_formats::rtf::import(bytes)?, false)
     } else if wordcraft_formats::txt::is_text(bytes) {
