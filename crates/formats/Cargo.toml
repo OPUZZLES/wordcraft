@@ -16,5 +16,9 @@ quick-xml = { workspace = true }
 zip = { workspace = true }
 log = { workspace = true }
 
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+# The browser clock (`SystemTime::now()` panics on wasm32): ODT change dates.
+js-sys = "0.3"
+
 [dev-dependencies]
 proptest = { workspace = true }

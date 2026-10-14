@@ -89,6 +89,13 @@ pub fn import(bytes: &[u8]) -> Document {
     Document::from_text(&clean)
 }
 
+/// [`import`] onto `page`: plain text gives no page size (#1381).
+pub fn import_on(bytes: &[u8], page: &wordcraft_doc::SectionProps) -> Document {
+    let mut doc = import(bytes);
+    doc.last_section = page.clone();
+    doc
+}
+
 fn blocks_text(blocks: &[FBlock], out: &mut Vec<String>, lists: &mut ListCounter, depth: usize) {
     for b in blocks {
         match b {
