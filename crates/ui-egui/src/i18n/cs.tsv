@@ -715,7 +715,7 @@
 	Name (A–Z)	Jméno (A–Z)
 	Name of the file this document is saved as	Název souboru dokumentu
 	Name:	Název:
-	Narrow  0.5" all	Úzké  0,5" všude
+	Narrow  {size} all	Úzké  {size} všude
 	Navigation	Navigace
 	Navigation Pane	Navigační podokno
 	New	Nový
@@ -757,7 +757,7 @@
 	Nonbreaking Space	Nezlomitelná mezera
 	None	Žádné
 	Normal	Normální
-	Normal  1" all	Normální  1" všude
+	Normal  {size} all	Normální  {size} všude
 	Normal Indent	Normální s odsazením
 	Normal speed	Normální rychlost
 	Normal Style	Normální styl
@@ -2278,6 +2278,11 @@ preview	Title	Ukázka
 	Add Font…	Přidat písmo…
 	Added Fonts	Přidaná písma
 	Remove Added Font	Odebrat přidané písmo
+	Load System Installed Fonts…	Načíst nainstalovaná systémová písma…
+	All system fonts are already available.	Všechna systémová písma jsou již k dispozici.
+	Local font access is not supported by your browser.	Váš prohlížeč nepodporuje přístup k místním písmům.
+	Local font access was denied.	Přístup k místním písmům byl odepřen.
+	Loaded {count} system fonts.	Načteno systémových písem: {count}.
 	Recent Colors	Poslední barvy
 	More Colors…	Další barvy…
 	Standard	Standardní
@@ -2469,6 +2474,16 @@ preview	Title	Ukázka
 	Hindi	Hindské
 	Context	Podle kontextu
 	System	Systémové
+	Odd Banded Rows	Liché pruhované řádky
+	Even Banded Rows	Sudé pruhované řádky
+	Odd Banded Columns	Liché pruhované sloupce
+	Even Banded Columns	Sudé pruhované sloupce
+	Top Left Cell	Levá horní buňka
+	Top Right Cell	Pravá horní buňka
+	Bottom Left Cell	Levá dolní buňka
+	Bottom Right Cell	Pravá dolní buňka
+	Inside Horizontal Border	Vnitřní vodorovné ohraničení
+	Inside Vertical Border	Vnitřní svislé ohraničení
 # Mail merge: filter and sort recipients (#778)
 	Filter Recipients	Filtrovat příjemce
 	Sort Recipients	Seřadit příjemce
@@ -2605,3 +2620,14 @@ preview	Title	Ukázka
 	Existing File or Web Page	Existující soubor nebo webová stránka
 	Link to:	Odkaz na:
 	Place in This Document	Místo v tomto dokumentu
+# Table Layout › Sort dialog (#1205)
+	Column {n}	Sloupec {n}
+	Header row	Řádek záhlaví
+	No header row	Bez řádku záhlaví
+	My list has	Můj seznam má
+# Table Layout › Formula dialog (#1210)
+	Formula:	Vzorec:
+	Paste function:	Vložit funkci:
+# Reading Mode column widths (#1040)
+	Narrow	Úzká
+	Medium	Střední

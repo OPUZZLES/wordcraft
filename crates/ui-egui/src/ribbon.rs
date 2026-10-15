@@ -501,7 +501,7 @@ fn mi_text(ui: &mut Ui, app: &mut WordApp, text: &str, id: &str, params: Value) 
 }
 
 /// The proofing languages the Language menu offers: tag and English name (translated when drawn).
-pub(crate) const PROOFING_LANGUAGES: [(&str, &str); 8] = [
+pub(crate) const PROOFING_LANGUAGES: [(&str, &str); 9] = [
     ("en-US", "English (United States)"),
     ("en-GB", "English (United Kingdom)"),
     ("pl-PL", "Polish"),
@@ -510,6 +510,7 @@ pub(crate) const PROOFING_LANGUAGES: [(&str, &str); 8] = [
     ("hr-HR", "Croatian"),
     ("tr-TR", "Turkish"),
     ("ru-RU", "Russian"),
+    ("cs-CZ", "Czech"),
 ];
 
 /// The English name of a proofing language tag, as the status bar shows it (no tag: WordCraft's
@@ -548,6 +549,7 @@ pub(crate) fn language_name(tag: Option<&str>) -> String {
             wordcraft_engine::proof::ProofLang::It => "Italian".into(),
             wordcraft_engine::proof::ProofLang::Tr => "Turkish".into(),
             wordcraft_engine::proof::ProofLang::Ru => "Russian".into(),
+            wordcraft_engine::proof::ProofLang::Cs => "Czech".into(),
             wordcraft_engine::proof::ProofLang::En if tag.eq_ignore_ascii_case("en") => "English (United States)".into(),
             _ => tag.to_string(),
         },
@@ -662,6 +664,7 @@ pub(crate) fn language_menu(ui: &mut Ui, app: &mut WordApp) {
             || (tag == "it-IT" && current.eq_ignore_ascii_case("it"))
             || (tag == "hr-HR" && current.eq_ignore_ascii_case("hr"))
             || (tag == "tr-TR" && current.eq_ignore_ascii_case("tr"))
+            || (tag == "cs-CZ" && wordcraft_engine::proof::ProofLang::from_tag(Some(&current)) == wordcraft_engine::proof::ProofLang::Cs)
             || (tag == "en-US" && current.eq_ignore_ascii_case("en"))
     };
     let checks = language_checks(&current, listed);
@@ -764,6 +767,8 @@ fn home(app: &mut WordApp, ui: &mut Ui) {
                 if let Some(f) = font_combo(ui, "font", 150.0, &font, &fams, Some(&*prev)) {
                     let _ = if f == crate::widgets::ADD_FONT {
                         app.run("font.add", json!({}))
+                    } else if f == crate::widgets::LOAD_SYSTEM_FONTS {
+                        app.run("font.loadSystem", json!({}))
                     } else {
                         let f = app.previews.font_stored(&f);
                         app.run("format.font", json!({"name": f}))
@@ -1351,17 +1356,22 @@ fn design(app: &mut WordApp, ui: &mut Ui) {
 // mark, as Text Direction's does (#1206).
 fn margins_items(ui: &mut Ui, app: &mut WordApp) {
     let current = wordcraft_engine::cmd::page::margins_preset_at(&app.session);
-    for (l, k) in [
-        ("Normal  1\" all", "normal"),
-        ("Narrow  0.5\" all", "narrow"),
-        ("Moderate", "moderate"),
-        ("Wide", "wide"),
-        ("Mirrored", "mirrored"),
-        ("Office 2003 Default", "office2003"),
+    // The two uniform presets name their margin in the measurement unit (`2,54 cm`, #838).
+    for (l, k, uniform) in [
+        ("Normal  {size} all", "normal", Some(72.0)),
+        ("Narrow  {size} all", "narrow", Some(36.0)),
+        ("Moderate", "moderate", None),
+        ("Wide", "wide", None),
+        ("Mirrored", "mirrored", None),
+        ("Office 2003 Default", "office2003", None),
     ] {
+        let label = match uniform {
+            Some(pt) => crate::i18n::fmt(tl!(l), &[("size", &crate::options::length(pt))]),
+            None => l.to_string(),
+        };
         // Mirrored margins come from the document as well as from the preset (#1181).
         let on = current == Some(k) || (k == "mirrored" && app.session.doc.settings.mirror_margins);
-        mi_check(ui, app, l, on, "layout.margins", json!({"preset": k}));
+        mi_check(ui, app, &label, on, "layout.margins", json!({"preset": k}));
     }
     mi(ui, app, "Custom Margins…", "ui.dialog", json!({"name": "pageSetup"}));
 }
@@ -2767,6 +2777,14 @@ mod tests {
         let c = language_checks("PT-br-x-test", |_| false);
         assert_eq!(c.extra, None);
         assert_eq!(c.listed, PROOFING_LANGUAGES.map(|(t, _)| t == "pt-BR"));
+    }
+
+    #[test]
+    fn czech_has_a_name_in_the_language_menu() {
+        assert!(PROOFING_LANGUAGES.contains(&("cs-CZ", "Czech")));
+        for tag in ["cs", "cs-CZ", "CS-cz", "ces", "CZE"] {
+            assert_eq!(language_name(Some(tag)), "Czech", "{tag}");
+        }
     }
 
     #[test]

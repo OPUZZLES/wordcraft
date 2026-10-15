@@ -434,7 +434,7 @@
 	Multiple Pages	Wiele stron
 	Name (A–Z)	Nazwa (A–Z)
 	Name:	Nazwa:
-	Narrow  0.5" all	Wąskie  wszystkie 0,5"
+	Narrow  {size} all	Wąskie  wszystkie {size}
 	Navigation	Nawigacja
 	Navigation Pane	Okienko nawigacji
 	New	Nowy
@@ -463,7 +463,7 @@
 	Nonbreaking Hyphen	Łącznik nierozdzielający
 	Nonbreaking Space	Spacja nierozdzielająca
 	None	Brak
-	Normal  1" all	Normalne  wszystkie 1"
+	Normal  {size} all	Normalne  wszystkie {size}
 	Normal Style	Styl Normalny
 	Not available right now	W tej chwili niedostępne
 	Not saved	Niezapisany
@@ -1956,6 +1956,11 @@
 	Regular expressions	Wyrażenia regularne
 	Relationship	Relacja
 	Remove Added Font	Usuń dodaną czcionkę
+	Load System Installed Fonts…	Wczytaj zainstalowane czcionki systemowe…
+	All system fonts are already available.	Wszystkie czcionki systemowe są już dostępne.
+	Local font access is not supported by your browser.	Twoja przeglądarka nie obsługuje dostępu do czcionek lokalnych.
+	Local font access was denied.	Odmówiono dostępu do czcionek lokalnych.
+	Loaded {count} system fonts.	Wczytano {count} czcionek systemowych.
 	Remove Content Control	Usuń formant zawartości
 	Remove row	Usuń wiersz
 	Remove series	Usuń serię
@@ -2102,6 +2107,16 @@
 	Hindi	Hindi
 	Context	Kontekstowe
 	System	Systemowe
+	Odd Banded Rows	Nieparzyste wiersze naprzemienne
+	Even Banded Rows	Parzyste wiersze naprzemienne
+	Odd Banded Columns	Nieparzyste kolumny naprzemienne
+	Even Banded Columns	Parzyste kolumny naprzemienne
+	Top Left Cell	Lewa górna komórka
+	Top Right Cell	Prawa górna komórka
+	Bottom Left Cell	Lewa dolna komórka
+	Bottom Right Cell	Prawa dolna komórka
+	Inside Horizontal Border	Wewnętrzna krawędź pozioma
+	Inside Vertical Border	Wewnętrzna krawędź pionowa
 # Mail merge: filter and sort recipients (#778)
 	Filter Recipients	Filtruj adresatów
 	Sort Recipients	Sortuj adresatów
@@ -2603,3 +2618,14 @@ preview	Title	Tytuł
 	Existing File or Web Page	Istniejący plik lub strona sieci Web
 	Link to:	Połącz z:
 	Place in This Document	Miejsce w tym dokumencie
+# Table Layout › Sort dialog (#1205)
+	Column {n}	Kolumna {n}
+	Header row	Wiersz nagłówka
+	No header row	Bez wiersza nagłówka
+	My list has	Moja lista ma
+# Table Layout › Formula dialog (#1210)
+	Formula:	Formuła:
+	Paste function:	Wklej funkcję:
+# Reading Mode column widths (#1040)
+	Narrow	Wąska
+	Medium	Średnia

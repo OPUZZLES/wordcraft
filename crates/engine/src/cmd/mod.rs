@@ -39,6 +39,7 @@ pub mod smart_art;
 pub mod speech;
 pub mod table;
 pub mod table_draw;
+pub mod table_formula;
 pub mod table_mouse;
 pub mod table_resize;
 pub mod table_style;

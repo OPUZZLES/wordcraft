@@ -93,6 +93,8 @@ fn native_print_uses_selected_settings_and_reports_spool_errors() {
 fn print_settings_are_visible_in_a_narrow_window() {
     use egui_kittest::kittest::{NodeT, Queryable};
     let mut app = WordApp::new(Session::new(wordcraft_doc::Document::new()), Services::default());
+    // The labels below are English; an integration test otherwise follows the machine's language.
+    app.ui.language = "en".into();
     app.run("text.insert", json!({"text": "A document to print"})).unwrap();
     app.services.printers = Some(Box::new(|| {
         let (sender, receiver) = std::sync::mpsc::channel();

@@ -113,7 +113,7 @@ pub fn tool_definitions() -> Value {
             obj(json!({"text": s("Text to find"), "occurrence": n("1-based")}), &["text"]),
             false
         ),
-        tool("get_text", "Document text", "Plain text of the document body.", obj(json!({}), &[]), true),
+        tool("get_text", "Document text", "Body text with tracked deletions omitted.", obj(json!({}), &[]), true),
         tool(
             "inspect_document",
             "Inspect document",

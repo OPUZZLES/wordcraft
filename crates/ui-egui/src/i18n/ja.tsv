@@ -570,7 +570,7 @@
 	Multiple Pages	複数ページ
 	Name (A–Z)	名前（A–Z）
 	Name:	名前:
-	Narrow  0.5" all	狭い  上下左右 0.5"
+	Narrow  {size} all	狭い  上下左右 {size}
 	Navigation	ナビゲーション
 	Navigation Pane	ナビゲーション ウィンドウ
 	New	新規
@@ -597,7 +597,7 @@
 	Nonbreaking Hyphen	改行なしハイフン
 	Nonbreaking Space	改行なしスペース
 	None	なし
-	Normal  1" all	標準  上下左右 1"
+	Normal  {size} all	標準  上下左右 {size}
 	Normal Style	標準スタイル
 	Not available right now	現在は使用できません
 	Not saved	未保存
@@ -1561,6 +1561,11 @@
 	Add Font…	フォントの追加…
 	Added Fonts	追加したフォント
 	Remove Added Font	追加したフォントの削除
+	Load System Installed Fonts…	インストール済みシステムフォントを読み込む…
+	All system fonts are already available.	すべてのシステムフォントは既に使用可能です。
+	Local font access is not supported by your browser.	お使いのブラウザーはローカルフォントへのアクセスに対応していません。
+	Local font access was denied.	ローカルフォントへのアクセスが拒否されました。
+	Loaded {count} system fonts.	{count} 個のシステムフォントを読み込みました。
 	Recent Colors	最近使用した色
 	More Colors…	その他の色…
 	Standard	標準
@@ -2092,6 +2097,16 @@
 	AutoFit Column by Double-Clicking	ダブルクリックで列の幅を自動調整
 	Region:	地域:
 	Automatic ({region})	自動 ({region})
+	Odd Banded Rows	奇数の縞模様（行）
+	Even Banded Rows	偶数の縞模様（行）
+	Odd Banded Columns	奇数の縞模様（列）
+	Even Banded Columns	偶数の縞模様（列）
+	Top Left Cell	左上のセル
+	Top Right Cell	右上のセル
+	Bottom Left Cell	左下のセル
+	Bottom Right Cell	右下のセル
+	Inside Horizontal Border	内側の横罫線
+	Inside Vertical Border	内側の縦罫線
 	Text of the nearest paragraph with a given style (running headers)	指定したスタイルを持つ最も近い段落の文字列 (柱)
 	Style name:	スタイル名:
 # Mail merge: filter and sort recipients (#778)
@@ -2213,3 +2228,14 @@
 	Existing File or Web Page	既存のファイル/Web ページ
 	Link to:	リンク先:
 	Place in This Document	このドキュメント内
+# Table Layout › Sort dialog (#1205)
+	Column {n}	列 {n}
+	Header row	見出し行あり
+	No header row	見出し行なし
+	My list has	範囲の先頭行
+# Table Layout › Formula dialog (#1210)
+	Formula:	計算式:
+	Paste function:	関数の貼り付け:
+# Reading Mode column widths (#1040)
+	Narrow	狭い
+	Medium	中

@@ -2,7 +2,7 @@
 
 use serde_json::{Value, json};
 use wordcraft_doc::collate::{SortKey, sort_key};
-use wordcraft_doc::locale_number::{format_number, parse_number};
+use wordcraft_doc::locale_number::parse_number;
 use wordcraft_doc::props::{Align, Border, BorderStyle, Borders, HeightRule, Rgb, TextDirection, VAlign};
 use wordcraft_doc::{Block, Document, Paragraph, Path, Pos, RevisionKind, StoryRef, Table, para_block};
 
@@ -92,7 +92,7 @@ pub fn specs() -> Vec<CommandSpec> {
                 x => return Err(CmdError::Params(format!("unknown alignment `{x}`"))),
             };
             with_cells(s, |cl| {
-                cl.props.valign = va;
+                cl.props.valign = Some(va);
                 for b in &mut cl.blocks {
                     if let Block::Para(p) = std::sync::Arc::make_mut(b) {
                         p.props.align = Some(h);
@@ -396,7 +396,7 @@ fn properties(s: &mut Session, v: &Value) -> CmdResult {
                     cl.props.width = w;
                 }
                 if let Some(va) = valign {
-                    cl.props.valign = va;
+                    cl.props.valign = Some(va);
                 }
             }
         }
@@ -745,7 +745,7 @@ fn borders(s: &mut Session, v: &Value) -> CmdResult {
     })
 }
 
-fn cell_text(c: &wordcraft_doc::Cell) -> String {
+pub(crate) fn cell_text(c: &wordcraft_doc::Cell) -> String {
     c.blocks.iter().filter_map(|b| b.as_para().map(|p| p.plain_text())).collect::<Vec<_>>().join("\n")
 }
 
@@ -815,55 +815,63 @@ fn to_text(s: &mut Session, v: &Value) -> CmdResult {
     sel_result(s)
 }
 
-/// `=SUM(ABOVE)`, `=SUM(LEFT)`, `=AVERAGE(ABOVE)`, `=COUNT(...)`, `=MAX`, `=MIN`, `=PRODUCT`.
+/// Table Layout › Data › Formula: inserts a formula field at the caret, evaluated now and again
+/// by Update Field. What a formula can use is described in [`super::table_formula`]. A formula
+/// that doesn't evaluate (an unknown function, a syntax error) is an error and inserts nothing.
 fn formula(s: &mut Session, v: &Value) -> CmdResult {
     let (tp, r, c) = cell(s)?;
-    let f = p::str(v, "formula").unwrap_or("=SUM(ABOVE)").to_ascii_uppercase();
-    let t = s.doc.table(s.sel.focus.story, &tp).cloned().ok_or_else(|| CmdError::Failed("no table".into()))?;
-    let story = s.sel.focus.story;
-    // Each cell's number is read in that cell's language (`3,50` in Polish is three and a half).
-    let sources: Vec<&wordcraft_doc::Cell> = if f.contains("LEFT") {
-        t.rows.get(r).map(|row| row.cells.iter().take(c).collect()).unwrap_or_default()
-    } else {
-        t.rows.iter().take(r).filter_map(|row| row.cells.get(c)).collect()
-    };
+    let raw = p::str(v, "formula").unwrap_or("=SUM(ABOVE)");
+    let t = s.doc.table(s.sel.focus.story, &tp).ok_or_else(|| CmdError::Failed("no table".into()))?;
     let default_lang = super::default_lang(s);
-    let nums: Vec<f64> = sources
-        .iter()
-        .filter_map(|x| parse_number(cell_text(x).trim(), cell_lang(&s.doc, x).or_else(|| default_lang.clone()).as_deref()))
-        .filter(|x| x.is_finite())
-        .collect();
-    // The result is written in the language of the formula's cell, else of the numbers it adds.
-    let out_lang = s
-        .doc
-        .para(story, &s.sel.focus.path)
-        .filter(|p| !p.plain_text().trim().is_empty())
-        .and_then(|p| super::para_lang(&s.doc, p))
-        .or_else(|| sources.iter().find_map(|x| cell_lang(&s.doc, x)))
-        .or(default_lang);
-    let val = if f.starts_with("=AVERAGE") {
-        if nums.is_empty() { 0.0 } else { nums.iter().sum::<f64>() / nums.len() as f64 }
-    } else if f.starts_with("=COUNT") {
-        nums.len() as f64
-    } else if f.starts_with("=MAX") {
-        nums.iter().copied().fold(f64::MIN, f64::max)
-    } else if f.starts_with("=MIN") {
-        nums.iter().copied().fold(f64::MAX, f64::min)
-    } else if f.starts_with("=PRODUCT") {
-        nums.iter().product()
-    } else {
-        nums.iter().sum()
-    };
-    let text = format_number(val, out_lang.as_deref());
+    let instr = auto_formula_instr(t, r, c, raw, default_lang.as_deref());
+    let text = super::table_formula::evaluate_field_with(t, Some(&s.doc), default_lang.as_deref(), r, c, &instr)?;
     let props = s.typing_props();
     let at = s.sel.focus.clone();
     let end = s.doc.insert_object(
         &at,
-        wordcraft_doc::InlineObject::Field { instr: f.clone(), result: text.clone(), locked: false, code: false, form: String::new() },
+        wordcraft_doc::InlineObject::Field {
+            instr: instr.clone(),
+            result: text.clone(),
+            locked: false,
+            dirty: false,
+            code: false,
+            form: String::new(),
+        },
         &props,
     )?;
     s.sel = Selection::caret(end);
-    Ok(json!({"result": text}))
+    Ok(json!({"result": text, "formula": instr}))
+}
+
+/// A formula as a field stores it: upper case, with one leading `=`. A `\#` numeric picture is
+/// kept as typed.
+pub(crate) fn formula_instr(raw: &str) -> String {
+    let body = raw.trim();
+    let body = body.strip_prefix('=').unwrap_or(body);
+    match super::table_formula::split_switch(body) {
+        (formula, Some(switch)) => format!("={} {switch}", formula.trim().to_ascii_uppercase()),
+        (formula, None) => format!("={}", formula.trim().to_ascii_uppercase()),
+    }
+}
+
+/// A bare function name (`=SUM`, no parentheses) takes its direction from the cell: ABOVE when a
+/// cell above holds a number, else LEFT.
+fn auto_formula_instr(t: &Table, r: usize, c: usize, raw: &str, lang: Option<&str>) -> String {
+    let instr = formula_instr(raw);
+    let body = instr.strip_prefix('=').unwrap_or(&instr);
+    if !body.contains('(') && matches!(body, "SUM" | "AVERAGE" | "COUNT" | "MAX" | "MIN" | "PRODUCT") {
+        let g = t.grid_col(r, c);
+        let has_above = (0..r).rev().any(|row| {
+            t.cell_at_grid(row, g)
+                .and_then(|ci| t.rows.get(row)?.cells.get(ci))
+                .and_then(|cl| super::table_formula::cell_number_in(cl, lang))
+                .is_some()
+        });
+        let dir = if has_above { "ABOVE" } else { "LEFT" };
+        format!("={body}({dir})")
+    } else {
+        instr
+    }
 }
 
 /// Ctrl+A in a table, as in Word: the cell, then its row, then the table. A nested table that

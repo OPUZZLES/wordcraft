@@ -224,10 +224,10 @@ impl Writer<'_> {
         }
         // Taken before the content so a nested story (a text box in an entry) can't claim them.
         if std::mem::take(&mut self.toc_begin_here)
-            && let Some((instr, locked, props)) = self.toc_field.take()
+            && let Some((instr, locked, dirty, props)) = self.toc_field.take()
         {
             self.rev_open(w, &props);
-            self.field_start(w, &instr, locked, "", &props);
+            self.field_start(w, &instr, locked, dirty, "", &props);
             self.rev_close(w, &props);
         }
         let toc_end = std::mem::take(&mut self.toc_end_here);
@@ -496,10 +496,10 @@ impl Writer<'_> {
                     None => super::math::write_equation(w, linear, *display, math, color),
                 }
             }
-            InlineObject::Field { instr, result, locked, form, .. } => self.field(w, instr, result, *locked, form, props),
-            InlineObject::FieldStart { instr, locked } => {
+            InlineObject::Field { instr, result, locked, dirty, form, .. } => self.field(w, instr, result, *locked, *dirty, form, props),
+            InlineObject::FieldStart { instr, locked, dirty } => {
                 self.rev_open(w, props);
-                self.field_start(w, instr, *locked, "", props);
+                self.field_start(w, instr, *locked, *dirty, "", props);
                 self.rev_close(w, props);
             }
             InlineObject::FieldEnd => {
@@ -795,11 +795,11 @@ impl Writer<'_> {
         }
     }
 
-    fn field(&mut self, w: &mut W, instr: &str, result: &str, locked: bool, form: &str, props: &CharProps) {
+    fn field(&mut self, w: &mut W, instr: &str, result: &str, locked: bool, dirty: bool, form: &str, props: &CharProps) {
         if self.toc_hold_end && is_toc(instr) {
             // A TOC heading's field opens in the first entry and closes after the last (see `toc_span`).
             self.toc_hold_end = false;
-            self.toc_field = Some((instr.to_string(), locked, props.clone()));
+            self.toc_field = Some((instr.to_string(), locked, dirty, props.clone()));
             return;
         }
         if let Some(e) = wordcraft_doc::eq::Enclosure::parse(instr) {
@@ -816,7 +816,7 @@ impl Writer<'_> {
             w.close("w:r");
         };
         self.rev_open(w, props);
-        self.field_start(w, instr, locked, form, props);
+        self.field_start(w, instr, locked, dirty, form, props);
         if !result.is_empty() {
             run(w, &|w| {
                 let mut buf = String::new();
@@ -896,7 +896,7 @@ impl Writer<'_> {
     /// A field's begin, instruction and separate runs.
     /// A field's begin, code and separator; `form` is a legacy form field's `w:ffData`, which
     /// belongs inside the begin.
-    fn field_start(&self, w: &mut W, instr: &str, locked: bool, form: &str, props: &CharProps) {
+    fn field_start(&self, w: &mut W, instr: &str, locked: bool, dirty: bool, form: &str, props: &CharProps) {
         let del = self.is_del(props);
         let run = |w: &mut W, f: &dyn Fn(&mut W)| {
             w.open("w:r", &[]);
@@ -905,11 +905,17 @@ impl Writer<'_> {
             w.close("w:r");
         };
         run(w, &|w| {
-            let attrs: &[(&str, &str)] = if locked { &[("w:fldCharType", "begin"), ("w:fldLock", "1")] } else { &[("w:fldCharType", "begin")] };
+            let mut attrs: Vec<(&str, &str)> = vec![("w:fldCharType", "begin")];
+            if locked {
+                attrs.push(("w:fldLock", "1"));
+            }
+            if dirty {
+                attrs.push(("w:dirty", "true"));
+            }
             if form.is_empty() {
-                w.empty("w:fldChar", attrs);
+                w.empty("w:fldChar", &attrs);
             } else {
-                w.open("w:fldChar", attrs);
+                w.open("w:fldChar", &attrs);
                 w.raw(form);
                 w.close("w:fldChar");
             }

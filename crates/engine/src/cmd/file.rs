@@ -147,7 +147,7 @@ pub fn specs() -> Vec<CommandSpec> {
         CommandSpec::new("document.inspect", "Inspect Document", "Agents", inspect).params(r#"{"text"?: bool}"#).pure(),
         CommandSpec::new("document.text", "Document Text", "Agents", |s, v| {
             let story = super::story_param(s, v);
-            Ok(json!({"text": s.doc.plain_text(story)}))
+            Ok(json!({"text": s.doc.final_text(story)}))
         })
         .pure(),
         CommandSpec::new("document.paragraph", "Paragraph Details", "Agents", paragraph).params(r#"{"path": [n], "story"?: Story}"#).pure(),

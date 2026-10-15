@@ -47,6 +47,7 @@ pub mod dialogs_refs;
 pub mod dialogs_review;
 pub mod dialogs_ribbon;
 pub mod dialogs_smart_art;
+pub mod dialogs_table_style;
 pub mod dialogs_templates;
 pub mod equation_tab;
 /// The built-in file browser, for desktops without a system file dialog (#576).
@@ -70,6 +71,7 @@ pub mod print_page;
 pub mod printing;
 pub mod read_aloud;
 pub mod ribbon;
+pub mod ruler_tabs;
 pub mod scroll;
 pub mod system_clipboard;
 pub mod table_mouse;
@@ -157,6 +159,8 @@ pub struct Services {
     pub store_font: Option<Box<dyn Fn(&str, &[u8])>>,
     /// Web: forget a stored font (its stored file name) once the user removes it.
     pub forget_font: Option<Box<dyn Fn(&str)>>,
+    /// Web: request browser to query and load local installed fonts (`window.queryLocalFonts()`).
+    pub load_system_fonts: Option<Box<dyn Fn()>>,
     /// Desktop: File › Options › General › Make WordCraft the default for Word documents (#295),
     /// only from that button (never a programmatic command). Windows opens the Settings app's
     /// Default apps page (apps can't set defaults themselves); Linux and BSD set it with
@@ -458,11 +462,16 @@ pub struct WordApp {
     styled: bool,
     /// The CJK face order the installed UI fonts use (Chinese first, or Japanese first).
     fonts_hans: bool,
+    /// Whether the installed UI fonts use the Korean CJK face order.
+    fonts_korean: bool,
     /// Whether the installed UI fonts include an installed CJK fallback font (#241).
     fonts_system_cjk: bool,
     /// CJK text is (about to be) on screen in a non-CJK interface, e.g. the language names in
     /// File ▸ Options: load the installed CJK fallback font if no embedded face covers it.
     pub(crate) want_system_cjk: bool,
+    /// The document (id, revision) whose comment text [`WordApp::ensure_comment_fonts`] last
+    /// looked at.
+    comment_fonts_for: Option<(u64, u64)>,
     fonts_frames: u32,
     /// The effective interface theme last installed in egui ([`theme::apply`]).
     applied_theme: Option<theme::Appearance>,
@@ -588,8 +597,10 @@ impl WordApp {
             nav_search_focus: false,
             styled: false,
             fonts_hans: false,
+            fonts_korean: false,
             fonts_system_cjk: false,
             want_system_cjk: false,
+            comment_fonts_for: None,
             fonts_frames: 0,
             applied_theme: None,
             native_scale: 1.0,
@@ -1262,6 +1273,7 @@ impl WordApp {
                 }
                 "insertPicture" => self.pick_picture(),
                 "addFont" => self.pick_font(),
+                "loadSystemFonts" => self.load_system_fonts(),
                 "print" => {
                     self.ui.backstage = true;
                     self.ui.backstage_page = "print".into();
@@ -1349,6 +1361,12 @@ impl WordApp {
             }
             "ui.dialog" => {
                 self.dialog = dialogs::Dialog::open(s("name").unwrap_or(""), self);
+                // New / Modify Table Style can open on a part (`"part": "firstRow"`…).
+                if let Some(dialogs::Dialog::TableStyle { region, .. }) = &mut self.dialog
+                    && let Some(part) = s("part").and_then(wordcraft_engine::cmd::table_style::part_named)
+                {
+                    *region = dialogs_table_style::part_index(part);
+                }
                 json!({"dialog": self.dialog.as_ref().map(|d| d.name())})
             }
             "ui.closeDialog" => {
@@ -1712,6 +1730,35 @@ impl WordApp {
         }
     }
 
+    /// Comment balloons and the Comments pane draw comment text and author names with the
+    /// interface faces, which have no Arabic, Hebrew, Thai …: each such letter was drawn as a box.
+    /// Borrow the document fonts' fallback faces for them, as the caption does. Looked at once per
+    /// document revision; CJK text uses the CJK UI font instead.
+    fn ensure_comment_fonts(&mut self) {
+        let key = (self.session.document_id(), self.session.rev());
+        if self.comment_fonts_for == Some(key) {
+            return;
+        }
+        self.comment_fonts_for = Some(key);
+        let doc = &self.session.doc;
+        let mut chars = std::collections::BTreeSet::new();
+        for c in doc.comments.values() {
+            chars.extend(c.author.chars());
+            chars.extend(doc.plain_text(wordcraft_doc::StoryRef::Part(c.part)).chars());
+        }
+        if chars.iter().any(|c| wordcraft_fonts::is_cjk(*c)) {
+            self.want_system_cjk = true;
+        }
+        let text: String = chars.into_iter().collect();
+        let new = theme::faces_for_preedit(&text, &self.canvas.ime_faces, theme::caption_char_covered, |c| {
+            wordcraft_fonts::FontDb::global().fallback_for(c, u32::MAX)
+        });
+        if !new.is_empty() {
+            self.canvas.ime_faces.extend(new);
+            self.styled = false;
+        }
+    }
+
     /// Document title for the title bar (and the suggested file name). An untitled document is
     /// named in the interface language, as `Document1` is in English.
     pub fn title_stem(&self) -> String {
@@ -1758,6 +1805,7 @@ impl WordApp {
         // language names in Options, or a file name the caption is drawing. A file opened later
         // in this frame (dialog, drop, control channel) is picked up again at the end.
         self.ensure_caption_fonts();
+        self.ensure_comment_fonts();
         self.install_ui_fonts(ctx, lang);
         if let Some(answer) = self.desktop_theme.take_change() {
             self.desktop_dark = Some(answer);
@@ -1867,6 +1915,7 @@ impl WordApp {
         }
         // The open above may have changed the file name the caption draws.
         self.ensure_caption_fonts();
+        self.ensure_comment_fonts();
         self.install_ui_fonts(ctx, lang);
         self.report_dirty();
     }
@@ -1875,9 +1924,11 @@ impl WordApp {
     /// face has changed since the last install.
     fn install_ui_fonts(&mut self, ctx: &egui::Context, lang: i18n::Lang) {
         let system_cjk = self.fonts_system_cjk || self.want_system_cjk || lang.uses_cjk();
-        if !self.styled || lang.prefers_hans() != self.fonts_hans || system_cjk != self.fonts_system_cjk {
-            theme::install_fonts_extra(ctx, lang.prefers_hans(), system_cjk, &self.canvas.ime_faces);
+        if !self.styled || lang.prefers_hans() != self.fonts_hans || lang.prefers_korean() != self.fonts_korean || system_cjk != self.fonts_system_cjk
+        {
+            theme::install_fonts_language_extra(ctx, lang.prefers_hans(), lang.prefers_korean(), system_cjk, &self.canvas.ime_faces);
             self.fonts_hans = lang.prefers_hans();
+            self.fonts_korean = lang.prefers_korean();
             self.fonts_system_cjk = system_cjk;
             // Mod with -, = and 0 are Word shortcuts (optional hyphen, subscript, paragraph spacing);
             // egui's keyboard zoom would also scale the whole window on them. Zoom is View › Zoom.
@@ -2314,6 +2365,10 @@ fn input_dialog(id: &str, params: &Value) -> Option<&'static str> {
         "chart.editData" if !["data", "categories", "series"].into_iter().any(has) => Some("chartData"),
         // Table Properties without settings shows the dialog (with settings it applies them).
         "table.properties" if params.as_object().is_none_or(|m| m.is_empty()) => Some("tableProperties"),
+        // Formula without one asks for it, suggested from the numbers next to the cell (#1201).
+        "table.formula" if !has("formula") => Some("tableFormula"),
+        // Sort without settings asks for the column, order and header row (#1200).
+        "table.sort" if params.as_object().is_none_or(|m| m.is_empty()) => Some("tableSort"),
         // Tabs, Borders and Shading, and Page Borders without settings show their dialogs (#320).
         "para.tabs" if params.as_object().is_none_or(|m| m.is_empty()) => Some("tabs"),
         "para.borders" if params.as_object().is_none_or(|m| m.is_empty()) => Some("borders"),
@@ -2537,6 +2592,36 @@ mod tests {
         frame(&mut cjk);
         assert!(cjk.want_system_cjk, "a CJK file name loads the CJK UI font");
         assert!(cjk.canvas.ime_faces.is_empty(), "CJK collections are not copied into the fallback list");
+    }
+
+    /// Comment balloons draw comment text and author names with the interface faces, which have
+    /// no Arabic, so an Arabic comment was all boxes. A document with one borrows a document
+    /// fallback face that covers it, once per document revision.
+    #[test]
+    fn arabic_comment_text_is_drawn_in_the_balloons() {
+        let ctx = egui::Context::default();
+        let frame = |app: &mut WordApp| {
+            ctx.run_ui(egui::RawInput::default(), |ui| app.logic(ui.ctx())).drop_without_applying_deltas();
+        };
+        let mut latin = app();
+        latin.run("text.insert", json!({"text": "Scope of works"})).unwrap();
+        latin.run("select.text", json!({"text": "Scope"})).unwrap();
+        latin.run("review.newComment", json!({"text": "Please check"})).unwrap();
+        frame(&mut latin);
+        assert!(latin.canvas.ime_faces.is_empty(), "a Latin comment needs no extra face");
+
+        let mut arabic = app();
+        arabic.run("text.insert", json!({"text": "Scope of works"})).unwrap();
+        arabic.run("select.text", json!({"text": "Scope"})).unwrap();
+        arabic.run("review.newComment", json!({"text": "لتحديد نطاق الأعمال"})).unwrap();
+        frame(&mut arabic);
+        let letter = 'ن';
+        if wordcraft_fonts::FontDb::global().fallback_for(letter, u32::MAX).is_some_and(|f| f.data().len() <= 16 << 20) {
+            assert!(arabic.canvas.ime_faces.iter().any(|f| f.covers(letter)), "the balloons borrow a face that covers the comment");
+        }
+        let n = arabic.canvas.ime_faces.len();
+        frame(&mut arabic);
+        assert_eq!(arabic.canvas.ime_faces.len(), n, "the face is added once");
     }
 
     fn app() -> WordApp {

@@ -622,7 +622,7 @@
 	Multiple Pages	Више страна
 	Name (A–Z)	Назив (А–Ш)
 	Name:	Назив:
-	Narrow  0.5" all	Уске  0,5" свуда
+	Narrow  {size} all	Уске  {size} свуда
 	Navigation	Навигација
 	Navigation Pane	Окно за навигацију
 	New	Ново
@@ -649,7 +649,7 @@
 	Nonbreaking Hyphen	Недељива цртица
 	Nonbreaking Space	Недељиви размак
 	None	Ниједно
-	Normal  1" all	Нормалне  1" свуда
+	Normal  {size} all	Нормалне  {size} свуда
 	Normal Style	Нормалан стил
 	Not available right now	Тренутно недоступно
 	Not saved	Није сачувано
@@ -1575,6 +1575,11 @@
 	Add Font…	Додај фонт…
 	Added Fonts	Додати фонтови
 	Remove Added Font	Уклони додати фонт
+	Load System Installed Fonts…	Учитај инсталиране системске фонтове…
+	All system fonts are already available.	Сви системски фонтови су већ доступни.
+	Local font access is not supported by your browser.	Ваш прегледач не подржава приступ локалним фонтовима.
+	Local font access was denied.	Приступ локалним фонтовима је одбијен.
+	Loaded {count} system fonts.	Учитано системских фонтова: {count}.
 	Recent Colors	Недавне боје
 	More Colors…	Још боја…
 	Standard	Стандардне
@@ -2106,6 +2111,16 @@
 	AutoFit Column by Double-Clicking	Аутоматско уклапање колоне двоструким кликом
 	Region:	Регион:
 	Automatic ({region})	Аутоматски ({region})
+	Odd Banded Rows	Непарни тракасти редови
+	Even Banded Rows	Парни тракасти редови
+	Odd Banded Columns	Непарне тракасте колоне
+	Even Banded Columns	Парне тракасте колоне
+	Top Left Cell	Горња лева ћелија
+	Top Right Cell	Горња десна ћелија
+	Bottom Left Cell	Доња лева ћелија
+	Bottom Right Cell	Доња десна ћелија
+	Inside Horizontal Border	Унутрашња хоризонтална ивица
+	Inside Vertical Border	Унутрашња вертикална ивица
 	Text of the nearest paragraph with a given style (running headers)	Текст најближег пасуса са задатим стилом (текућа заглавља)
 	Style name:	Назив стила:
 # Mail merge: filter and sort recipients (#778)
@@ -2227,3 +2242,14 @@
 	Existing File or Web Page	Постојећа датотека или веб страница
 	Link to:	Веза ка:
 	Place in This Document	Место у овом документу
+# Table Layout › Sort dialog (#1205)
+	Column {n}	Колона {n}
+	Header row	Ред заглавља
+	No header row	Без реда заглавља
+	My list has	Моја листа има
+# Table Layout › Formula dialog (#1210)
+	Formula:	Формула:
+	Paste function:	Налепи функцију:
+# Reading Mode column widths (#1040)
+	Narrow	Уска
+	Medium	Средња

@@ -894,19 +894,24 @@ impl Document {
 
     /// The whole text of a story, paragraphs separated by `\n` (tables: cells by `\t`).
     pub fn plain_text(&self, s: StoryRef) -> String {
-        self.story_text(s, false)
+        self.story_text(s, TextMode::Plain)
     }
 
     /// [`Self::plain_text`] as it reads on screen: symbol-font characters (Wingdings…) as their
     /// Unicode equivalents ([`Paragraph::shown_text`]).
     pub fn shown_text(&self, s: StoryRef) -> String {
-        self.story_text(s, true)
+        self.story_text(s, TextMode::Shown)
     }
 
-    fn story_text(&self, s: StoryRef, shown: bool) -> String {
+    /// [`Self::plain_text`] without tracked-deleted runs. A deleted paragraph mark still yields `\n`.
+    pub fn final_text(&self, s: StoryRef) -> String {
+        self.story_text(s, TextMode::Final)
+    }
+
+    fn story_text(&self, s: StoryRef, mode: TextMode) -> String {
         let mut out = String::new();
         if let Some(bl) = self.story(s) {
-            text_of(bl, &mut out, 0, shown);
+            text_of(bl, &mut out, 0, mode);
         }
         if out.ends_with('\n') {
             out.pop();
@@ -1406,14 +1411,29 @@ fn walk(bl: &Blocks, prefix: &mut Vec<u32>, out: &mut Vec<Path>, depth: usize) {
     }
 }
 
-fn text_of(bl: &Blocks, out: &mut String, depth: usize, shown: bool) {
+/// Which text of a paragraph [`text_of`] collects.
+#[derive(Clone, Copy)]
+enum TextMode {
+    /// Every run, tracked deletions included ([`Paragraph::plain_text`]).
+    Plain,
+    /// As shown on screen ([`Paragraph::shown_text`]).
+    Shown,
+    /// Without tracked deletions ([`Paragraph::final_text`]).
+    Final,
+}
+
+fn text_of(bl: &Blocks, out: &mut String, depth: usize, mode: TextMode) {
     if depth > 16 {
         return;
     }
     for b in bl {
         match &**b {
             Block::Para(p) => {
-                out.push_str(&if shown { p.shown_text() } else { p.plain_text() });
+                out.push_str(&match mode {
+                    TextMode::Plain => p.plain_text(),
+                    TextMode::Shown => p.shown_text(),
+                    TextMode::Final => p.final_text(),
+                });
                 out.push('\n');
             }
             Block::Table(t) => {
@@ -1421,7 +1441,7 @@ fn text_of(bl: &Blocks, out: &mut String, depth: usize, shown: bool) {
                     let mut cells = Vec::new();
                     for c in &row.cells {
                         let mut s = String::new();
-                        text_of(&c.blocks, &mut s, depth + 1, shown);
+                        text_of(&c.blocks, &mut s, depth + 1, mode);
                         cells.push(s.trim_end_matches('\n').replace('\n', " "));
                     }
                     out.push_str(&cells.join("\t"));

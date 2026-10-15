@@ -383,7 +383,14 @@ fn range_toc_to_field(s: &mut Session) -> Result<(), CmdError> {
         let len = s.doc.para(StoryRef::Body, &heading).map_or(0, |p| p.len());
         at = Pos { story: StoryRef::Body, path: heading, off: len };
     }
-    let field = InlineObject::Field { instr: r.instr.trim().to_string(), result: String::new(), locked: false, code: false, form: String::new() };
+    let field = InlineObject::Field {
+        instr: r.instr.trim().to_string(),
+        result: String::new(),
+        locked: false,
+        dirty: false,
+        code: false,
+        form: String::new(),
+    };
     let after = s.doc.insert_object(&at, field, &props)?;
     if s.doc.para_at(&after).is_some_and(|p| after.off < p.len()) {
         s.doc.split_paragraph(&after)?;
@@ -433,7 +440,7 @@ fn insert_toc(s: &mut Session, v: &Value) -> CmdResult {
     let mut head = Paragraph::with_text(&title, CharProps::default()).styled("TOCHeading");
     head.insert_object(
         head.len(),
-        InlineObject::Field { instr: toc_instr(v), result: String::new(), locked: false, code: false, form: String::new() },
+        InlineObject::Field { instr: toc_instr(v), result: String::new(), locked: false, dirty: false, code: false, form: String::new() },
         &CharProps::default(),
     )?;
     let i = if s.doc.para_at(&at).is_some_and(|p| p.is_empty()) {
@@ -495,6 +502,19 @@ fn regenerate_toc(s: &mut Session, leader: Option<TabLeader>) -> Result<(), CmdE
     range_toc_to_field(s)?;
     let Some((start, end)) = toc_range(s) else { return Ok(()) };
     let Some(instr) = s.doc.body.get(start).and_then(|b| b.as_para()).and_then(toc_field) else { return Ok(()) };
+    // A TOC field imported with an inline placeholder/cached result must have its result cleared so
+    // that the engine's TOC shape matches `toc_span` and the DOCX writer spans the field across entries.
+    if let Ok(p) = s.doc.para_mut(StoryRef::Body, &Path::top(start)) {
+        for o in &mut p.objects {
+            if let InlineObject::Field { instr, result, .. } = o {
+                let f = FieldCode::parse(instr);
+                if f.name == "TOC" && !f.has('c') {
+                    result.clear();
+                }
+            }
+        }
+        p.touch();
+    }
     let f = FieldCode::parse(&instr);
     let leader = leader.unwrap_or_else(|| {
         s.doc
@@ -740,7 +760,7 @@ fn caption(s: &mut Session, v: &Value) -> CmdResult {
     let chapter = p::u64(v, "chapter").filter(|l| (1..=9).contains(l));
     let sep = p::str(v, "separator").and_then(|x| CHAPTER_SEPARATORS.iter().find(|s| **s == x)).copied().unwrap_or("-");
     let mut para = Paragraph::new().styled("Caption");
-    let field = |instr: String| InlineObject::Field { instr, result: String::new(), locked: false, code: false, form: String::new() };
+    let field = |instr: String| InlineObject::Field { instr, result: String::new(), locked: false, dirty: false, code: false, form: String::new() };
     if !p::bool(v, "excludeLabel").unwrap_or(false) {
         para.insert_text(0, &format!("{label} "), &CharProps::default())?;
     }
@@ -820,8 +840,10 @@ pub fn update_seq(s: &mut Session) -> Result<(), CmdError> {
         }
         let para = s.doc.para_mut(StoryRef::Body, &path)?;
         for (k, r) in updates {
-            if let Some(InlineObject::Field { result, .. }) = para.objects.get_mut(k) {
+            if let Some(InlineObject::Field { result, dirty, .. }) = para.objects.get_mut(k) {
+                // A computed result is no longer stale: Word's F9 clears `w:dirty` too.
                 *result = r;
+                *dirty = false;
             }
         }
         para.touch();
@@ -846,6 +868,20 @@ pub fn update_fields(s: &mut Session) -> Result<(), CmdError> {
         let mut updates: Vec<(usize, String)> = Vec::new();
         for (k, o) in p.objects.iter().enumerate() {
             let InlineObject::Field { instr, locked: false, .. } = o else { continue };
+            // A table formula reads the cells around its own cell again.
+            if instr.trim_start().starts_with('=') {
+                if let Some((tp, r, c)) = path.cell()
+                    && let Some(t) = s.doc.table(StoryRef::Body, &tp)
+                {
+                    let default_lang = super::default_lang(s);
+                    let text = match super::table_formula::evaluate_field_with(t, Some(&s.doc), default_lang.as_deref(), r, c, instr) {
+                        Ok(text) => text,
+                        Err(e) => format!("!{e}"),
+                    };
+                    updates.push((k, text));
+                }
+                continue;
+            }
             let name = wordcraft_layout::fields::field_name(instr);
             match name.as_str() {
                 "DATE" | "TIME" | "CREATEDATE" | "SAVEDATE" | "PRINTDATE" => {
@@ -870,14 +906,54 @@ pub fn update_fields(s: &mut Session) -> Result<(), CmdError> {
         }
         let para = s.doc.para_mut(StoryRef::Body, &path)?;
         for (k, r) in updates {
-            if let Some(InlineObject::Field { result, .. }) = para.objects.get_mut(k) {
+            if let Some(InlineObject::Field { result, dirty, .. }) = para.objects.get_mut(k) {
+                // A computed result is no longer stale: Word's F9 clears `w:dirty` too.
                 *result = r;
+                *dirty = false;
             }
         }
         para.touch();
     }
     super::citations::update_citations(s)?;
     update_toc(s)
+}
+
+/// Refresh every unlocked `DATE` and `TIME` field to now, as Word does whenever it shows,
+/// prints or exports a document: a letter written from a template carries today's date, not the
+/// date the template was last saved (#1672).
+///
+/// Only those two. `CREATEDATE`, `SAVEDATE` and `PRINTDATE` record when something happened and
+/// are not "now"; `REF`, `PAGEREF`, `TOC` and citations are refreshed on an explicit update
+/// (`fields.updateAll`) and not on open, again as Word does. A field carrying `w:fldLock` keeps
+/// its stored result, which is what the lock is for.
+pub fn refresh_date_fields(doc: &mut wordcraft_doc::Document) {
+    let stories: Vec<StoryRef> = std::iter::once(StoryRef::Body).chain(doc.parts.keys().copied().map(StoryRef::Part)).collect();
+    for story in stories {
+        for path in doc.para_paths(story) {
+            let Some(p) = doc.para(story, &path) else { continue };
+            let mut updates: Vec<(usize, String)> = Vec::new();
+            for (k, o) in p.objects.iter().enumerate() {
+                let InlineObject::Field { instr, locked: false, .. } = o else { continue };
+                let name = wordcraft_layout::fields::field_name(instr);
+                if !matches!(name.as_str(), "DATE" | "TIME") {
+                    continue;
+                }
+                // Word's default picture when the code carries no `\@` switch.
+                let pic = date_picture(instr).unwrap_or_else(|| if name == "TIME" { "h:mm am/pm".into() } else { "M/d/yyyy".into() });
+                updates.push((k, super::insert::format_date(&pic)));
+            }
+            if updates.is_empty() {
+                continue;
+            }
+            let Ok(para) = doc.para_mut(story, &path) else { continue };
+            for (k, r) in updates {
+                if let Some(InlineObject::Field { result, .. }) = para.objects.get_mut(k) {
+                    *result = r;
+                }
+            }
+            para.touch();
+        }
+    }
 }
 
 /// A field's `\@` date picture: the quoted text after it (switches may follow), or one word.

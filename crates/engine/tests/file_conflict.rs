@@ -36,6 +36,49 @@ fn original(d: &Scratch) -> PathBuf {
 }
 
 #[test]
+fn refreshed_date_fields_keep_the_original_native_file_version() {
+    let d = Scratch::new();
+    let path = d.path("dated.docx");
+    let mut doc = Document::new();
+    let para = doc.para_paths(StoryRef::Body).remove(0);
+    doc.para_mut(StoryRef::Body, &para)
+        .unwrap()
+        .insert_object(
+            0,
+            wordcraft_doc::InlineObject::Field {
+                instr: r#"DATE \@ "yyyy-MM-dd""#.into(),
+                result: "2020-01-01".into(),
+                locked: false,
+                dirty: false,
+                code: false,
+                form: String::new(),
+            },
+            &wordcraft_doc::CharProps::default(),
+        )
+        .unwrap();
+    io::save_path(&path, &doc).unwrap();
+    let original = std::fs::read(&path).unwrap();
+    let mut s = Session::new(Document::new());
+    s.open_path(&path, None).unwrap();
+    let para = s.doc.para_paths(StoryRef::Body).remove(0);
+    let wordcraft_doc::InlineObject::Field { result, .. } = &s.doc.para(StoryRef::Body, &para).unwrap().objects[0] else {
+        panic!("the date field survives native open");
+    };
+    assert_eq!(result, &wordcraft_engine::cmd::insert::format_date("yyyy-MM-dd"));
+    assert_eq!(std::fs::read(&path).unwrap(), original, "refreshing a field does not rewrite its source");
+    s.run("caret.docEnd", &json!({})).unwrap();
+    s.run("text.insert", &json!({"text": " Local edit"})).unwrap();
+    s.run("file.save", &json!({})).unwrap();
+    s.run("document.setText", &json!({"text": "Later local edit"})).unwrap();
+    io::save_path(&path, &Document::from_text("External version")).unwrap();
+    let external = std::fs::read(&path).unwrap();
+    assert!(matches!(s.run("file.save", &json!({})), Err(wordcraft_engine::CmdError::FileConflict(_))));
+    assert!(s.dirty);
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "Later local edit");
+    assert_eq!(std::fs::read(path).unwrap(), external);
+}
+
+#[test]
 fn word2003_save_keeps_format_and_refuses_external_changes() {
     let d = Scratch::new();
     let path = d.path("working.xml");

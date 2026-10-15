@@ -20,8 +20,9 @@ use wordcraft_doc::numbering::{AbstractNum, Level, LevelSuffix, Num};
 use wordcraft_doc::para::NoteKind;
 use wordcraft_doc::para::OBJ;
 use wordcraft_doc::props::Rgb;
+use wordcraft_doc::props::VAlign;
 use wordcraft_doc::section::NumFormat;
-use wordcraft_doc::styles::{Style, StyleKind, StyleSheet, TableStyleParts};
+use wordcraft_doc::styles::{PartFormat, Style, StyleKind, StyleSheet, TablePart, TableStyleParts};
 use wordcraft_doc::{
     Block, Blocks, Comment, Document, InlineObject, PagePicture, Paragraph, PartKind, Revision, RevisionKind, Zoom, ZoomFit, para_block,
 };
@@ -447,8 +448,15 @@ fn toc_field_to_heading(body: &mut Blocks) {
         }
         let Some((field, props, end)) = body[i].as_para().and_then(|p| {
             let (field, end) = match p.object_at(0) {
-                Some(InlineObject::FieldStart { instr, locked }) if is_toc(instr) => (
-                    InlineObject::Field { instr: instr.clone(), result: String::new(), locked: *locked, code: false, form: String::new() },
+                Some(InlineObject::FieldStart { instr, locked, dirty }) if is_toc(instr) => (
+                    InlineObject::Field {
+                        instr: instr.clone(),
+                        result: String::new(),
+                        locked: *locked,
+                        dirty: *dirty,
+                        code: false,
+                        form: String::new(),
+                    },
                     Some(toc_range_end(body, i)?),
                 ),
                 Some(f @ InlineObject::Field { result, .. }) if result.is_empty() && has_toc(f) => (f.clone(), None),
@@ -894,56 +902,38 @@ impl Reader<'_> {
             t.band_size = tp.child_val("w:tblStyleRowBandSize").and_then(u32_of).filter(|n| *n > 0).map(|n| n.min(1000));
         }
         for c in s.children("w:tblStylePr").take(64) {
-            let fill = c.child("w:tcPr").and_then(|p| p.child("w:shd")).and_then(|e| self.pc.shd_fill(e));
-            let cell_borders = c.child("w:tcPr").and_then(|p| p.child("w:tcBorders")).map(props::borders);
-            let chr = c.child("w:rPr").map(|r| self.pc.rpr(r)).unwrap_or_default();
-            match c.attr("w:type") {
-                Some("wholeTable") => {
-                    if let Some(p) = c.child("w:pPr") {
-                        st.para.overlay(&self.pc.ppr(p).0);
-                    }
-                    st.chr.overlay(&chr);
-                    if fill.is_some() {
-                        t.fill = fill;
-                    }
-                    if let Some(b) = c.child("w:tblPr").and_then(|p| p.child("w:tblBorders")) {
-                        t.borders = Some(props::borders(b));
-                    }
+            let Some(part) = c.attr("w:type").and_then(TablePart::from_ooxml) else { continue };
+            let tc = c.child("w:tcPr");
+            let ppr = c.child("w:pPr").map(|p| self.pc.ppr(p).0);
+            let f = PartFormat {
+                chr: c.child("w:rPr").map(|r| self.pc.rpr(r)).unwrap_or_default(),
+                fill: tc.and_then(|p| p.child("w:shd")).and_then(|e| self.pc.shd_fill(e)),
+                borders: tc.and_then(|p| p.child("w:tcBorders")).map(props::borders),
+                align: ppr.as_ref().and_then(|p| p.align),
+                v_align: tc.and_then(|p| p.child_val("w:vAlign")).map(|v| match v {
+                    "center" => VAlign::Center,
+                    "bottom" => VAlign::Bottom,
+                    _ => VAlign::Top,
+                }),
+            };
+            if part == TablePart::WholeTable {
+                // The whole table's paragraph and run properties are the style's own; its
+                // borders the table borders.
+                if let Some(p) = ppr {
+                    st.para.overlay(&p);
                 }
-                Some("firstRow") => {
-                    t.header_fill = fill;
-                    t.header_chr = chr;
-                    t.header_borders = cell_borders;
+                st.chr.overlay(&f.chr);
+                if f.fill.is_some() {
+                    t.fill = f.fill;
                 }
-                Some("band1Horz") => {
-                    t.band_fill = fill;
-                    t.band_chr = chr;
-                    t.band_borders = cell_borders;
+                if let Some(b) = c.child("w:tblPr").and_then(|p| p.child("w:tblBorders")) {
+                    t.borders = Some(props::borders(b));
                 }
-                Some("firstCol") => {
-                    t.first_col_chr = chr;
-                    t.first_col_fill = fill;
-                    t.first_col_borders = cell_borders;
+                if f.v_align.is_some() {
+                    t.regions.insert(part, PartFormat { v_align: f.v_align, ..PartFormat::default() });
                 }
-                Some("lastCol") => {
-                    t.last_col_chr = chr;
-                    t.last_col_fill = fill;
-                    t.last_col_borders = cell_borders;
-                }
-                Some("lastRow") => {
-                    t.total_chr = chr;
-                    t.total_fill = fill;
-                    // The top rule is kept on its own (as built-in styles have it); the other edges
-                    // are the region's borders.
-                    t.total_border_top = cell_borders.and_then(|b| b.top);
-                    t.total_borders = cell_borders.map(|b| wordcraft_doc::props::Borders { top: None, ..b }).filter(|b| *b != Default::default());
-                }
-                Some("band1Vert") => {
-                    t.col_band_fill = fill;
-                    t.col_band_chr = chr;
-                    t.col_band_borders = cell_borders;
-                }
-                _ => {}
+            } else {
+                t.set_part(part, f);
             }
         }
         t

@@ -127,6 +127,14 @@ pub fn can_encrypt(name: &str) -> bool {
     is_word_package(&ext_of(name))
 }
 
+/// Finish a document just read from a file: never leave it empty, and bring its unlocked
+/// `DATE`/`TIME` fields up to now the way Word does on open (see
+/// [`crate::cmd::references::refresh_date_fields`]).
+fn opened(doc: &mut Document) {
+    doc.ensure_nonempty();
+    crate::cmd::references::refresh_date_fields(doc);
+}
+
 /// Parse a document from bytes; `name` gives the format by extension.
 pub fn open_bytes(name: &str, bytes: &[u8]) -> Result<Document, String> {
     open_bytes_with(name, bytes, None).map(|(doc, _)| doc)
@@ -185,7 +193,7 @@ fn read_bytes(name: &str, bytes: &[u8], password: Option<&str>, page: &wordcraft
     let ext = ext_of(name);
     if matches!(ext.as_str(), "docx" | "docm" | "dotx" | "dotm" | "doc" | "dot") && wordcraft_docx::is_encrypted(bytes) {
         let mut doc = wordcraft_docx::read_with_password(bytes, password).map_err(|e| e.to_string())?;
-        doc.ensure_nonempty();
+        opened(&mut doc);
         return Ok((doc, true));
     }
     if ext.is_empty() || signature_contradicts(&ext, bytes) {
@@ -209,7 +217,7 @@ fn read_bytes(name: &str, bytes: &[u8], password: Option<&str>, page: &wordcraft
             None => return open_by_content(name, other, bytes, password, page),
         },
     };
-    doc.ensure_nonempty();
+    opened(&mut doc);
     Ok((doc, false))
 }
 
@@ -300,7 +308,7 @@ fn open_by_content(
     } else {
         return Err(format!("{name}: unsupported format `.{ext}` (not a document or text file)"));
     };
-    doc.ensure_nonempty();
+    opened(&mut doc);
     Ok((doc, encrypted))
 }
 
@@ -373,7 +381,7 @@ pub(crate) fn open_path_versioned_in(
         let html = wordcraft_formats::html::decode(&bytes);
         let mut doc = wordcraft_formats::html::import_on(&html, &|src| images.load(src), &region_page(region));
         fit_pictures(&mut doc);
-        doc.ensure_nonempty();
+        opened(&mut doc);
         return Ok((Some(doc), false, version));
     }
     let (doc, encrypted) = open_bytes_in(&name, &bytes, password, region)?;

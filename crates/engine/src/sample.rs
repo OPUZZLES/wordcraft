@@ -122,7 +122,7 @@ pub fn sample_document() -> Document {
     f.props.align = Some(Align::Center);
     let _ = f.insert_object(
         0,
-        InlineObject::Field { instr: "PAGE".into(), result: "1".into(), locked: false, code: false, form: String::new() },
+        InlineObject::Field { instr: "PAGE".into(), result: "1".into(), locked: false, dirty: false, code: false, form: String::new() },
         &CharProps::default(),
     );
     let fid = d.add_part(PartKind::Footer, vec![para_block(f)]);

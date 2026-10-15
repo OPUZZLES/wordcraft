@@ -443,7 +443,7 @@
 	Multiple Pages	Birden Çok Sayfa
 	Name (A–Z)	Ad (A–Z)
 	Name:	Ad:
-	Narrow  0.5" all	Dar  her kenar 0,5 inç
+	Narrow  {size} all	Dar  her kenar {size}
 	Navigation	Gezinti
 	Navigation Pane	Gezinti Bölmesi
 	New	Yeni
@@ -472,7 +472,7 @@
 	Nonbreaking Space	Bölünemez Boşluk
 	None	Yok
 	Normal	Normal
-	Normal  1" all	Normal  her kenar 1 inç
+	Normal  {size} all	Normal  her kenar {size}
 	Normal Indent	Normal Girintili
 	Normal Style	Normal Stil
 	Normal Table	Normal Tablo
@@ -1811,6 +1811,11 @@ preview	Title	Örnek
 	Add Font…	Yazı Tipi Ekle…
 	Added Fonts	Eklenen Yazı Tipleri
 	Remove Added Font	Eklenen Yazı Tipini Kaldır
+	Load System Installed Fonts…	Yüklü Sistem Yazı Tiplerini Yükle…
+	All system fonts are already available.	Tüm sistem yazı tipleri zaten kullanılabilir.
+	Local font access is not supported by your browser.	Tarayıcınız yerel yazı tipi erişimini desteklemiyor.
+	Local font access was denied.	Yerel yazı tipi erişimi reddedildi.
+	Loaded {count} system fonts.	{count} sistem yazı tipi yüklendi.
 	Print Markup	İşaretlemeyi Yazdır
 	Comments beside each page and tracked changes in PDFs, prints and images; a comment list at the end of web pages, Markdown and text.	PDF'lerde, baskılarda ve görüntülerde her sayfanın yanında açıklamalar ve izlenen değişiklikler; web sayfalarının, Markdown ve metnin sonunda açıklama listesi.
 	Recent Colors	Son Kullanılan Renkler
@@ -2474,6 +2479,16 @@ preview	Title	Örnek
 	AutoFit Column by Double-Clicking	Sütunu Çift Tıklayarak Otomatik Sığdır
 	Region:	Bölge:
 	Automatic ({region})	Otomatik ({region})
+	Odd Banded Rows	Tek Şeritli Satırlar
+	Even Banded Rows	Çift Şeritli Satırlar
+	Odd Banded Columns	Tek Şeritli Sütunlar
+	Even Banded Columns	Çift Şeritli Sütunlar
+	Top Left Cell	Sol Üst Hücre
+	Top Right Cell	Sağ Üst Hücre
+	Bottom Left Cell	Sol Alt Hücre
+	Bottom Right Cell	Sağ Alt Hücre
+	Inside Horizontal Border	İç Yatay Kenarlık
+	Inside Vertical Border	İç Dikey Kenarlık
 	Text of the nearest paragraph with a given style (running headers)	Belirli bir stile sahip en yakın paragrafın metni (değişken üstbilgiler)
 	Style name:	Stil adı:
 # Mail merge: filter and sort recipients (#778)
@@ -2609,3 +2624,14 @@ preview	Title	Örnek
 	Existing File or Web Page	Varolan Dosya veya Web Sayfası
 	Link to:	Bağlantı:
 	Place in This Document	Bu Belgede Bir Yer
+# Table Layout › Sort dialog (#1205)
+	Column {n}	Sütun {n}
+	Header row	Başlık satırı
+	No header row	Başlık satırı yok
+	My list has	Listemde
+# Table Layout › Formula dialog (#1210)
+	Formula:	Formül:
+	Paste function:	İşlev yapıştır:
+# Reading Mode column widths (#1040)
+	Narrow	Dar
+	Medium	Orta

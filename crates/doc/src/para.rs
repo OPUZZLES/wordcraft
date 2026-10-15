@@ -448,6 +448,11 @@ pub enum InlineObject {
         result: String,
         #[serde(default)]
         locked: bool,
+        /// `w:dirty` (ECMA-376 §17.16.5.35): the cached result is stale — another program that
+        /// couldn't compute it set the flag so Word refreshes the field on open. Kept through
+        /// saves; cleared when WordCraft computes a result, like Word's F9.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        dirty: bool,
         /// Shows its code (`{ PAGE }`) instead of its result, the other way round from the
         /// document-wide View › Field Codes setting (`fields.toggleCode`, Shift+F9). A view
         /// toggle: never written to files.
@@ -466,6 +471,9 @@ pub enum InlineObject {
         instr: String,
         #[serde(default)]
         locked: bool,
+        /// `w:dirty` on the begin marker, as [`InlineObject::Field::dirty`].
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        dirty: bool,
     },
     /// The end of the innermost open [`InlineObject::FieldStart`].
     FieldEnd,
@@ -1355,7 +1363,7 @@ mod tests {
         let mut p = Paragraph::with_text("añb€c", CharProps::default());
         p.insert_object(
             3,
-            InlineObject::Field { instr: "PAGE".into(), result: "7".into(), locked: false, code: false, form: String::new() },
+            InlineObject::Field { instr: "PAGE".into(), result: "7".into(), locked: false, dirty: false, code: false, form: String::new() },
             &CharProps::default(),
         )
         .unwrap();
@@ -1429,7 +1437,7 @@ mod tests {
         let mut p = Paragraph::with_text("ab", CharProps::default());
         p.insert_object(
             1,
-            InlineObject::Field { instr: "PAGE".into(), result: "1".into(), locked: false, code: false, form: String::new() },
+            InlineObject::Field { instr: "PAGE".into(), result: "1".into(), locked: false, dirty: false, code: false, form: String::new() },
             &CharProps::default(),
         )
         .unwrap();

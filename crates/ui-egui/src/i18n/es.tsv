@@ -585,7 +585,7 @@
 	Multiple Pages	Varias páginas
 	Name (A–Z)	Nombre (A–Z)
 	Name:	Nombre:
-	Narrow  0.5" all	Estrecho  0,5" en todos
+	Narrow  {size} all	Estrecho  {size} en todos
 	Navigation	Navegación
 	Navigation Pane	Panel de navegación
 	New	Nuevo
@@ -614,7 +614,7 @@
 	Nonbreaking Hyphen	Guion no separable
 	Nonbreaking Space	Espacio de no separación
 	None	Ninguno
-	Normal  1" all	Normal  1" en todos
+	Normal  {size} all	Normal  {size} en todos
 	Normal Style	Estilo normal
 	Not available right now	No disponible por ahora
 	Not saved	Sin guardar
@@ -1601,6 +1601,11 @@
 	Add Font…	Agregar fuente…
 	Added Fonts	Fuentes agregadas
 	Remove Added Font	Quitar fuente agregada
+	Load System Installed Fonts…	Cargar fuentes del sistema instaladas…
+	All system fonts are already available.	Todas las fuentes del sistema ya están disponibles.
+	Local font access is not supported by your browser.	Su navegador no admite el acceso a fuentes locales.
+	Local font access was denied.	Se denegó el acceso a las fuentes locales.
+	Loaded {count} system fonts.	Se cargaron {count} fuentes del sistema.
 	Recent Colors	Colores recientes
 	More Colors…	Más colores…
 	Standard	Estándar
@@ -2458,6 +2463,16 @@ preview	Title	Título
 	Other Large Operators	Otros operadores grandes
 	Region:	Región:
 	Automatic ({region})	Automático ({region})
+	Odd Banded Rows	Filas impares con bandas
+	Even Banded Rows	Filas pares con bandas
+	Odd Banded Columns	Columnas impares con bandas
+	Even Banded Columns	Columnas pares con bandas
+	Top Left Cell	Celda superior izquierda
+	Top Right Cell	Celda superior derecha
+	Bottom Left Cell	Celda inferior izquierda
+	Bottom Right Cell	Celda inferior derecha
+	Inside Horizontal Border	Borde horizontal interior
+	Inside Vertical Border	Borde vertical interior
 	Text of the nearest paragraph with a given style (running headers)	Texto del párrafo más cercano con un estilo dado (encabezados variables)
 	Style name:	Nombre del estilo:
 # Mail merge: filter and sort recipients (#778)
@@ -2579,3 +2594,14 @@ preview	Title	Título
 	Existing File or Web Page	Archivo o página web existente
 	Link to:	Vincular a:
 	Place in This Document	Lugar de este documento
+# Table Layout › Sort dialog (#1205)
+	Column {n}	Columna {n}
+	Header row	Fila de encabezado
+	No header row	Sin fila de encabezado
+	My list has	Mi lista tiene
+# Table Layout › Formula dialog (#1210)
+	Formula:	Fórmula:
+	Paste function:	Pegar función:
+# Reading Mode column widths (#1040)
+	Narrow	Estrecha
+	Medium	Media

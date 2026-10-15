@@ -727,8 +727,9 @@ fn backspace_inner(s: &mut Session, _: &Value) -> CmdResult {
             s.sel = Selection::caret(at);
         }
         Some(Block::Table(_)) => {
-            // Move into the table's last cell.
-            let last = s.doc.para_paths(f.story).into_iter().rfind(|q| q.0.first() == prev_path.0.first() && q.0.len() > 1);
+            // Move into the table's last cell. The table is matched by its whole path: a table
+            // nested in a cell shares only its first index with the table around it.
+            let last = s.doc.para_paths(f.story).into_iter().rfind(|q| q.0.len() > prev_path.0.len() && q.0.starts_with(&prev_path.0));
             if let Some(q) = last {
                 let off = s.doc.para(f.story, &q).map(|x| x.len()).unwrap_or(0);
                 if s.doc.para_at(&f).is_some_and(|x| x.is_empty()) && s.doc.container(f.story, &f.path).is_some_and(|c| c.len() > i + 1) {

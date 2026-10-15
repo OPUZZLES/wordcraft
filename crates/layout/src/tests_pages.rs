@@ -264,7 +264,8 @@ fn caret_in_a_continued_footnote_is_found_on_its_page() {
 /// own pages). The footer shows each letter's last page, not the file's stale result.
 #[test]
 fn page_references_in_footers_show_their_bookmarks_page() {
-    let field = |instr: &str| InlineObject::Field { instr: instr.into(), result: "9".into(), locked: false, code: false, form: String::new() };
+    let field =
+        |instr: &str| InlineObject::Field { instr: instr.into(), result: "9".into(), locked: false, dirty: false, code: false, form: String::new() };
     let footer = |d: &mut Document, mark: &str| {
         let mut p = Paragraph::with_text("Page  of ", Default::default());
         p.insert_object(5, field("PAGE"), &Default::default()).unwrap();
@@ -355,7 +356,14 @@ fn page_ref_footer(d: &mut Document, marks: &[&str]) -> u32 {
     let mut p = Paragraph::new();
     for mark in marks {
         let n = p.len();
-        let field = InlineObject::Field { instr: format!("PAGEREF {mark}"), result: "9".into(), locked: false, code: false, form: String::new() };
+        let field = InlineObject::Field {
+            instr: format!("PAGEREF {mark}"),
+            result: "9".into(),
+            locked: false,
+            dirty: false,
+            code: false,
+            form: String::new(),
+        };
         p.insert_object(n, field, &Default::default()).unwrap();
     }
     let id = d.add_part(PartKind::Footer, vec![para_block(p)]);
@@ -418,7 +426,8 @@ fn page_references_in_footer_text_boxes_are_resolved() {
     use wordcraft_doc::para::{Float, ShapeKind, Wrap};
     let text_box = |d: &mut Document| {
         let mut p = Paragraph::new();
-        let field = InlineObject::Field { instr: "PAGEREF End".into(), result: "9".into(), locked: false, code: false, form: String::new() };
+        let field =
+            InlineObject::Field { instr: "PAGEREF End".into(), result: "9".into(), locked: false, dirty: false, code: false, form: String::new() };
         p.insert_object(0, field, &Default::default()).unwrap();
         let story = d.add_part(PartKind::TextBox, vec![para_block(p)]);
         InlineObject::Shape {

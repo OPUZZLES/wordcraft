@@ -578,9 +578,10 @@ fn tcpr_inner(w: &mut W, c: &CellProps) {
         w.val("w:textDirection", c.text_direction.ooxml());
     }
     match c.valign {
-        VAlign::Top => {}
-        VAlign::Center => w.val("w:vAlign", "center"),
-        VAlign::Bottom => w.val("w:vAlign", "bottom"),
+        None => {}
+        Some(VAlign::Top) => w.val("w:vAlign", "top"),
+        Some(VAlign::Center) => w.val("w:vAlign", "center"),
+        Some(VAlign::Bottom) => w.val("w:vAlign", "bottom"),
     }
     if c.hide_mark {
         w.empty("w:hideMark", &[]);

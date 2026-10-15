@@ -571,7 +571,7 @@
 	Multiple Pages	多頁
 	Name (A–Z)	名稱（A–Z）
 	Name:	名稱：
-	Narrow  0.5" all	窄  四周 0.5"
+	Narrow  {size} all	窄  四周 {size}
 	Navigation	導覽
 	Navigation Pane	功能窗格
 	New	新增
@@ -598,7 +598,7 @@
 	Nonbreaking Hyphen	不分行連字號
 	Nonbreaking Space	不分行空格
 	None	無
-	Normal  1" all	一般  四周 1"
+	Normal  {size} all	一般  四周 {size}
 	Normal Style	內文樣式
 	Not available right now	目前無法使用
 	Not saved	未儲存
@@ -1562,6 +1562,11 @@
 	Add Font…	新增字型…
 	Added Fonts	已新增的字型
 	Remove Added Font	移除已新增的字型
+	Load System Installed Fonts…	載入系統已安裝字型…
+	All system fonts are already available.	所有系統字型已可用。
+	Local font access is not supported by your browser.	您的瀏覽器不支援存取本機字型。
+	Local font access was denied.	本機字型存取遭到拒絕。
+	Loaded {count} system fonts.	已載入 {count} 個系統字型。
 	Recent Colors	最近使用的色彩
 	More Colors…	其他色彩…
 	Standard	標準
@@ -2093,6 +2098,16 @@
 	AutoFit Column by Double-Clicking	按兩下自動調整欄寬
 	Region:	地區：
 	Automatic ({region})	自動（{region}）
+	Odd Banded Rows	奇數帶狀列
+	Even Banded Rows	偶數帶狀列
+	Odd Banded Columns	奇數帶狀欄
+	Even Banded Columns	偶數帶狀欄
+	Top Left Cell	左上儲存格
+	Top Right Cell	右上儲存格
+	Bottom Left Cell	左下儲存格
+	Bottom Right Cell	右下儲存格
+	Inside Horizontal Border	內部水平框線
+	Inside Vertical Border	內部垂直框線
 	Text of the nearest paragraph with a given style (running headers)	具有指定樣式的最近段落文字（書眉）
 	Style name:	樣式名稱：
 # Mail merge: filter and sort recipients (#778)
@@ -2214,3 +2229,14 @@
 	Existing File or Web Page	現有的檔案或網頁
 	Link to:	連結至:
 	Place in This Document	這份文件中的位置
+# Table Layout › Sort dialog (#1205)
+	Column {n}	欄 {n}
+	Header row	有標題列
+	No header row	無標題列
+	My list has	清單包含
+# Table Layout › Formula dialog (#1210)
+	Formula:	公式：
+	Paste function:	貼上函數：
+# Reading Mode column widths (#1040)
+	Narrow	窄
+	Medium	中等

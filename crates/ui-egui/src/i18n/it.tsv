@@ -513,7 +513,7 @@
 	Multiple Pages	Più pagine
 	Name (A–Z)	Nome (A–Z)
 	Name:	Nome:
-	Narrow  0.5" all	Stretto  0,5" ovunque
+	Narrow  {size} all	Stretto  {size} ovunque
 	Navigation	Navigazione
 	Navigation Pane	Riquadro di spostamento
 	New	Nuovo
@@ -541,7 +541,7 @@
 	Nonbreaking Hyphen	Trattino unificatore
 	Nonbreaking Space	Spazio unificatore
 	None	Nessuno
-	Normal  1" all	Normale  1" ovunque
+	Normal  {size} all	Normale  {size} ovunque
 	Normal Style	Stile normale
 	Not available right now	Non disponibile al momento
 	Not saved	Non salvato
@@ -1632,6 +1632,11 @@
 	Add Font…	Aggiungi carattere…
 	Added Fonts	Caratteri aggiunti
 	Remove Added Font	Rimuovi carattere aggiunto
+	Load System Installed Fonts…	Carica caratteri di sistema installati…
+	All system fonts are already available.	Tutti i caratteri di sistema sono già disponibili.
+	Local font access is not supported by your browser.	L'accesso ai caratteri locali non è supportato dal browser.
+	Local font access was denied.	L'accesso ai caratteri locali è stato negato.
+	Loaded {count} system fonts.	Caricati {count} caratteri di sistema.
 	Recent Colors	Colori recenti
 	More Colors…	Altri colori…
 	Standard	Standard
@@ -2460,6 +2465,16 @@ preview	Title	Esempio
 	Hindi	Hindi
 	Context	Contesto
 	System	Sistema
+	Odd Banded Rows	Righe alternate dispari
+	Even Banded Rows	Righe alternate pari
+	Odd Banded Columns	Colonne alternate dispari
+	Even Banded Columns	Colonne alternate pari
+	Top Left Cell	Cella in alto a sinistra
+	Top Right Cell	Cella in alto a destra
+	Bottom Left Cell	Cella in basso a sinistra
+	Bottom Right Cell	Cella in basso a destra
+	Inside Horizontal Border	Bordo orizzontale interno
+	Inside Vertical Border	Bordo verticale interno
 # Mail merge: filter and sort recipients (#778)
 	Filter Recipients	Filtra destinatari
 	Sort Recipients	Ordina destinatari
@@ -2622,3 +2637,14 @@ preview	Title	Esempio
 	Existing File or Web Page	File o pagina Web esistente
 	Link to:	Collega a:
 	Place in This Document	Posizione nel documento
+# Table Layout › Sort dialog (#1205)
+	Column {n}	Colonna {n}
+	Header row	Riga di intestazione
+	No header row	Nessuna riga di intestazione
+	My list has	L’elenco ha
+# Table Layout › Formula dialog (#1210)
+	Formula:	Formula:
+	Paste function:	Incolla funzione:
+# Reading Mode column widths (#1040)
+	Narrow	Stretta
+	Medium	Media

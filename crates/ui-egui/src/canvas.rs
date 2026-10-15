@@ -159,6 +159,10 @@ pub struct CanvasState {
     pub(crate) a11y: crate::a11y::A11yCache,
     /// A press on a table's selection area or move handle, held (`table_mouse`).
     pub(crate) table_drag: Option<crate::table_mouse::TableDrag>,
+    /// The kind of tab stop a click on the ruler sets (the selector in the rulers' corner).
+    pub tab_kind: wordcraft_doc::props::TabAlign,
+    /// A tab stop being placed or dragged on the ruler (`ruler_tabs`).
+    pub(crate) tab_drag: Option<crate::ruler_tabs::TabDrag>,
 }
 
 impl CanvasState {
@@ -245,6 +249,8 @@ impl Default for CanvasState {
             link_from: None,
             a11y: Default::default(),
             table_drag: None,
+            tab_kind: Default::default(),
+            tab_drag: None,
         }
     }
 }
@@ -1389,7 +1395,13 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                 );
                 if !new.is_empty() {
                     app.canvas.ime_faces.extend(new);
-                    crate::theme::install_fonts_extra(ui.ctx(), app.fonts_hans, app.fonts_system_cjk, &app.canvas.ime_faces);
+                    crate::theme::install_fonts_language_extra(
+                        ui.ctx(),
+                        app.fonts_hans,
+                        app.fonts_korean,
+                        app.fonts_system_cjk,
+                        &app.canvas.ime_faces,
+                    );
                     ui.ctx().request_repaint();
                 }
                 let caret_color = caret_color(app);
@@ -1742,14 +1754,14 @@ fn balloons(app: &mut WordApp, ui: &mut Ui, painter: &egui::Painter, rects: &[Re
                 Rect::from_min_size(pos2(x0, top), vec2(w, app.canvas.balloon_h.max(24.0)))
             } else {
                 let dim = |r: bool| if r { t.text_dim } else { t.text };
-                lines.push((painter.layout(author, semibold(fs), t.text, w - 16.0), 0.0));
+                lines.push((balloon_text(painter, author, semibold(fs), t.text, w - 16.0), 0.0));
                 let body = app.session.doc.plain_text(StoryRef::Part(c.part));
-                lines.push((painter.layout(body.trim().to_string(), regular(fs), dim(resolved), w - 16.0), 4.0));
+                lines.push((balloon_text(painter, body.trim().to_string(), regular(fs), dim(resolved), w - 16.0), 4.0));
                 for rid in &thread {
                     let Some(r) = app.session.doc.comments.get(rid) else { continue };
-                    lines.push((painter.layout(author_name(&r.author), semibold(fs), t.text, w - 16.0), 9.0));
+                    lines.push((balloon_text(painter, author_name(&r.author), semibold(fs), t.text, w - 16.0), 9.0));
                     let text = app.session.doc.plain_text(StoryRef::Part(r.part));
-                    lines.push((painter.layout(text.trim().to_string(), regular(fs), dim(resolved), w - 16.0), 4.0));
+                    lines.push((balloon_text(painter, text.trim().to_string(), regular(fs), dim(resolved), w - 16.0), 4.0));
                 }
                 let h = lines.iter().map(|(g, gap)| g.size().y + gap).sum::<f32>() + 12.0;
                 Rect::from_min_size(pos2(x0, top), vec2(w, h))
@@ -1826,6 +1838,108 @@ fn card_shapes(painter: &egui::Painter, t: &Tokens, card: Rect, color: Color32, 
             painter.extend(shapes);
         }
     }
+}
+
+/// Does `text` hold right-to-left letters (Arabic, Hebrew, Syriac, Thaana, N'Ko …)?
+fn has_rtl(text: &str) -> bool {
+    text.chars().any(|c| matches!(unicode_bidi::bidi_class(c), unicode_bidi::BidiClass::R | unicode_bidi::BidiClass::AL))
+}
+
+/// The row `line` of paragraph `p` of `para` in display order, for egui: the bidi runs left to
+/// right as they are shown, and inside a right-to-left run its words reversed. The letters of each
+/// word stay in logical order, because egui's shaper already runs an Arabic word right to left.
+fn visual_row(info: &unicode_bidi::BidiInfo, p: &unicode_bidi::ParagraphInfo, para: &str, line: std::ops::Range<usize>) -> String {
+    // `visual_runs` indexes the line's first byte: an empty line (an empty last row) would panic.
+    if line.start >= line.end || line.end > p.range.end {
+        return String::new();
+    }
+    let (levels, runs) = info.visual_runs(p, line);
+    let mut out = String::new();
+    for run in runs {
+        let rtl = levels.get(run.start).is_some_and(|l| l.is_rtl());
+        // Runs lie on character boundaries; a missing slice is skipped, never a panic.
+        let Some(piece) = para.get(run) else { continue };
+        if rtl {
+            let mut words: Vec<&str> = piece.split_inclusive(char::is_whitespace).collect();
+            words.reverse();
+            for w in words {
+                // The space that followed a word now goes before it.
+                let word = w.trim_end_matches(char::is_whitespace);
+                out.push_str(w.get(word.len()..).unwrap_or_default());
+                out.extend(word.chars().map(mirrored));
+            }
+        } else {
+            out.push_str(piece);
+        }
+    }
+    out
+}
+
+/// `c` as drawn in a right-to-left run: brackets face the other way (Unicode's Bidi_Mirrored
+/// pairs that interface text uses), since egui draws the character it is given.
+fn mirrored(c: char) -> char {
+    match c {
+        '(' => ')',
+        ')' => '(',
+        '[' => ']',
+        ']' => '[',
+        '{' => '}',
+        '}' => '{',
+        '<' => '>',
+        '>' => '<',
+        '«' => '»',
+        '»' => '«',
+        '‹' => '›',
+        '›' => '‹',
+        _ => c,
+    }
+}
+
+/// A read-only balloon's text, wrapped to `width`. egui joins Arabic letters but places them left
+/// to right, so a right-to-left comment read its words backwards. Each wrapped row is put into
+/// display order (Unicode bidi, per paragraph) and a right-to-left paragraph's rows are set against
+/// the right edge. Text without right-to-left letters is laid out exactly as before.
+fn balloon_text(painter: &egui::Painter, text: String, font: egui::FontId, color: Color32, width: f32) -> std::sync::Arc<egui::Galley> {
+    if !has_rtl(&text) {
+        return painter.layout(text, font, color, width);
+    }
+    let format = egui::TextFormat::simple(font.clone(), color);
+    let mut job = egui::text::LayoutJob::default();
+    let mut rows: Vec<(String, bool)> = Vec::new();
+    for para in text.split('\n') {
+        let info = unicode_bidi::BidiInfo::new(para, None);
+        if info.paragraphs.is_empty() {
+            rows.push((String::new(), false));
+        }
+        for p in &info.paragraphs {
+            let rtl = p.level.is_rtl();
+            // Wrap in logical order at spaces, by the words' widths (the order doesn't change a word's
+            // width), then put each row in display order. egui's own rows can't be used: it draws a
+            // lam-alef pair as one glyph, so its glyph count isn't the character count.
+            let mut start = p.range.start;
+            let mut end = start;
+            let mut used = 0.0;
+            for word in para.get(p.range.clone()).unwrap_or_default().split_inclusive(char::is_whitespace) {
+                let w = painter.layout_no_wrap(word.trim_end().to_string(), font.clone(), color).size().x;
+                let gap = painter.layout_no_wrap(word.get(word.trim_end().len()..).unwrap_or_default().to_string(), font.clone(), color).size().x;
+                if end > start && used + w > width {
+                    rows.push((visual_row(&info, p, para, start..end).trim().to_string(), rtl));
+                    start = end;
+                    used = 0.0;
+                }
+                used += w + gap;
+                end += word.len();
+            }
+            rows.push((visual_row(&info, p, para, start..end).trim().to_string(), rtl));
+        }
+    }
+    let last = rows.len().saturating_sub(1);
+    for (i, (row, rtl)) in rows.into_iter().enumerate() {
+        let lead = if rtl { (width - painter.layout_no_wrap(row.clone(), font.clone(), color).size().x).max(0.0) } else { 0.0 };
+        let row = if i < last { row + "\n" } else { row };
+        job.append(&row, lead, format.clone());
+    }
+    painter.layout_job(job)
 }
 
 /// The selected balloon: the comment and its replies as editable fields (each edit is one undo
@@ -2276,9 +2390,11 @@ fn mouse(app: &mut WordApp, ui: &Ui, resp: &egui::Response, rects: &[Rect], layo
 fn rulers(app: &mut WordApp, ui: &mut Ui, h: Rect, v: Rect, rects: &[Rect], layout: &DocLayout, scale: f32) {
     let t = Tokens::get(ui.ctx());
     let p = ui.painter();
-    p.rect_filled(Rect::from_min_max(pos2(v.min.x, h.min.y), pos2(v.max.x, h.max.y)), 0.0, t.canvas);
+    let corner = Rect::from_min_max(pos2(v.min.x, h.min.y), pos2(v.max.x, h.max.y));
+    p.rect_filled(corner, 0.0, t.canvas);
     p.rect_filled(h, 0.0, t.canvas);
     p.rect_filled(v, 0.0, t.canvas);
+    crate::ruler_tabs::selector(app, ui, corner);
     let pi = app.session.page_hint.min(layout.pages.len().saturating_sub(1));
     let (Some(page), Some(pr)) = (layout.pages.get(pi), rects.get(pi)) else { return };
     let scale = page_screen_scale(*pr, page, scale);
@@ -2321,9 +2437,6 @@ fn rulers(app: &mut WordApp, ui: &mut Ui, h: Rect, v: Rect, rects: &[Rect], layo
     ] {
         margin_handle(app, ui, edge, zone, |p| (p.x - x0) / scale, &sect);
     }
-    // In a table, its column borders; registered before the indent markers, which keep the
-    // pointer where they overlap.
-    crate::table_ruler::columns(app, ui, layout, pi, bar, x0, scale);
     // Indent markers for the caret's paragraph (relative to its column, or in a table to the
     // cell's text).
     let (col_x, w) = crate::table_ruler::text_area(app, layout, pi).unwrap_or((page.body.x, page.body.w));
@@ -2360,23 +2473,18 @@ fn rulers(app: &mut WordApp, ui: &mut Ui, h: Rect, v: Rect, rects: &[Rect], layo
             t.ruler,
             Stroke::new(1.0, c),
         ));
-        let mut open_tabs = false;
-        for (i, tab) in rp.tabs.iter().enumerate() {
-            let tx = px(tab.pos);
-            let foot = if rtl { -4.0 } else { 4.0 };
-            hp.line_segment([pos2(tx, bar.max.y - 6.0), pos2(tx, bar.max.y - 1.0)], Stroke::new(1.5, t.text));
-            hp.line_segment([pos2(tx, bar.max.y - 1.0), pos2(tx + foot, bar.max.y - 1.0)], Stroke::new(1.5, t.text));
-            // Double-clicking a tab marker opens the Tabs dialog (#320).
-            let zone = Rect::from_center_size(pos2(tx, bar.max.y - 4.0), vec2(8.0, 9.0));
-            open_tabs |= ui.interact(zone, ui.id().with(("ruler_tab", i)), Sense::click()).double_clicked();
-        }
-        if open_tabs {
-            let _ = app.run("para.tabs", json!({}));
-        }
+        // Tab stops: drawn and registered before the indent markers' drags, which win where they overlap.
+        let step = unit / div as f32 / 2.0;
+        let ruler = crate::ruler_tabs::Ruler { bar, text, width: w, step, rtl, x_of: &px, dist_at: &dist_at };
+        crate::ruler_tabs::stops(app, ui, &hp, &ruler, &rp.tabs);
+        // In a table, its column borders: registered after the tab stops (whose set-a-stop zone
+        // spans the text area, so a border marker keeps its drag) and before the indent markers,
+        // which keep the pointer where they overlap.
+        crate::table_ruler::columns(app, ui, layout, pi, bar, x0, scale);
         // Dragging the left-indent marker.
         let id = ui.id().with("ruler_left");
         let mr = Rect::from_center_size(pos2(left, bar.max.y - 3.0), vec2(12.0, 12.0));
-        let r = ui.interact(mr, id, Sense::drag());
+        let r = ui.interact(mr, id, Sense::click_and_drag());
         if r.dragged()
             && let Some(pp) = r.interact_pointer_pos()
         {
@@ -2388,7 +2496,7 @@ fn rulers(app: &mut WordApp, ui: &mut Ui, h: Rect, v: Rect, rects: &[Rect], layo
             let _ = app.run("para.indents", json!({"left": snapped}));
         }
         let fr = Rect::from_center_size(pos2(first, bar.min.y + 3.0), vec2(12.0, 10.0));
-        let r = ui.interact(fr, ui.id().with("ruler_first"), Sense::drag());
+        let r = ui.interact(fr, ui.id().with("ruler_first"), Sense::click_and_drag());
         if r.dragged()
             && let Some(pp) = r.interact_pointer_pos()
         {
@@ -2399,7 +2507,7 @@ fn rulers(app: &mut WordApp, ui: &mut Ui, h: Rect, v: Rect, rects: &[Rect], layo
             let _ = app.run("para.indents", json!({"firstLine": (pt / 4.5).round() * 4.5}));
         }
         let rr = Rect::from_center_size(pos2(right, bar.max.y - 3.0), vec2(12.0, 12.0));
-        let r = ui.interact(rr, ui.id().with("ruler_right"), Sense::drag());
+        let r = ui.interact(rr, ui.id().with("ruler_right"), Sense::click_and_drag());
         if r.dragged()
             && let Some(pp) = r.interact_pointer_pos()
         {
@@ -3449,6 +3557,71 @@ mod tests {
 
     /// #167: a comment balloon edits in place like Word's: click it, type, leave it, and the
     /// comment has the new text as one undo step.
+    /// Lays `text` out as a read-only balloon does, with a document face that covers Arabic, and
+    /// returns each glyph's character and left edge.
+    fn balloon_glyphs(text: &str, width: f32) -> Option<Vec<(char, f32)>> {
+        let face = wordcraft_fonts::FontDb::global().fallback_for('ش', u32::MAX)?;
+        let ctx = egui::Context::default();
+        let mut fonts = crate::theme::font_definitions(false, false);
+        crate::theme::add_fallback_faces(&mut fonts, &[face]);
+        ctx.set_fonts(fonts);
+        ctx.run_ui(egui::RawInput::default(), |_| {}).drop_without_applying_deltas();
+        let mut out = Vec::new();
+        ctx.run_ui(egui::RawInput::default(), |ui| {
+            let g = balloon_text(ui.painter(), text.to_string(), egui::FontId::proportional(14.0), Color32::BLACK, width);
+            for r in &g.rows {
+                out.extend(r.row.glyphs.iter().map(|gl| (gl.chr, r.pos.x + gl.pos.x)));
+            }
+        })
+        .drop_without_applying_deltas();
+        Some(out)
+    }
+
+    /// Where egui draws a right-to-left balloon's words, measured: the first word on the right.
+    #[test]
+    fn a_right_to_left_balloon_reads_from_the_right() {
+        let x = |g: &[(char, f32)], c: char| g.iter().find(|(ch, _)| *ch == c).map(|(_, x)| *x).unwrap();
+        let Some(g) = balloon_glyphs("شركة اي", 400.0) else { return };
+        assert!(x(&g, 'ش') > x(&g, 'ي'), "the first word is right of the second: {g:?}");
+        assert!(x(&g, 'ش') > 300.0, "the line is set against the right edge: {g:?}");
+        // A Latin word inside keeps its letters left to right; its brackets face it.
+        let g = balloon_glyphs("الربط (APIs) هنا", 400.0).unwrap();
+        assert!(x(&g, 'A') < x(&g, 's'));
+        assert!(x(&g, 'ط') > x(&g, 'A') && x(&g, 'A') > x(&g, 'ه'), "{g:?}");
+        // The opening bracket, on the right in Arabic, is drawn mirrored: `(APIs)` on screen.
+        assert!(x(&g, '(') < x(&g, 'A') && x(&g, ')') > x(&g, 's'), "brackets face the word: {g:?}");
+        // A paragraph that starts in Latin runs left to right.
+        let g = balloon_glyphs("@Ahmed برجاء مراجعة", 400.0).unwrap();
+        assert!(x(&g, '@') < x(&g, 'ب') && x(&g, '@') < 50.0, "{g:?}");
+        assert!(x(&g, 'ب') > x(&g, 'م'), "the Arabic words still read from the right: {g:?}");
+        // Wrapped rows stay inside the width.
+        let long = "بيان الأنظمة المطلوب ربطها ومتطلبات التكامل وواجهات الربط البرمجي وآلية تبادل البيانات";
+        let g = balloon_glyphs(long, 200.0).unwrap();
+        assert!(g.iter().all(|(_, x)| *x <= 200.0), "{g:?}");
+    }
+
+    #[test]
+    fn balloon_rows_put_right_to_left_words_in_display_order() {
+        let row = |text: &str| {
+            let info = unicode_bidi::BidiInfo::new(text, None);
+            let p = info.paragraphs.first().unwrap();
+            visual_row(&info, p, text, p.range.clone())
+        };
+        // Words swap, each word's letters stay as they are (egui shapes the word).
+        assert_eq!(row("شركة اي للكهرباء"), "للكهرباء اي شركة");
+        // A Latin name and a number inside Arabic keep their own order.
+        assert_eq!(row("يجب ربط Odoo 19 هنا"), "هنا Odoo 19 ربط يجب");
+        assert_eq!(row("Should include Meters system API"), "Should include Meters system API");
+        assert!(!has_rtl("Should include Meters system API"));
+        assert!(has_rtl("נא לבדוק"));
+        // An empty row at the end of the text (egui's last row after a wrap) is empty, not a panic.
+        let text = "شركة اي";
+        let info = unicode_bidi::BidiInfo::new(text, None);
+        let p = info.paragraphs.first().unwrap();
+        assert_eq!(visual_row(&info, p, text, text.len()..text.len()), "");
+        assert_eq!(visual_row(&info, p, text, 0..text.len() + 5), "");
+    }
+
     #[test]
     fn a_balloon_edits_its_comment() {
         let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
@@ -4345,6 +4518,200 @@ mod tests {
         assert!(after1 > centre && after1 > after2, "right to left: the numbers rise away from the right margin");
         assert!((after1 - (2.0 * centre - before1)).abs() < 1.0, "1 mirrors about the page centre: {before1} → {after1}");
         assert!((after2 - (2.0 * centre - before2)).abs() < 1.0, "2 mirrors about the page centre: {before2} → {after2}");
+    }
+
+    /// Ruler tab gestures are safe: a click on an indent marker places nothing, only the
+    /// primary button places or moves stops, Escape cancels a drag, and a drag whose paragraph
+    /// the caret leaves is abandoned instead of applied there.
+    #[test]
+    fn ruler_tab_gestures_are_primary_only_and_cancellable() {
+        use egui::{Event, Key, PointerButton};
+        use wordcraft_doc::props::TabAlign;
+        let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
+        a.run("text.insert", json!({"text": "Name\tScore\rSecond"})).unwrap();
+        a.run("view.ruler", json!({"value": true})).unwrap();
+        a.run("view.commentsPane", json!({"value": false})).unwrap();
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).with_step_dt(1.0 / 60.0).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        for _ in 0..6 {
+            h.step();
+        }
+        let area = h.state().canvas.canvas_rect.expect("the canvas is laid out");
+        let ruler_x = |h: &mut egui_kittest::Harness<'_, WordApp>, d: f32| {
+            let body_x = h.state_mut().session.layout().pages[0].body.x;
+            page_to_screen(h.state_mut(), 0, body_x + d, 0.0).expect("on screen").x
+        };
+        let on_ruler = |h: &mut egui_kittest::Harness<'_, WordApp>, d: f32| pos2(ruler_x(h, d), area.min.y - 7.0);
+        let button = |at: Pos2, b: PointerButton, pressed: bool| Event::PointerButton { pos: at, button: b, pressed, modifiers: Default::default() };
+        let drag_events = |h: &mut egui_kittest::Harness<'_, WordApp>, from: Pos2, to: Pos2, b: PointerButton| {
+            h.event(Event::PointerMoved(from));
+            h.event(button(from, b, true));
+            h.step();
+            for k in 1..=4 {
+                h.event(Event::PointerMoved(from + (to - from) * (k as f32 / 4.0)));
+                h.step();
+            }
+            h.event(button(to, b, false));
+            for _ in 0..3 {
+                h.step();
+            }
+        };
+        let stops_of = |h: &egui_kittest::Harness<'_, WordApp>, block: usize| {
+            let s = &h.state().session;
+            let para = s.doc.para_at(&Pos::body(block, 0)).expect("a paragraph");
+            s.doc.styles.resolve_para(&para.props).tabs.iter().map(|t| (t.pos, t.align)).collect::<Vec<_>>()
+        };
+
+        // A plain click on the left-indent marker (at the paragraph's start edge) places nothing.
+        let marker = pos2(ruler_x(&mut h, 0.0), area.min.y - 6.0);
+        h.event(Event::PointerMoved(marker));
+        h.event(button(marker, PointerButton::Primary, true));
+        h.step();
+        h.event(button(marker, PointerButton::Primary, false));
+        for _ in 0..3 {
+            h.step();
+        }
+        assert!(stops_of(&h, 1).is_empty(), "an indent-marker click placed a stop: {:?}", stops_of(&h, 1));
+
+        // A right-button drag across the ruler places nothing.
+        let (from, to) = (on_ruler(&mut h, 72.0), on_ruler(&mut h, 144.0));
+        drag_events(&mut h, from, to, PointerButton::Secondary);
+        assert!(stops_of(&h, 1).is_empty(), "a right-drag placed a stop: {:?}", stops_of(&h, 1));
+
+        // Set a stop at 2" the intended way, then prove Escape cancels a move.
+        let at = on_ruler(&mut h, 144.0);
+        h.event(Event::PointerMoved(at));
+        h.event(button(at, PointerButton::Primary, true));
+        h.step();
+        h.event(button(at, PointerButton::Primary, false));
+        for _ in 0..32 {
+            h.step();
+        }
+        assert_eq!(stops_of(&h, 1), vec![(144.0, TabAlign::Left)]);
+        let (from, to) = (on_ruler(&mut h, 144.0), on_ruler(&mut h, 216.0));
+        h.event(Event::PointerMoved(from));
+        h.event(button(from, PointerButton::Primary, true));
+        h.step();
+        h.event(Event::PointerMoved(from + (to - from) * 0.5));
+        h.step();
+        h.event(Event::Key { key: Key::Escape, physical_key: None, pressed: true, repeat: false, modifiers: Default::default() });
+        h.step();
+        h.event(button(to, PointerButton::Primary, false));
+        for _ in 0..32 {
+            h.step();
+        }
+        assert_eq!(stops_of(&h, 1), vec![(144.0, TabAlign::Left)], "Escape left the stop where it was");
+
+        // A drag abandoned by moving the caret to another paragraph applies nowhere.
+        let (from, to) = (on_ruler(&mut h, 144.0), on_ruler(&mut h, 216.0));
+        h.event(Event::PointerMoved(from));
+        h.event(button(from, PointerButton::Primary, true));
+        h.step();
+        h.event(Event::PointerMoved(from + (to - from) * 0.5));
+        h.step();
+        h.state_mut().run("caret.docStart", json!({})).unwrap();
+        h.step();
+        h.event(button(to, PointerButton::Primary, false));
+        for _ in 0..3 {
+            h.step();
+        }
+        assert_eq!(stops_of(&h, 1), vec![(144.0, TabAlign::Left)], "the old paragraph keeps its stop");
+        assert!(stops_of(&h, 0).is_empty(), "the caret's new paragraph gained nothing: {:?}", stops_of(&h, 0));
+    }
+
+    /// Tab stops on the ruler: the corner selector picks the kind, a click sets a stop, dragging
+    /// moves it, dragging it off clears it, and each gesture is one undo step.
+    #[test]
+    fn ruler_tab_stops_are_set_moved_and_cleared_with_the_pointer() {
+        use egui::{Event, PointerButton};
+        use wordcraft_doc::props::TabAlign;
+        let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
+        a.run("text.insert", json!({"text": "Name\tScore"})).unwrap();
+        a.run("view.ruler", json!({"value": true})).unwrap();
+        a.run("view.commentsPane", json!({"value": false})).unwrap();
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).with_step_dt(1.0 / 60.0).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        for _ in 0..6 {
+            h.step();
+        }
+        let area = h.state().canvas.canvas_rect.expect("the canvas is laid out");
+        // The middle of the ruler's strip, over a point `d` points from the paragraph's start.
+        let on_ruler = |h: &mut egui_kittest::Harness<'_, WordApp>, d: f32| {
+            let body_x = h.state_mut().session.layout().pages[0].body.x;
+            let x = page_to_screen(h.state_mut(), 0, body_x + d, 0.0).expect("on screen").x;
+            pos2(x, area.min.y - 7.0)
+        };
+        let button =
+            |at: Pos2, pressed: bool| Event::PointerButton { pos: at, button: PointerButton::Primary, pressed, modifiers: Default::default() };
+        let click = |h: &mut egui_kittest::Harness<'_, WordApp>, at: Pos2| {
+            h.event(Event::PointerMoved(at));
+            h.event(button(at, true));
+            h.step();
+            h.event(button(at, false));
+            for _ in 0..3 {
+                h.step();
+            }
+            // Let the double-click time pass before the next press.
+            for _ in 0..30 {
+                h.step();
+            }
+        };
+        let drag = |h: &mut egui_kittest::Harness<'_, WordApp>, from: Pos2, to: Pos2| {
+            h.event(Event::PointerMoved(from));
+            h.event(button(from, true));
+            h.step();
+            for k in 1..=6 {
+                h.event(Event::PointerMoved(from + (to - from) * (k as f32 / 6.0)));
+                h.step();
+            }
+            h.event(button(to, false));
+            for _ in 0..3 {
+                h.step();
+            }
+        };
+        let stops = |h: &egui_kittest::Harness<'_, WordApp>| {
+            let s = &h.state().session;
+            let para = s.doc.para_at(&s.sel.focus).expect("a paragraph");
+            s.doc.styles.resolve_para(&para.props).tabs.iter().map(|t| (t.pos, t.align)).collect::<Vec<_>>()
+        };
+
+        // The selector starts at Left; a click moves it to Center.
+        assert_eq!(h.state().canvas.tab_kind, TabAlign::Left);
+        click(&mut h, pos2(area.min.x - RULER / 2.0, area.min.y - RULER / 2.0));
+        assert_eq!(h.state().canvas.tab_kind, TabAlign::Center);
+
+        // A click on the ruler sets a centre stop at 2 inches (on the 1/16 inch grid).
+        let at = on_ruler(&mut h, 144.0);
+        click(&mut h, at);
+        assert_eq!(stops(&h), vec![(144.0, TabAlign::Center)]);
+
+        // Dragging it to 3 inches moves it, keeping its kind.
+        let (from, to) = (on_ruler(&mut h, 144.0), on_ruler(&mut h, 216.0));
+        drag(&mut h, from, to);
+        assert_eq!(stops(&h), vec![(216.0, TabAlign::Center)]);
+
+        // Dragging it down into the page clears it.
+        let from = on_ruler(&mut h, 216.0);
+        drag(&mut h, from, from + vec2(0.0, 80.0));
+        assert!(stops(&h).is_empty(), "the stop came off: {:?}", stops(&h));
+
+        // Each gesture was one step: undo brings back the moved stop, then the first one.
+        assert!(h.state_mut().session.undo());
+        assert_eq!(stops(&h), vec![(216.0, TabAlign::Center)]);
+        assert!(h.state_mut().session.undo());
+        assert_eq!(stops(&h), vec![(144.0, TabAlign::Center)]);
     }
 
     #[test]

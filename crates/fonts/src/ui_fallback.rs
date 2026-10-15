@@ -70,16 +70,25 @@ const MAX_NEEDED: usize = 4096;
 /// as blank space.
 const OUTLINE_TABLES: [&[u8; 4]; 4] = [b"glyf", b"CFF ", b"CFF2", b"VARC"];
 
-/// A character only a font for the language has: a simplified-only hanzi, or kana.
-fn probe(hans: bool) -> char {
-    if hans { '页' } else { 'の' }
+/// A character only a font for the language has: a simplified-only hanzi, kana, or Hangul.
+fn probe(hans: bool, korean: bool) -> char {
+    if korean {
+        '한'
+    } else if hans {
+        '页'
+    } else {
+        'の'
+    }
 }
 
-/// Font files to look for, relative to a font folder (or absolute), best first. Chinese faces
-/// cover kana too, so the Japanese list ends with the Chinese one.
-fn candidates(hans: bool) -> Vec<&'static str> {
-    let (zh, ja): (&[&str], &[&str]) = if cfg!(windows) {
-        (&["Deng.ttf", "msyh.ttc", "simhei.ttf", "simsun.ttc", "NotoSansSC-VF.ttf"], &["YuGothR.ttc", "meiryo.ttc", "msgothic.ttc"])
+/// Font files to look for, relative to a font folder (or absolute), best first.
+fn candidates(hans: bool, korean: bool) -> Vec<&'static str> {
+    let (zh, ja, ko): (&[&str], &[&str], &[&str]) = if cfg!(windows) {
+        (
+            &["Deng.ttf", "msyh.ttc", "simhei.ttf", "simsun.ttc", "NotoSansSC-VF.ttf"],
+            &["YuGothR.ttc", "meiryo.ttc", "msgothic.ttc"],
+            &["malgun.ttf", "malgunsl.ttf", "gulim.ttc", "batang.ttc"],
+        )
     } else if cfg!(target_os = "macos") {
         (
             &[
@@ -92,6 +101,7 @@ fn candidates(hans: bool) -> Vec<&'static str> {
                 "/System/Library/PrivateFrameworks/FontServices.framework/Resources/Reserved/PingFangUI.ttc",
             ],
             &["ヒラギノ角ゴシック W3.ttc", "Hiragino Sans W3.ttc"],
+            &["/System/Library/Fonts/AppleSDGothicNeo.ttc", "/System/Library/Fonts/Supplemental/AppleGothic.ttf"],
         )
     } else {
         (
@@ -110,18 +120,37 @@ fn candidates(hans: bool) -> Vec<&'static str> {
                 "truetype/droid/DroidSansFallbackFull.ttf",
             ],
             &["noto-cjk/NotoSansCJKjp-Regular.otf", "opentype/noto/NotoSansCJKjp-Regular.otf"],
+            &[
+                "noto-cjk/NotoSansCJKkr-Regular.otf",
+                "opentype/noto/NotoSansCJKkr-Regular.otf",
+                "google-noto-sans-cjk-fonts/NotoSansCJKkr-Regular.otf",
+                "adobe-source-han-sans/SourceHanSansK-Regular.otf",
+                "opentype/adobe-source-han-sans/SourceHanSansK-Regular.otf",
+                "truetype/nanum/NanumGothic.ttf",
+            ],
         )
     };
-    if hans { zh.to_vec() } else { ja.iter().chain(zh).copied().collect() }
+    if korean {
+        ko.iter().chain(ja).chain(zh).copied().collect()
+    } else if hans {
+        zh.to_vec()
+    } else {
+        ja.iter().chain(zh).copied().collect()
+    }
 }
 
 /// The installed CJK font for a Chinese (`hans`) or other interface that best covers `needed`
 /// (the characters the embedded faces lack; empty: a character typical of the language), if one
 /// is found. Never panics on damaged files.
 pub fn system_cjk_ui_font(hans: bool, needed: &[char]) -> Option<SystemUiFont> {
-    let probe = [probe(hans)];
+    system_cjk_ui_font_for(hans, false, needed)
+}
+
+/// The installed CJK font for a Chinese, Korean or Japanese interface.
+pub fn system_cjk_ui_font_for(hans: bool, korean: bool, needed: &[char]) -> Option<SystemUiFont> {
+    let probe = [probe(hans, korean)];
     let needed = if needed.is_empty() { &probe[..] } else { needed.get(..MAX_NEEDED).unwrap_or(needed) };
-    find_ui_font(&with_asset_data(crate::system_font_dirs()), &candidates(hans), needed, hans)
+    find_ui_font(&with_asset_data(crate::system_font_dirs()), &candidates(hans, korean), needed, hans)
 }
 
 /// `dirs` and, for each macOS font asset folder among them (`com_apple_MobileAsset_Font<N>`),
@@ -209,6 +238,22 @@ pub(crate) fn pick_face(data: &[u8], needed: &[char], hans: bool) -> Option<(u32
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn korean_interface_uses_korean_first_system_font_candidates() {
+        let names = candidates(false, true);
+        assert_eq!(
+            names.first(),
+            Some(&if cfg!(windows) {
+                "malgun.ttf"
+            } else if cfg!(target_os = "macos") {
+                "/System/Library/Fonts/AppleSDGothicNeo.ttc"
+            } else {
+                "noto-cjk/NotoSansCJKkr-Regular.otf"
+            })
+        );
+        assert_eq!(probe(false, true), '한');
+    }
 
     #[test]
     fn needs_system_cjk_when_an_embedded_face_lacks_an_interface_character() {

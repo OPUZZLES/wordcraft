@@ -571,7 +571,7 @@
 	Multiple Pages	Várias páginas
 	Name (A–Z)	Nome (A–Z)
 	Name:	Nome:
-	Narrow  0.5" all	Estreita  0,5" em todas as margens
+	Narrow  {size} all	Estreita  {size} em todas as margens
 	Navigation	Navegação
 	Navigation Pane	Painel de navegação
 	New	Novo
@@ -598,7 +598,7 @@
 	Nonbreaking Hyphen	Hífen inseparável
 	Nonbreaking Space	Espaço inseparável
 	None	Nenhuma
-	Normal  1" all	Normal  1" em todas as margens
+	Normal  {size} all	Normal  {size} em todas as margens
 	Normal Style	Estilo Normal
 	Not available right now	Indisponível no momento
 	Not saved	Não salvo
@@ -1573,6 +1573,11 @@
 	Add Font…	Adicionar fonte…
 	Added Fonts	Fontes adicionadas
 	Remove Added Font	Remover fonte adicionada
+	Load System Installed Fonts…	Carregar fontes do sistema instaladas…
+	All system fonts are already available.	Todas as fontes do sistema já estão disponíveis.
+	Local font access is not supported by your browser.	O acesso a fontes locais não é compatível com seu navegador.
+	Local font access was denied.	O acesso a fontes locais foi negado.
+	Loaded {count} system fonts.	{count} fontes do sistema carregadas.
 	Recent Colors	Cores recentes
 	More Colors…	Mais cores…
 	Standard	Padrão
@@ -2104,6 +2109,16 @@
 	AutoFit Column by Double-Clicking	Autoajustar coluna com clique duplo
 	Region:	Região:
 	Automatic ({region})	Automático ({region})
+	Odd Banded Rows	Linhas listradas ímpares
+	Even Banded Rows	Linhas listradas pares
+	Odd Banded Columns	Colunas listradas ímpares
+	Even Banded Columns	Colunas listradas pares
+	Top Left Cell	Célula superior esquerda
+	Top Right Cell	Célula superior direita
+	Bottom Left Cell	Célula inferior esquerda
+	Bottom Right Cell	Célula inferior direita
+	Inside Horizontal Border	Borda horizontal interna
+	Inside Vertical Border	Borda vertical interna
 	Text of the nearest paragraph with a given style (running headers)	Texto do parágrafo mais próximo com um determinado estilo (cabeçalhos dinâmicos)
 	Style name:	Nome do estilo:
 # Mail merge: filter and sort recipients (#778)
@@ -2225,3 +2240,14 @@
 	Existing File or Web Page	Página da Web ou arquivo existente
 	Link to:	Vincular a:
 	Place in This Document	Colocar neste documento
+# Table Layout › Sort dialog (#1205)
+	Column {n}	Coluna {n}
+	Header row	Linha de cabeçalho
+	No header row	Sem linha de cabeçalho
+	My list has	Minha lista tem
+# Table Layout › Formula dialog (#1210)
+	Formula:	Fórmula:
+	Paste function:	Colar função:
+# Reading Mode column widths (#1040)
+	Narrow	Estreita
+	Medium	Média

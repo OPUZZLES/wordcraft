@@ -517,7 +517,7 @@
 	Multiple Pages	Няколко страници
 	Name (A–Z)	Име (А–Я)
 	Name:	Име:
-	Narrow  0.5" all	Тесни  0.5" навсякъде
+	Narrow  {size} all	Тесни  {size} навсякъде
 	Navigation	Навигация
 	Navigation Pane	Навигационен панел
 	New	Нов
@@ -545,7 +545,7 @@
 	Nonbreaking Hyphen	Непрекъсваемо тире
 	Nonbreaking Space	Непрекъсваем интервал
 	None	Няма
-	Normal  1" all	Нормални  1" навсякъде
+	Normal  {size} all	Нормални  {size} навсякъде
 	Normal Style	Нормален стил
 	Not available right now	В момента не е налично
 	Not saved	Не е запазено
@@ -2246,6 +2246,11 @@
 	Add Font…	Добавяне на шрифт…
 	Added Fonts	Добавени шрифтове
 	Remove Added Font	Премахване на добавен шрифт
+	Load System Installed Fonts…	Зареждане на инсталирани системни шрифтове…
+	All system fonts are already available.	Всички системни шрифтове вече са налични.
+	Local font access is not supported by your browser.	Достъпът до локални шрифтове не се поддържа от браузъра ви.
+	Local font access was denied.	Достъпът до локални шрифтове беше отказан.
+	Loaded {count} system fonts.	Заредени са {count} системни шрифта.
 	Recent Colors	Последни цветове
 	More Colors…	Още цветове…
 	Standard	Стандартни
@@ -2451,6 +2456,17 @@
 	Pastes the clipboard's picture.	Поставя картината от клипборда.
 	Region:	Регион:
 	Automatic ({region})	Автоматично ({region})
+# Table style editor: every table style part (#714)
+	Odd Banded Rows	Нечетни редуващи се редове
+	Even Banded Rows	Четни редуващи се редове
+	Odd Banded Columns	Нечетни редуващи се колони
+	Even Banded Columns	Четни редуващи се колони
+	Top Left Cell	Горна лява клетка
+	Top Right Cell	Горна дясна клетка
+	Bottom Left Cell	Долна лява клетка
+	Bottom Right Cell	Долна дясна клетка
+	Inside Horizontal Border	Вътрешна хоризонтална граница
+	Inside Vertical Border	Вътрешна вертикална граница
 	Text of the nearest paragraph with a given style (running headers)	Текст на най-близкия абзац с даден стил (текущи колонтитули)
 	Style name:	Име на стил:
 # Mail merge: filter and sort recipients (#778)
@@ -2599,3 +2615,14 @@
 	Existing File or Web Page	Съществуващ файл или уеб страница
 	Link to:	Връзка към:
 	Place in This Document	Място в този документ
+# Table Layout › Sort dialog (#1205)
+	Column {n}	Колона {n}
+	Header row	Заглавен ред
+	No header row	Без заглавен ред
+	My list has	Списъкът ми има
+# Table Layout › Formula dialog (#1210)
+	Formula:	Формула:
+	Paste function:	Поставяне на функция:
+# Reading Mode column widths (#1040)
+	Narrow	Тясна
+	Medium	Средна

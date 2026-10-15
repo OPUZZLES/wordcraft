@@ -509,7 +509,7 @@
 	Multiple Pages	Nhiều trang
 	Name (A–Z)	Tên (A–Z)
 	Name:	Tên:
-	Narrow  0.5" all	Hẹp  0,5" mọi cạnh
+	Narrow  {size} all	Hẹp  {size} mọi cạnh
 	Navigation	Điều hướng
 	Navigation Pane	Ngăn điều hướng
 	New	Mới
@@ -537,7 +537,7 @@
 	Nonbreaking Hyphen	Gạch nối không ngắt dòng
 	Nonbreaking Space	Khoảng trắng không ngắt dòng
 	None	Không có
-	Normal  1" all	Thường  1" mọi cạnh
+	Normal  {size} all	Thường  {size} mọi cạnh
 	Normal Style	Kiểu Thường
 	Not available right now	Hiện không khả dụng
 	Not saved	Chưa lưu
@@ -2636,8 +2636,45 @@
 # Missing dictionary on the status bar (#1441)
 	No spelling dictionary for {language} is installed, so it isn't checked. WordCraft looks for the Hunspell dictionary {name} in the WORDCRAFT_DICTIONARIES folder and in the usual system locations.	Chưa cài từ điển chính tả cho {language}, nên ngôn ngữ này không được kiểm tra. WordCraft tìm từ điển Hunspell {name} trong thư mục WORDCRAFT_DICTIONARIES và ở các vị trí thông thường của hệ thống.
 	{language} (no dictionary)	{language} (không có từ điển)
+# Native save conflicts (#813)
 	The file changed or is unavailable	Tệp đã thay đổi hoặc không khả dụng
 	Your edits are still here. Save them to a different file to keep both versions.	Các chỉnh sửa của bạn vẫn còn ở đây. Hãy lưu vào một tệp khác để giữ cả hai phiên bản.
 	Keep editing	Tiếp tục chỉnh sửa
 	Save copy…	Lưu bản sao…
 	Save conflict	Xung đột khi lưu
+# Table style parts in the Modify Table Style dialog (#714)
+	Odd Banded Rows	Hàng xen kẽ lẻ
+	Even Banded Rows	Hàng xen kẽ chẵn
+	Odd Banded Columns	Cột xen kẽ lẻ
+	Even Banded Columns	Cột xen kẽ chẵn
+	Top Left Cell	Ô trên cùng bên trái
+	Top Right Cell	Ô trên cùng bên phải
+	Bottom Left Cell	Ô dưới cùng bên trái
+	Bottom Right Cell	Ô dưới cùng bên phải
+	Inside Horizontal Border	Viền ngang bên trong
+	Inside Vertical Border	Viền dọc bên trong
+# Load system installed fonts on the web (#1390)
+	Load System Installed Fonts…	Tải phông chữ đã cài trên hệ thống…
+	All system fonts are already available.	Tất cả phông chữ hệ thống đã có sẵn.
+	Local font access is not supported by your browser.	Trình duyệt của bạn không hỗ trợ truy cập phông chữ cục bộ.
+	Local font access was denied.	Quyền truy cập phông chữ cục bộ đã bị từ chối.
+	Loaded {count} system fonts.	Đã tải {count} phông chữ hệ thống.
+# Table Layout › Sort dialog (#1205)
+	Column {n}	Cột {n}
+	Header row	Hàng tiêu đề
+	No header row	Không có hàng tiêu đề
+	My list has	Danh sách của tôi có
+# Table Layout › Formula dialog (#1210)
+	Formula:	Công thức:
+	Paste function:	Dán hàm:
+# Added while landing (#1219): strings that landed after this catalog
+	Enter bookmark name:	Nhập tên dấu trang:
+	Find “{text}” in the document	Tìm “{text}” trong tài liệu
+	This document has no bookmarks.	Tài liệu này không có dấu trang.
+	Type a page number, or +2 / -1.	Nhập số trang, hoặc +2 / -1.
+	Wait for the print job to finish submitting before closing.	Hãy chờ lệnh in được gửi xong rồi mới đóng.
+# Template names in File › New (#1271)
+template	Letter	Thư
+# Reading Mode column widths (#1040)
+	Narrow	Hẹp
+	Medium	Trung bình
