@@ -120,9 +120,12 @@ fn autosave_pauses_after_conflict_and_pending_close_does_not_discard_edits() {
     a.autosave_tick(now_ms() + 20_000.0);
     assert!(a.dialog.is_none());
     assert_eq!(a.run("file.close", json!({})).unwrap()["pending"], "saveChanges");
-    let r = a.run("ui.saveChanges", json!({"answer": "save"})).unwrap();
-    assert_eq!(r["done"], false);
-    assert!(matches!(a.dialog, Some(dialogs::Dialog::SaveConflict { .. })));
+    let error = a.run("ui.saveChanges", json!({"answer": "save"})).unwrap_err();
+    assert!(error.contains("file changed or is unavailable"));
+    assert!(
+        matches!(&a.dialog, Some(dialogs::Dialog::SaveChanges { then, message, .. }) if then == "file.close" && message.contains("file changed or is unavailable"))
+    );
+    assert!(a.save_conflict.is_none());
     assert!(!a.quit_requested);
     assert_local(&a, &d, &b);
 }

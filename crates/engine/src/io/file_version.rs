@@ -64,7 +64,7 @@ impl FileVersion {
     }
 
     /// Path spellings, symlinks and hard links to the open file share its expected content.
-    pub(super) fn owns(&self, path: &Path) -> Result<bool, FileConflict> {
+    pub(crate) fn owns(&self, path: &Path) -> Result<bool, FileConflict> {
         let absolute = absolute(path);
         if absolute == self.path || absolute == self.resolved {
             return Ok(true);

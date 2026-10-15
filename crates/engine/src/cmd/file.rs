@@ -7,6 +7,11 @@ use super::{pos_json, sel_result};
 use crate::{CmdError, CmdResult, CommandSpec, Session, p};
 
 /// Longest user name kept, in characters; longer names are cut, not refused.
+/// `format` of the save commands for an `.xml` file: Word 2003 XML Document (WordprocessingML 2003).
+pub const FORMAT_WORD_2003: &str = "wordml2003";
+/// `format` for an `.xml` file as a Word XML Document (Flat OPC), the default.
+pub const FORMAT_FLAT_OPC: &str = "flatopc";
+
 pub const MAX_AUTHOR_CHARS: usize = 255;
 
 /// Sets the user name that new tracked changes and comments are recorded under. The name is
@@ -26,18 +31,49 @@ pub(crate) fn set_author(s: &mut Session, v: &Value) -> CmdResult {
     Ok(r)
 }
 
+/// Rename the current file in its directory, or name a document before its first save.
+fn rename(s: &mut Session, v: &Value) -> CmdResult {
+    let name = p::req_str(v, "name")?.trim();
+    if name.is_empty()
+        || name.chars().count() > 200
+        || name.ends_with(['.', ' '])
+        || name.chars().any(|c| c.is_control() || matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|'))
+        || matches!(name, "." | "..")
+    {
+        return Err(CmdError::Params("Enter a valid document name (up to 200 characters, without path separators).".into()));
+    }
+    if let Some(path) = &s.path {
+        let mut destination = path.with_file_name(name);
+        // The field edits the stem; retain the original format, including macro/template files.
+        if let Some(ext) = path.extension() {
+            destination.set_file_name(format!("{name}.{}", ext.to_string_lossy()));
+        }
+        if destination != *path {
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                crate::io::rename_file(path, &destination).map_err(CmdError::Failed)?;
+            }
+            s.path = Some(destination);
+        }
+    } else {
+        s.file_name = Some(name.to_string());
+    }
+    Ok(json!({"name": name, "path": s.path}))
+}
+
 pub fn specs() -> Vec<CommandSpec> {
     vec![
+        CommandSpec::new("file.rename", "Rename Document", "File › Info", rename).params(r#"{"name": string (document name without its extension)}"#).pure(),
         CommandSpec::new("file.new", "New", "File", new).key("Mod+N").params(r#"{"template"?: "blank|sample|letter|resume|report"}"#).pure(),
         CommandSpec::new("file.open", "Open", "File", open)
-            .key("Mod+O / Mod+F12")
+            .key("Mod+O / Mod+F12 / Mod+Alt+F2")
             .params(r#"{"path": string, "data"?: base64 (the file's bytes; `path` then only names it), "password"?: string (for a password-protected Word document)}"#)
             .pure(),
         CommandSpec::new("file.save", "Save", "File", save)
-            .key("Mod+S / Shift+F12")
-            .params(r#"{"path"?: string, "password"?: string (encrypt this and later saves with it, as file.encrypt does), "markup"?: bool (Print Markup for a PDF, PNG, HTML, Markdown or text copy: comments shown; default file.printMarkup)}"#)
+            .key("Mod+S / Shift+F12 / Alt+Shift+F2")
+            .params(r#"{"path"?: string, "password"?: string (encrypt this and later saves with it, as file.encrypt does), "markup"?: bool (Print Markup for a PDF, PNG, HTML, Markdown or text copy: comments shown; default file.printMarkup), "format"?: "wordml2003" (an .xml file as a Word 2003 XML Document) | "flatopc" (as a Word XML Document, the default; saving over a Word 2003 XML file keeps that format)}"#)
             .pure(),
-        CommandSpec::new("file.saveAs", "Save As", "File", save_as).key("F12").params(r#"{"path": string, "password"?: string, "markup"?: bool (as file.save)}"#).pure(),
+        CommandSpec::new("file.saveAs", "Save As", "File", save_as).key(super::mac_or("F12 / Mod+Shift+S", "F12 / Alt+F2")).params(r#"{"path": string, "password"?: string, "markup"?: bool, "format"?: string (as file.save)}"#).pure(),
         // Pure: the password must not land in Repeat or a recorded macro, and it isn't an edit
         // to undo; it marks the document as changed itself.
         CommandSpec::new("file.encrypt", "Encrypt with Password", "File › Info › Protect Document", encrypt)
@@ -71,19 +107,42 @@ pub fn specs() -> Vec<CommandSpec> {
             s.ui_requests.push(json!({"open": "print"}));
             sel_result(s)
         })
-        .key("Mod+P / Mod+Shift+F12 / Mod+F2")
+        .key("Mod+P / Mod+Shift+F12 / Mod+F2 / Mod+Alt+I")
         .pure(),
         CommandSpec::new("file.close", "Close", "File", |s, _| {
             s.ui_requests.push(json!({"close": true}));
             sel_result(s)
         })
         .key("Mod+W / Mod+F4")
+        .params(r#"{"force"?: bool (desktop app's control channel and MCP bridge only: without it a document with unsaved changes is an error and stays open; with it the changes are discarded. Headless sessions never ask)}"#)
         .pure(),
         CommandSpec::new("file.properties", "Properties", "File › Info", properties)
             .params(r#"{"title"?, "subject"?, "author"?, "keywords"?, "comments"?, "category"?, "custom"?: {name: string | null (removes)}}"#),
         CommandSpec::new("file.info", "Info", "File", info).pure(),
         CommandSpec::new("file.setAuthor", "User Name", "File › Options › General", set_author)
             .params(r#"{"name": string (author of new tracked changes and comments)}"#)
+            .pure(),
+        // Trust Center › Privacy Options: the document's `w:removePersonalInformation` and
+        // `w:removeDateAndTime` settings, honoured when it is saved as .docx (#1062).
+        // Changing them is a document change (undoable, refused on a protected document); reading
+        // them is `file.privacy`, which changes nothing.
+        CommandSpec::new("file.privacyOptions", "Privacy Options", "File › Options › Save", |s, v| {
+            let personal = p::bool(v, "removePersonalInfo");
+            let date_time = p::bool(v, "removeDateTime");
+            if personal.is_none() && date_time.is_none() {
+                return Err(CmdError::Params("give removePersonalInfo or removeDateTime (file.privacy reads them)".into()));
+            }
+            if let Some(on) = personal {
+                s.doc.settings.remove_personal_info = on;
+            }
+            if let Some(on) = date_time {
+                s.doc.settings.remove_date_time = on;
+            }
+            Ok(privacy(s))
+        })
+        .params(r#"{"removePersonalInfo"?: bool (save comment and revision authors as "Author", no creator or last-modified-by), "removeDateTime"?: bool (save comments and tracked changes without dates)} — at least one; the open document keeps its real names and dates"#),
+        CommandSpec::new("file.privacy", "Privacy Settings", "File › Options › Save", |s, _| Ok(privacy(s)))
+            .params(r#"{} → {"removePersonalInfo": bool, "removeDateTime": bool} (file.privacyOptions changes them)"#)
             .pure(),
         CommandSpec::new("document.inspect", "Inspect Document", "Agents", inspect).params(r#"{"text"?: bool}"#).pure(),
         CommandSpec::new("document.text", "Document Text", "Agents", |s, v| {
@@ -113,25 +172,32 @@ pub fn specs() -> Vec<CommandSpec> {
     ]
 }
 
+/// The document's privacy settings, as `file.privacy` and `file.privacyOptions` return them.
+fn privacy(s: &Session) -> Value {
+    json!({"removePersonalInfo": s.doc.settings.remove_personal_info, "removeDateTime": s.doc.settings.remove_date_time})
+}
+
 fn new(s: &mut Session, v: &Value) -> CmdResult {
     let doc = match p::str(v, "template").unwrap_or("blank") {
         "sample" => crate::sample::sample_document(),
         "letter" => crate::sample::letter(),
         "resume" => crate::sample::resume(),
         "report" => crate::sample::report(),
-        // The Normal template: the region's paper (#838), written in the editing language (the
-        // templates' text is English).
-        _ => {
-            let mut d = s.blank_document();
-            if let Some(lang) = &s.editing_lang {
-                d.styles.default_chr.lang = Some(lang.clone());
-            }
-            d
-        }
+        _ => normal_document(s),
     };
     s.set_document(doc);
     s.path = None;
     sel_result(s)
+}
+
+/// A blank document on the Normal template: the region's paper (#838), written in the editing
+/// language (the templates' text is English).
+fn normal_document(s: &Session) -> Document {
+    let mut d = s.blank_document();
+    if let Some(lang) = &s.editing_lang {
+        d.styles.default_chr.lang = Some(lang.clone());
+    }
+    d
 }
 
 fn open(s: &mut Session, v: &Value) -> CmdResult {
@@ -140,41 +206,61 @@ fn open(s: &mut Session, v: &Value) -> CmdResult {
         return sel_result(s);
     };
     let password = p::str(v, "password");
-    #[cfg(not(target_arch = "wasm32"))]
-    let mut file_version = None;
-    let (mut doc, encrypted) = if let Some(data) = p::str(v, "data") {
+    let native_path = std::path::Path::new(path);
+    let encrypted = if let Some(data) = p::str(v, "data") {
         let bytes = super::insert::base64_decode(data).ok_or_else(|| CmdError::Params("bad base64".into()))?;
-        crate::io::open_bytes_with(path, &bytes, password).map_err(CmdError::Failed)?
+        let (doc, encrypted) = if bytes.is_empty() {
+            (normal_document(s), false)
+        } else {
+            crate::io::open_bytes_in(path, &bytes, password, &s.region()).map_err(CmdError::Failed)?
+        };
+        finish_open(s, doc, native_path, password, encrypted);
+        encrypted
     } else {
         #[cfg(not(target_arch = "wasm32"))]
         {
-            let (doc, encrypted, version) = crate::io::open_path_versioned(std::path::Path::new(path), password).map_err(CmdError::Failed)?;
-            file_version = Some(version);
-            (doc, encrypted)
+            s.open_path(native_path, password)?
         }
         #[cfg(target_arch = "wasm32")]
         {
-            crate::io::open_path_with(std::path::Path::new(path), password).map_err(CmdError::Failed)?
+            let (doc, encrypted) = crate::io::open_path_in(native_path, password, &s.region()).map_err(CmdError::Failed)?;
+            finish_open(s, doc, native_path, password, encrypted);
+            encrypted
         }
     };
+    Ok(json!({"path": path, "paragraphs": s.doc.paragraph_count(), "words": s.doc.word_count(), "encrypted": encrypted}))
+}
+
+impl Session {
+    /// Native hosts and CLI open through the same session path as `file.open`, including
+    /// filenames that are not Unicode. The expected save version is the exact content read.
+    /// Returns whether the file was encrypted; a failed open leaves the session unchanged.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn open_path(&mut self, path: &std::path::Path, password: Option<&str>) -> Result<bool, CmdError> {
+        let (doc, encrypted, version) = crate::io::open_path_versioned_in(path, password, &self.region()).map_err(CmdError::Failed)?;
+        let doc = doc.unwrap_or_else(|| normal_document(self));
+        finish_open(self, doc, path, password, encrypted);
+        self.file_version = Some(version);
+        Ok(encrypted)
+    }
+}
+
+fn finish_open(s: &mut Session, mut doc: Document, path: &std::path::Path, password: Option<&str>, encrypted: bool) {
     // Plain text and Markdown carry no language: they are in the editing language.
-    let ext = std::path::Path::new(path).extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
     if let Some(lang) = &s.editing_lang
         && matches!(ext.as_str(), "txt" | "text" | "md" | "markdown")
     {
         doc.styles.default_chr.lang = Some(lang.clone());
     }
     s.set_document(doc);
-    s.path = Some(path.into());
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        s.file_version = file_version;
+    if let Some(z) = s.doc.settings.zoom {
+        super::view::restore_zoom(s, z);
     }
-    // Like Word, a document opened with a password is saved with it again.
+    s.path = Some(path.into());
     if encrypted {
         s.password = password.map(crate::io::Password::new);
     }
-    Ok(json!({"path": path, "paragraphs": s.doc.paragraph_count(), "words": s.doc.word_count(), "encrypted": encrypted}))
 }
 
 /// File › Info › Protect Document › Encrypt with Password: the password Word documents are saved
@@ -190,6 +276,9 @@ fn encrypt(s: &mut Session, v: &Value) -> CmdResult {
         _ => return Err(CmdError::Params("`password` must be a string, or null to remove the password".into())),
     };
     if password != s.password {
+        if password.is_some() {
+            s.clear_recovery_before_password()?;
+        }
         s.password = password;
         s.dirty = true;
     }
@@ -204,6 +293,18 @@ fn save(s: &mut Session, v: &Value) -> CmdResult {
             return Ok(json!({"saved": false}));
         }
     };
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
+    let mut opts = export_options(s, v);
+    match v.get("format").filter(|f| !f.is_null()) {
+        None => {
+            // Saving over a Word 2003 XML file (one opened as such, say) keeps its format.
+            opts.word2003 = ext == "xml" && is_word_2003_file(&path);
+        }
+        Some(f) if matches!(f.as_str(), Some(FORMAT_WORD_2003 | FORMAT_FLAT_OPC)) && ext == "xml" => {}
+        Some(_) => {
+            return Err(CmdError::Params(format!("`format` is \"{FORMAT_WORD_2003}\" or \"{FORMAT_FLAT_OPC}\", and only for an .xml file")));
+        }
+    }
     let mut password = s.password.clone();
     if let Some(pw) = v.get("password").filter(|pw| !pw.is_null()) {
         let Some(pw) = pw.as_str().filter(|pw| !pw.is_empty()) else {
@@ -213,10 +314,10 @@ fn save(s: &mut Session, v: &Value) -> CmdResult {
             return Err(CmdError::Params("only Word documents (.docx, .docm, .dotx, .dotm) can be saved with a password".into()));
         }
         wordcraft_docx::check_password(pw).map_err(|e| CmdError::Params(e.to_string()))?;
-        // Before recovery's password barrier (#586): a refused password change must leave
-        // the current unprotected session and its recovery copy intact.
+        // Refuse external changes before purging the current recovery copy.
         #[cfg(not(target_arch = "wasm32"))]
         crate::io::check_save_destination(&path, s.file_version.as_ref())?;
+        s.clear_recovery_before_password()?;
         password = Some(crate::io::Password::new(pw));
     }
     // Stamp in place and put the old properties back if the save fails, so a refused save
@@ -224,11 +325,13 @@ fn save(s: &mut Session, v: &Value) -> CmdResult {
     let before = s.doc.core.clone();
     s.stamp_save();
     let pw = password.as_ref().map(crate::io::Password::as_str);
-    let opts = export_options(s, v);
+    // Retain main's omission of a newly created empty header/footer (#1144).
+    let copy = super::insert::saved_copy(s);
+    let doc = copy.as_ref().unwrap_or(&s.doc);
     #[cfg(not(target_arch = "wasm32"))]
-    let saved = crate::io::save_path_versioned(&path, &s.doc, pw, &opts, s.file_version.as_ref());
+    let saved = crate::io::save_path_versioned(&path, doc, pw, &opts, s.file_version.as_ref());
     #[cfg(target_arch = "wasm32")]
-    let saved = crate::io::save_path_with(&path, &s.doc, pw, &opts).map_err(CmdError::Failed);
+    let saved = crate::io::save_path_with(&path, doc, pw, &opts).map_err(CmdError::Failed);
     #[cfg_attr(target_arch = "wasm32", allow(clippy::let_unit_value, unused_variables))]
     let version = match saved {
         Ok(version) => version,
@@ -239,16 +342,31 @@ fn save(s: &mut Session, v: &Value) -> CmdResult {
     };
     let encrypted = pw.is_some() && crate::io::can_encrypt(&path.to_string_lossy());
     s.password = password;
-    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
-    if ["docx", "docm", "dotx", "dotm", "odt", "rtf", "json", "xml"].contains(&ext.as_str()) {
+    let keeps_document = ["docx", "docm", "dotx", "dotm", "odt", "rtf", "json", "xml"].contains(&ext.as_str());
+    #[cfg(not(target_arch = "wasm32"))]
+    if keeps_document || s.path.as_deref().is_some_and(|original| version.owns(original).unwrap_or(false)) {
+        // A lossy save back to the open file still advances our own bytes. A separate lossy
+        // copy keeps the original's baseline and path, including after an alias is replaced.
+        s.file_version = Some(version);
+    }
+    if keeps_document {
         s.path = Some(path.clone());
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            s.file_version = Some(version);
-        }
         s.dirty = false;
     }
     Ok(json!({"saved": true, "path": path.to_string_lossy(), "encrypted": encrypted}))
+}
+
+/// Does `path` hold a Word 2003 XML Document already (so a plain save keeps that format)?
+#[cfg(not(target_arch = "wasm32"))]
+fn is_word_2003_file(path: &std::path::Path) -> bool {
+    // The root element and its namespaces come first.
+    let Ok(head) = crate::io::read_file_head(&path.to_string_lossy(), 64 * 1024) else { return false };
+    wordcraft_docx::sniff_xml(&head) == wordcraft_docx::XmlKind::WordMl2003
+}
+
+#[cfg(target_arch = "wasm32")]
+fn is_word_2003_file(_path: &std::path::Path) -> bool {
+    false
 }
 
 fn save_as(s: &mut Session, v: &Value) -> CmdResult {
@@ -263,7 +381,7 @@ fn save_as(s: &mut Session, v: &Value) -> CmdResult {
 /// setting (`file.printMarkup`); comments as Track Changes Options show them.
 pub fn export_options(s: &Session, v: &Value) -> crate::io::ExportOptions {
     let markup = p::bool(v, "markup").unwrap_or(s.prefs.print_markup);
-    crate::io::ExportOptions { markup, comments: markup && s.prefs.markup.comments }
+    crate::io::ExportOptions { markup, comments: markup && s.prefs.markup.comments, word2003: p::str(v, "format") == Some(FORMAT_WORD_2003) }
 }
 
 fn export_png(s: &mut Session, v: &Value) -> CmdResult {
@@ -272,7 +390,11 @@ fn export_png(s: &mut Session, v: &Value) -> CmdResult {
     let scale = p::f32(v, "scale").unwrap_or(2.0).clamp(0.1, 8.0);
     let l = s.export_layout_with(export_options(s, v).markup);
     let pg = l.pages.get(page).ok_or_else(|| CmdError::Params(format!("no page {}", page + 1)))?;
-    let img = wordcraft_render::render_page(&s.doc, pg, scale, &Default::default());
+    // A page image is the printed page: headers and footers at full strength. Dimming them is
+    // the on-screen cue while editing the body, not part of the page.
+    let mut opts = wordcraft_render::RenderOptions::default();
+    opts.display.dim_header = false;
+    let img = wordcraft_render::render_page(&s.doc, pg, scale, &opts);
     let png = img.to_png();
     crate::io::write_file(path, &png).map_err(CmdError::Failed)?;
     Ok(json!({"path": path, "width": img.width, "height": img.height, "bytes": png.len()}))

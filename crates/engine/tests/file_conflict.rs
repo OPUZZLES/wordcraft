@@ -36,6 +36,116 @@ fn original(d: &Scratch) -> PathBuf {
 }
 
 #[test]
+fn word2003_save_keeps_format_and_refuses_external_changes() {
+    let d = Scratch::new();
+    let path = d.path("working.xml");
+    let opts = io::ExportOptions { word2003: true, ..Default::default() };
+    let bytes = io::save_bytes_with("working.xml", &Document::from_text("Original XML"), None, &opts).unwrap();
+    std::fs::write(&path, bytes).unwrap();
+    let mut s = open(&path);
+    s.run("file.save", &json!({})).unwrap();
+    let saved = std::fs::read(&path).unwrap();
+    assert_eq!(wordcraft_docx::sniff_xml(&saved), wordcraft_docx::XmlKind::WordMl2003);
+    assert_eq!(io::open_path(&path).unwrap().plain_text(StoryRef::Body), "Local edit");
+    s.run("document.setText", &json!({"text": "Second local edit"})).unwrap();
+    let external = io::save_bytes_with("working.xml", &Document::from_text("External XML"), None, &opts).unwrap();
+    std::fs::write(&path, &external).unwrap();
+    let core = s.doc.core.clone();
+    let err = s.run("file.save", &json!({"format": "wordml2003"})).unwrap_err();
+    assert!(err.to_string().contains("file"), "{err}");
+    assert!(s.dirty);
+    assert_eq!(s.doc.core, core);
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "Second local edit");
+    assert_eq!(std::fs::read(&path).unwrap(), external);
+    let copy = d.path("copy.xml");
+    s.run("file.saveAs", &json!({"path": copy, "format": "wordml2003"})).unwrap();
+    assert_eq!(wordcraft_docx::sniff_xml(&std::fs::read(&copy).unwrap()), wordcraft_docx::XmlKind::WordMl2003);
+    assert_eq!(io::open_path(&copy).unwrap().plain_text(StoryRef::Body), "Second local edit");
+    assert_eq!(std::fs::read(path).unwrap(), external);
+}
+
+#[test]
+fn empty_native_file_keeps_its_version_until_the_first_save() {
+    for changed in [false, true] {
+        let d = Scratch::new();
+        let path = d.path("new.docx");
+        std::fs::write(&path, []).unwrap();
+        let mut s = open(&path);
+        let external = if changed { b"Independent external writer".as_slice() } else { &[] };
+        if changed {
+            std::fs::write(&path, external).unwrap();
+        }
+        let result = s.run("file.save", &json!({}));
+        if changed {
+            assert!(matches!(result, Err(wordcraft_engine::CmdError::FileConflict(_))));
+            assert!(s.dirty);
+            assert_eq!(s.doc.plain_text(StoryRef::Body), "Local edit");
+            assert_eq!(std::fs::read(&path).unwrap(), external);
+        } else {
+            result.unwrap();
+            assert_eq!(io::open_path(&path).unwrap().plain_text(StoryRef::Body), "Local edit");
+        }
+    }
+}
+
+fn assert_native_path_keeps_region_and_conflict_protection(path: &Path) {
+    std::fs::write(path, "Synthetic note").unwrap();
+    let mut s = Session::new(Document::new());
+    s.system_region = wordcraft_engine::Region::from_tag("en-US");
+    s.open_path(path, None).unwrap();
+    assert_eq!(s.path.as_deref(), Some(path));
+    let sections = s.doc.sections();
+    let page = sections[0].1;
+    assert_eq!((page.page_w, page.page_h), (612.0, 792.0));
+    s.run("document.setText", &json!({"text": "Local edit"})).unwrap();
+    std::fs::write(path, "External note").unwrap();
+    assert!(matches!(s.run("file.save", &json!({})), Err(wordcraft_engine::CmdError::FileConflict(_))));
+    assert_eq!(std::fs::read_to_string(path).unwrap(), "External note");
+    assert!(s.dirty);
+}
+
+#[test]
+fn native_unicode_path_retains_region_and_conflict_protection() {
+    let d = Scratch::new();
+    assert_native_path_keeps_region_and_conflict_protection(&d.path("café.txt"));
+}
+
+// Match the CLI's existing platform guard: APFS cannot create invalid-UTF-8 fixtures.
+#[cfg(all(unix, not(target_os = "macos")))]
+#[test]
+fn native_non_unicode_path_retains_region_and_conflict_protection() {
+    use std::ffi::OsString;
+    use std::os::unix::ffi::OsStringExt;
+    let d = Scratch::new();
+    assert_native_path_keeps_region_and_conflict_protection(&d.0.join(OsString::from_vec(b"caf\xe9.txt".to_vec())));
+}
+
+#[test]
+fn lossy_saves_advance_our_own_bytes_but_a_copy_keeps_the_original_identity() {
+    let d = Scratch::new();
+    let path = d.path("working.txt");
+    std::fs::write(&path, "Original text").unwrap();
+    let mut s = open(&path);
+    for _ in 0..2 {
+        s.run("file.save", &json!({})).unwrap();
+        assert_eq!(s.path.as_ref(), Some(&path));
+        assert!(s.dirty, "a lossy save still leaves the full document unsaved");
+    }
+    std::fs::write(&path, "External text").unwrap();
+    assert!(matches!(s.run("file.save", &json!({})), Err(wordcraft_engine::CmdError::FileConflict(_))));
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "External text");
+    let original = original(&d);
+    let mut s = open(&original);
+    s.run("file.saveAs", &json!({"path": d.path("copy.txt")})).unwrap();
+    assert_eq!(s.path.as_ref(), Some(&original));
+    assert!(s.dirty);
+    let external = io::save_bytes("external.docx", &Document::from_text("External document")).unwrap();
+    std::fs::write(&original, &external).unwrap();
+    assert!(matches!(s.run("file.save", &json!({})), Err(wordcraft_engine::CmdError::FileConflict(_))));
+    assert_eq!(std::fs::read(&original).unwrap(), external);
+}
+
+#[test]
 fn versioned_open_keeps_the_automation_read_boundary() {
     use wordcraft_engine::file_access::{AutomationRoots, confine};
     let d = Scratch::new();
