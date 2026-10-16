@@ -179,8 +179,9 @@ fn recovery_page(app: &mut WordApp, ui: &mut Ui) {
     let busy = app.session.recovery_busy();
     egui::Grid::new("recovery_documents").min_col_width(180.0).spacing(vec2(24.0, 16.0)).show(ui, |ui| {
         if !documents.is_empty() {
-            ui.strong(tl!("Document"));
-            ui.strong(tl!("Recovery copy"));
+            // Strong text resolves a theme color instead of the page-wide text override.
+            ui.label(egui::RichText::new(tl!("Document")).strong().color(egui::Color32::WHITE));
+            ui.label(egui::RichText::new(tl!("Recovery copy")).strong().color(egui::Color32::WHITE));
             ui.end_row();
         }
         for doc in documents {
@@ -596,6 +597,57 @@ mod tests {
         assert!(!root.join("must-not-write.docx").exists());
         drop(h);
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    /// The recovery page stays black in both interface themes. Strong text otherwise uses the
+    /// light theme's dark foreground and makes the column headings nearly disappear.
+    #[test]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn recovery_column_headers_are_readable_in_both_themes() {
+        fn collect(shape: &egui::epaint::Shape, colors: &mut Vec<(String, egui::Color32)>) {
+            match shape {
+                egui::epaint::Shape::Vec(shapes) => {
+                    for shape in shapes {
+                        collect(shape, colors);
+                    }
+                }
+                egui::epaint::Shape::Text(text) if matches!(text.galley.job.text.as_str(), "Document" | "Recovery copy") => {
+                    for section in &text.galley.job.sections {
+                        let color = text.override_text_color.unwrap_or(section.format.color);
+                        let color = if color == egui::Color32::PLACEHOLDER { text.fallback_color } else { color };
+                        colors.push((text.galley.job.text.clone(), color));
+                    }
+                }
+                _ => {}
+            }
+        }
+        let luminance = |color: egui::Color32| {
+            let linear = |v: u8| {
+                let v = f64::from(v) / 255.0;
+                if v <= 0.04045 { v / 12.92 } else { ((v + 0.055) / 1.055).powf(2.4) }
+            };
+            0.2126 * linear(color.r()) + 0.7152 * linear(color.g()) + 0.0722 * linear(color.b())
+        };
+        for theme in [crate::theme::Appearance::Light, crate::theme::Appearance::Dark] {
+            let (mut app, root) = recovery_app();
+            app.ui.theme = theme;
+            let mut h = recovery_harness(app);
+            settle_recovery(&mut h);
+            let mut colors = Vec::new();
+            for shape in &h.output().shapes {
+                collect(&shape.shape, &mut colors);
+            }
+            for label in ["Document", "Recovery copy"] {
+                let painted: Vec<_> = colors.iter().filter(|(text, _)| text == label).collect();
+                assert!(!painted.is_empty(), "{label} was not painted");
+                for (_, color) in painted {
+                    let contrast_on_black = (luminance(*color) + 0.05) / 0.05;
+                    assert!(contrast_on_black >= 4.5, "{theme:?}: {label} has {contrast_on_black:.2}:1 contrast on black ({color:?})");
+                }
+            }
+            drop(h);
+            let _ = std::fs::remove_dir_all(root);
+        }
     }
 
     #[test]
