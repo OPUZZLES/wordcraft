@@ -1789,6 +1789,10 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u32, level: Optio
                             x += w;
                         }
                         _ => {
+                            // This cluster may have been a left tab on the previous line.
+                            if let Some(c) = pl.clusters.get_mut(j) {
+                                c.adv = 0.0;
+                            }
                             pending_tab = Some((j, stop, x));
                             if stop.leader != TabLeader::None {
                                 leaders.push((j, stop.leader));
@@ -1831,6 +1835,15 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u32, level: Optio
                     && right_edge - px <= zone
                 {
                     last_break = Some(pj);
+                }
+                // A left tab has no pending alignment, but must wrap with its word too.
+                // Keep a tab at the start of the line so even an over-wide word makes progress.
+                if pending_tab.is_none()
+                    && let Some(bk) = last_break.filter(|bk| *bk > c0)
+                    && pl.clusters.get(bk).is_some_and(|c| c.kind == ClKind::Tab)
+                {
+                    last_break = Some(bk - 1);
+                    leaders.retain(|(k, _)| *k < bk);
                 }
                 if let Some(bk) = last_break.filter(|bk| *bk >= c0) {
                     xs.truncate(bk + 1 - c0);
