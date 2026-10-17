@@ -224,6 +224,7 @@ pub enum Placed {
         rect: Rect,
         media: String,
         crop: [f32; 4],
+        soft_edge: Option<f32>,
         story: StoryRef,
         path: Path,
         off: usize,
@@ -2781,8 +2782,8 @@ fn float_items(o: &InlineObject, rect: Rect, outer: (Spin, Point), story: StoryR
     let rect = carried(rect, ospin, oc);
     let spin = own.within(ospin);
     match o {
-        InlineObject::Image { media, crop, .. } => {
-            vec![Placed::Image { rect, media: media.clone(), crop: *crop, story, path: Path(path.to_vec()), off, spin }]
+        InlineObject::Image { media, crop, soft_edge, .. } => {
+            vec![Placed::Image { rect, media: media.clone(), crop: *crop, soft_edge: *soft_edge, story, path: Path(path.to_vec()), off, spin }]
         }
         InlineObject::Shape { kind, fill, stroke, stroke_width, effects, freeform, extra, .. } => {
             vec![Placed::Shape {

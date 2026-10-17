@@ -941,7 +941,27 @@ impl Exporter<'_> {
                 }
             }
             Draw::Line { x0, y0, x1, y1, width, color, stroke, alpha, .. } => self.line(s, (*x0, *y0, *x1, *y1), *width, *color, *stroke, *alpha),
-            Draw::Image { rect, media, crop, alpha, .. } => self.picture(s, rect, media, crop, *alpha),
+            Draw::Image { rect, media, crop, alpha, soft_edge, .. } => {
+                let radius = wordcraft_doc::effects::picture_soft_edge(*soft_edge).filter(|_| {
+                    rect.x.is_finite()
+                        && rect.y.is_finite()
+                        && rect.right().is_finite()
+                        && rect.bottom().is_finite()
+                        && rect.w.is_finite()
+                        && rect.h.is_finite()
+                        && rect.w > 0.0
+                        && rect.h > 0.0
+                });
+                if let Some(radius) = radius {
+                    self.picture_mask(s, rect, radius, true);
+                    self.picture_mask(s, rect, radius, false);
+                }
+                self.picture(s, rect, media, crop, *alpha);
+                if radius.is_some() {
+                    s.pop();
+                    s.pop();
+                }
+            }
             Draw::Path { segs, fill: f, stroke, stroke_width } => {
                 let mut pb = PathBuilder::new();
                 append_path(&mut pb, &wordcraft_layout::display::seg_path(segs));
@@ -1201,6 +1221,36 @@ impl Exporter<'_> {
             }
         }
         self.picture(s, &Rect::new(0.0, 0.0, w, h), &pic.media, &[0.0; 4], 1.0);
+    }
+
+    /// One separable alpha mask, in the picture's local frame (including enclosing rotation).
+    fn picture_mask(&self, s: &mut Surface, rect: &Rect, radius: f32, horizontal: bool) {
+        let stops = wordcraft_doc::effects::picture_soft_edge_stops(if horizontal { rect.w } else { rect.h }, radius)
+            .into_iter()
+            .map(|(o, a)| krilla::paint::Stop { offset: norm(o), color: rgb::Color::new(255, 255, 255).into(), opacity: norm(a) })
+            .collect();
+        let gradient = krilla::paint::LinearGradient {
+            x1: rect.x,
+            y1: rect.y,
+            x2: if horizontal { rect.right() } else { rect.x },
+            y2: if horizontal { rect.y } else { rect.bottom() },
+            transform: Transform::default(),
+            spread_method: krilla::paint::SpreadMethod::Pad,
+            stops,
+            anti_alias: true,
+        };
+        let mask = {
+            let mut builder = s.stream_builder();
+            let mut mask_surface = builder.surface();
+            mask_surface.set_stroke(None);
+            mask_surface.set_fill(Some(Fill { paint: gradient.into(), opacity: norm(1.0), rule: FillRule::NonZero }));
+            if let Some(path) = rect_path(rect) {
+                mask_surface.draw_path(&path);
+            }
+            mask_surface.finish();
+            krilla::mask::Mask::new(builder.finish(), krilla::mask::MaskType::Alpha)
+        };
+        s.push_mask(mask);
     }
 
     fn picture(&mut self, s: &mut Surface, rect: &Rect, media: &str, crop: &[f32; 4], alpha: f32) {

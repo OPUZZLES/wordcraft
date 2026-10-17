@@ -1152,7 +1152,15 @@ impl Reader<'_> {
                 }
             }
         }
-        Some(InlineObject::Image { media, w, h, alt, float, crop, ole: None })
+        let soft_edge = pic
+            .find("pic:spPr")
+            .and_then(|p| p.child("a:effectLst"))
+            .and_then(|e| e.child("a:softEdge"))
+            .and_then(|e| e.attr("rad"))
+            .and_then(|v| v.parse::<i64>().ok())
+            .filter(|v| *v > 0)
+            .and_then(|v| wordcraft_doc::effects::picture_soft_edge(Some(v as f32 / 12_700.0)));
+        Some(InlineObject::Image { media, w, h, alt, float, crop, ole: None, soft_edge })
     }
 
     /// A `wpg:wgp` group (`w` × `h`): its pictures, shapes and text boxes, nested groups
@@ -1398,7 +1406,7 @@ impl Reader<'_> {
             let id = img.attr("r:id").or_else(|| img.attr("r:pict"))?;
             let media = self.media_for(rels, id)?;
             let alt = shape.attr("alt").or_else(|| img.attr("o:title")).unwrap_or("").to_string();
-            return Some(InlineObject::Image { media, w, h, alt, float, crop: [0.0; 4], ole: None });
+            return Some(InlineObject::Image { media, w, h, alt, float, crop: [0.0; 4], ole: None, soft_edge: None });
         }
         // The shapetype the shape is drawn from (its `type`, ECMA-376 Part 4 VML), when written in
         // the same picture: what the shape leaves out, it takes from there.

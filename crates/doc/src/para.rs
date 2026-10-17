@@ -382,6 +382,9 @@ pub enum InlineObject {
         /// Crop (left, top, right, bottom) fractions 0..1.
         #[serde(default)]
         crop: [f32; 4],
+        /// Imported DrawingML soft-edge radius in points; the original media stays unchanged.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        soft_edge: Option<f32>,
         /// The OLE object (embedded or linked file) this picture shows, as read from a file:
         /// saving writes the object back, not only its picture. See [`crate::graphic::Embedded`].
         #[serde(default, skip_serializing_if = "Option::is_none")]

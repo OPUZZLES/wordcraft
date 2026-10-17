@@ -927,7 +927,7 @@ impl Writer<'_> {
 
     /// A picture's `pic:pic` (the image in `media/{file}`), at `off` in its group (or 0, 0).
     fn pic(&mut self, w: &mut W, o: &InlineObject, file: &str, off: (f32, f32), rels: &mut PartRels) {
-        let InlineObject::Image { media, w: iw, h: ih, alt, crop, float, .. } = o else { return };
+        let InlineObject::Image { media, w: iw, h: ih, alt, crop, soft_edge, float, .. } = o else { return };
         let rid = rels.add(rt::IMAGE, &format!("media/{file}"), false);
         self.used_media.insert(media.clone());
         w.open("pic:pic", &[]);
@@ -952,6 +952,11 @@ impl Writer<'_> {
         w.open("a:prstGeom", &[("prst", "rect")]);
         w.empty("a:avLst", &[]);
         w.close("a:prstGeom");
+        if let Some(radius) = wordcraft_doc::effects::picture_soft_edge(*soft_edge) {
+            w.open("a:effectLst", &[]);
+            w.empty("a:softEdge", &[("rad", &n((radius * 12_700.0).round() as i64))]);
+            w.close("a:effectLst");
+        }
         w.close("pic:spPr");
         w.close("pic:pic");
     }

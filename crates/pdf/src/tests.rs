@@ -59,6 +59,7 @@ fn sample() -> Document {
             float: Default::default(),
             crop: [0.1, 0.0, 0.0, 0.0],
             ole: None,
+            soft_edge: None,
         },
         &CharProps::default(),
     )
@@ -195,13 +196,23 @@ fn hostile_documents_export() {
             float: Default::default(),
             crop: [f32::NAN; 4],
             ole: None,
+            soft_edge: None,
         },
         &CharProps::default(),
     )
     .unwrap();
     p.insert_object(
         0,
-        InlineObject::Image { media: "missing".into(), w: 10.0, h: 10.0, alt: String::new(), float: Default::default(), crop: [0.0; 4], ole: None },
+        InlineObject::Image {
+            media: "missing".into(),
+            w: 10.0,
+            h: 10.0,
+            alt: String::new(),
+            float: Default::default(),
+            crop: [0.0; 4],
+            ole: None,
+            soft_edge: None,
+        },
         &CharProps::default(),
     )
     .unwrap();
@@ -864,7 +875,7 @@ fn metafile_pictures_are_drawn_as_vector_paths() {
     let n = p.len();
     p.insert_object(
         n,
-        InlineObject::Image { media, w: 70.0, h: 70.0, alt: "red".into(), float: Default::default(), crop: [0.0; 4], ole: None },
+        InlineObject::Image { media, w: 70.0, h: 70.0, alt: "red".into(), float: Default::default(), crop: [0.0; 4], ole: None, soft_edge: None },
         &CharProps::default(),
     )
     .unwrap();
@@ -883,7 +894,8 @@ fn inline_picture_figure_keeps_its_alt_text() {
         let media = d.add_media(red_right_half_emf(), "emf");
         let mut p = Paragraph::with_text("Figure: ", CharProps::default());
         let n = p.len();
-        let obj = InlineObject::Image { media, w: 70.0, h: 70.0, alt: alt.into(), float: Default::default(), crop: [0.0; 4], ole: None };
+        let obj =
+            InlineObject::Image { media, w: 70.0, h: 70.0, alt: alt.into(), float: Default::default(), crop: [0.0; 4], ole: None, soft_edge: None };
         p.insert_object(n, obj, &CharProps::default()).unwrap();
         d.body = vec![para_block(p)];
         String::from_utf8_lossy(&export(&d, &PdfOptions { compress: false, tagged: true, ..Default::default() }).unwrap()).into_owned()
@@ -928,7 +940,7 @@ fn metafile_strokes_use_round_caps_and_joins() {
     let n = p.len();
     p.insert_object(
         n,
-        InlineObject::Image { media, w: 70.0, h: 70.0, alt: String::new(), float: Default::default(), crop: [0.0; 4], ole: None },
+        InlineObject::Image { media, w: 70.0, h: 70.0, alt: String::new(), float: Default::default(), crop: [0.0; 4], ole: None, soft_edge: None },
         &CharProps::default(),
     )
     .unwrap();
@@ -959,7 +971,7 @@ fn metafile_fill_items_carry_no_stroke_state() {
     let n = p.len();
     p.insert_object(
         n,
-        InlineObject::Image { media, w: 70.0, h: 70.0, alt: String::new(), float: Default::default(), crop: [0.0; 4], ole: None },
+        InlineObject::Image { media, w: 70.0, h: 70.0, alt: String::new(), float: Default::default(), crop: [0.0; 4], ole: None, soft_edge: None },
         &CharProps::default(),
     )
     .unwrap();
@@ -983,7 +995,7 @@ fn cosmetic_metafile_pens_are_thin_but_visible() {
     let n = p.len();
     p.insert_object(
         n,
-        InlineObject::Image { media, w: 70.0, h: 70.0, alt: String::new(), float: Default::default(), crop: [0.0; 4], ole: None },
+        InlineObject::Image { media, w: 70.0, h: 70.0, alt: String::new(), float: Default::default(), crop: [0.0; 4], ole: None, soft_edge: None },
         &CharProps::default(),
     )
     .unwrap();

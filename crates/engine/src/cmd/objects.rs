@@ -231,7 +231,10 @@ pub fn specs() -> Vec<CommandSpec> {
         .when(has_picture),
         CommandSpec::new("picture.style", "Picture Styles", "Picture Format › Picture Styles", |s, v| {
             let style = p::str(v, "style").unwrap_or("simpleFrame").to_string();
-            adjust(s, move |img| picture_style(img, &style))
+            adjust(s, move |img| picture_style(img, &style))?;
+            with_obj(s, |o| {
+                if let InlineObject::Image { soft_edge, .. } = o { *soft_edge = None; }
+            })
         })
         .params(r#"{"style": "simpleFrame|thickFrame|rounded|softEdge|shadow"}"#)
         .when(has_picture),
@@ -1069,7 +1072,8 @@ fn reset(s: &mut Session, _: &Value) -> CmdResult {
     let InlineObject::Image { media, .. } = o else { return Err(CmdError::Disabled("not a picture".into())) };
     let orig = s.originals.get(&media).cloned().unwrap_or(media);
     with_obj(s, |o| {
-        if let InlineObject::Image { media, crop, .. } = o {
+        if let InlineObject::Image { media, crop, soft_edge, .. } = o {
+            *soft_edge = None;
             *media = orig.clone();
             *crop = [0.0; 4];
         }
@@ -1463,6 +1467,49 @@ fn objects_list(s: &mut Session, _: &Value) -> CmdResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn imported_picture_soft_edge_reset_style_crop_and_undo() {
+        let mut d = wordcraft_doc::Document::new();
+        let media = d.add_media(png(20, 12), "png");
+        let original = d.media[&media].clone();
+        let mut p = wordcraft_doc::Paragraph::new();
+        p.insert_object(
+            0,
+            InlineObject::Image {
+                media: media.clone(),
+                w: 144.0,
+                h: 96.0,
+                alt: String::new(),
+                float: Default::default(),
+                crop: [0.1, 0.0, 0.0, 0.0],
+                ole: None,
+                soft_edge: Some(6.0),
+            },
+            &Default::default(),
+        )
+        .unwrap();
+        d.body = vec![wordcraft_doc::para_block(p)];
+        let mut s = Session::new(d);
+        s.run("select.objects", &json!({"index": 0})).unwrap();
+        let initial = s.doc.clone();
+        s.run("picture.crop", &json!({"left": 0.2})).unwrap();
+        assert!(matches!(selected(&s).unwrap().1, InlineObject::Image { soft_edge: Some(6.0), .. }));
+        s.run("edit.undo", &json!({})).unwrap();
+        assert_eq!(s.doc.body, initial.body);
+        s.run("picture.reset", &json!({})).unwrap();
+        assert!(matches!(selected(&s).unwrap().1, InlineObject::Image { soft_edge: None, crop, .. } if crop == [0.0; 4]));
+        s.run("edit.undo", &json!({})).unwrap();
+        assert_eq!(s.doc.body, initial.body, "Reset is one undo step");
+        s.run("picture.style", &json!({"style": "softEdge"})).unwrap();
+        assert!(
+            matches!(selected(&s).unwrap().1, InlineObject::Image { soft_edge: None, .. }),
+            "a bitmap style must not apply the imported feather twice"
+        );
+        s.run("edit.undo", &json!({})).unwrap();
+        assert_eq!(s.doc.body, initial.body, "style replacement is one undo step");
+        assert_eq!(s.doc.media[&media], original, "the original media remains available");
+    }
 
     fn png(w: u32, h: u32) -> Vec<u8> {
         let img = image::RgbaImage::from_fn(w, h, |x, y| {
