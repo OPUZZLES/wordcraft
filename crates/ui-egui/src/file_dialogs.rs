@@ -43,7 +43,7 @@ pub fn open_filters(purpose: &str) -> &'static [(&'static str, &'static [&'stati
         "picture" => &[("Pictures", PICTURES)],
         "font" => &[("Fonts", wordcraft_fonts::FONT_FILE_EXTS)],
         "recipients" => &[("Recipient lists", &["csv", "tsv", "txt", "xlsx", "xlsm", "ods"]), ("All files", &["*"])],
-        "sources" => &[("Source libraries", &["bib", "ris", "json"]), ("All files", &["*"])],
+        "sources" => &[("Source libraries", &["bib", "ris", "json", "xml"]), ("All files", &["*"])],
         _ => &[("Documents", DOCUMENTS), ("Word document", &["docx"]), ("All files", &["*"])],
     }
 }
@@ -383,6 +383,30 @@ mod tests {
 
     fn saved_text(path: &std::path::Path) -> String {
         wordcraft_engine::io::open_path(path).unwrap().plain_text(wordcraft_doc::StoryRef::Body)
+    }
+
+    #[test]
+    fn source_xml_picker_imports_and_cancel_keeps_the_document() {
+        let dir = scratch("source-xml");
+        let path = dir.join("Sources.xml");
+        std::fs::write(&path, r#"<Sources xmlns="http://schemas.microsoft.com/office/word/2004/10/bibliography"><Source><Tag>Original</Tag><Title>Original report</Title><Year>2031</Year></Source></Sources>"#).unwrap();
+        assert!(open_filters("sources")[0].1.contains(&"xml"));
+        let (mut a, shown) = async_app();
+        typed(&mut a);
+        assert!(matches!(a.ask_file(FileDialogRequest::Open { purpose: "sources".into() }, AfterPick::ImportSources), Asked::Pending));
+        answer(&shown, Some(&path.to_string_lossy()));
+        a.poll_file_dialog().unwrap().unwrap();
+        assert_eq!(a.session.doc.sources[0].title, "Original report");
+        assert!(body_text(&a).contains(UNSAVED));
+        let before = serde_json::to_value(&a.session.doc).unwrap();
+        assert!(matches!(a.ask_file(FileDialogRequest::Open { purpose: "sources".into() }, AfterPick::ImportSources), Asked::Pending));
+        answer(&shown, None);
+        assert_eq!(a.poll_file_dialog().unwrap().unwrap(), json!({"cancelled": true}));
+        assert_eq!(serde_json::to_value(&a.session.doc).unwrap(), before);
+        a.run("edit.undo", json!({})).unwrap();
+        assert!(a.session.doc.sources.is_empty());
+        assert!(body_text(&a).contains(UNSAVED));
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// Save As returns at once (the UI keeps running); the frame loop saves once the answer arrives.

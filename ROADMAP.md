@@ -2,7 +2,7 @@
 
 **Stage: alpha** · next: beta, ~15 points (60% → 75% ready for real work) and ~150–230 h away
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-13 · **Change:** minor (source library import and bibliography sources DOCX round-trip, #1058; previously trivial: progress log: symbol fonts, #776; previously trivial: the save prompt answers from the keyboard, #861; previously trivial: table column and row markers on the rulers, #700; previously trivial: table borders and the resize handle drag on the page, #217; previously trivial: formatting revisions landed, #41; previously trivial: Draw tab ink, #307, and Draw Table and Eraser, #303, landed: catalog 402/434; previously minor: readiness table with hours per audience; full number back to the additive weighted sum, 60%; mainstream and essentials numbers added; alpha gate checked; previously major: full re-measure against Word for Mac 16.113.4; restructured to the craftrules progress-docs standard) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-17 · **Change:** minor (Word bibliography XML imports through the existing source-library path, #2640; previously source library import and bibliography sources DOCX round-trip, #1058; previously trivial: progress log: symbol fonts, #776; previously trivial: the save prompt answers from the keyboard, #861; previously trivial: table column and row markers on the rulers, #700; previously trivial: table borders and the resize handle drag on the page, #217; previously trivial: formatting revisions landed, #41; previously trivial: Draw tab ink, #307, and Draw Table and Eraser, #303, landed: catalog 402/434; previously minor: readiness table with hours per audience; full number back to the additive weighted sum, 60%; mainstream and essentials numbers added; alpha gate checked; previously major: full re-measure against Word for Mac 16.113.4; restructured to the craftrules progress-docs standard) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
 
 > **Printing update:** 2026-10-12 · direct desktop printing through craft-print; details below.
 
@@ -135,6 +135,7 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 
 | Date | What landed |
 |---|---|
+| 2026-10-17 | Manage Sources imports Word Sources.xml through the existing import command and picker (#2640). The supported source mapping is shared with DOCX customXml; tags, counts, citation refresh and one Undo keep their existing behavior. Standard and legacy namespaces, UTF-8/UTF-16 and malformed-input refusal have synthetic coverage. No master-list synchronization or live reference-manager integration |
 | 2026-10-13 | Source libraries import (#1058, slice 1): Manage Sources ▸ Import… and `references.importSources {"path", "format"?}` read a BibTeX, RIS or CSL-JSON library (format from the extension or the content; capped at 16 MiB, 10,000 sources, 4,000 characters a value) and upsert its sources by tag — one undo step, the dialog's status line says the counts. Bibliography sources round-trip in DOCX in Word's own layout: package-root `customXml/itemN.xml` + `itemPropsN.xml`, related from the document part with content-type overrides (correcting #790's package-root relationship); unrelated customXml parts untouched |
 | 2026-10-12 | RTF import now uses the RTF spec's defaults where a file names none (#902): no space before or after paragraphs, single line spacing, and the `\deff` default font, instead of WordCraft's Normal style; RTF files that relied on the old defaults open tighter, like in Word |
 | 2026-10-11 | Right-clicking a table cell offers the table's commands, and as in Word they follow the selection: with the caret in a cell Insert, Delete Cells, Split Cells, Text Direction and Table Properties…; with several cells Merge Cells instead of Split; with whole columns or rows Delete Columns or Rows, Merge Cells and Distribute Rows and Columns; with the whole table Delete Table, Distribute, AutoFit and Insert Caption…. A right-click beside selected cells moves the caret there instead of keeping them |
@@ -273,6 +274,7 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-17 | minor | Word bibliography XML imports through the existing source-library path, #2640 |
 | 2026-10-13 | minor | Progress log: source library import and bibliography sources DOCX round-trip in Word's layout (#1058) |
 | 2026-10-12 | trivial | Progress log: Accept All and Reject All keep the right paragraph marks (#864) |
 | 2026-10-11 | trivial | Progress log: Ctrl, Alt, left-edge and selected-cells table border drags (#711) |

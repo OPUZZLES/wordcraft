@@ -1,6 +1,6 @@
 # UI parity with Microsoft Word
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-13 · **Change:** trivial (Manage Sources ▸ Import… picks a source library, #1058; previously trivial: selection bar in the left margin, #856; previously trivial: table column and row markers on the rulers, #700; previously trivial: table borders and the resize handle drag on the page, #217; previously major: first version; ribbon, dialogs, shortcuts and on-canvas interaction measured from `crates/ui-egui` and the command registry) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-17 · **Change:** minor (Manage Sources Import accepts Word bibliography XML, #2640; previously Manage Sources ▸ Import… picks a source library, #1058; previously trivial: selection bar in the left margin, #856; previously trivial: table column and row markers on the rulers, #700; previously trivial: table borders and the resize handle drag on the page, #217; previously major: first version; ribbon, dialogs, shortcuts and on-canvas interaction measured from `crates/ui-egui` and the command registry) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
 
 How WordCraft looks and feels next to Word: ribbon, dialogs, panes, keyboard, mouse and touch.
 Typing behaviour has its own checklist ([`typing-parity.md`](typing-parity.md)). All assets are our
@@ -42,10 +42,13 @@ own (`AGENTS.md`: no Microsoft iconography, ever).
 | Screen readers (VoiceOver, Narrator, Orca) | AccessKit on; the document canvas describes paragraphs, headings (level), list items, tables, links, pictures (alt text) and the caret and selection, for the pages on screen (#488); not yet tried with real screen readers | full | 50% | 5–8 |
 | Right-to-left (mirrored) interface | ❌ | ✅ (Arabic, Hebrew Word) | 0% | in localization |
 
+Manage Sources uses its existing Import button and Source libraries filter for Word bibliography XML too. A cancelled picker leaves sources, document edits and Undo unchanged. The web host still needs a source-picker implementation; adding XML does not change that limitation.
+
 ## Revision history
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-17 | minor | Manage Sources Import accepts Word bibliography XML, #2640 |
 | 2026-10-13 | trivial | Manage Sources ▸ Import…: picks a BibTeX/RIS/CSL-JSON library (filters bib/ris/json) and runs `references.importSources`; the dialog's status line says "n added, n updated" (the window's status bar if the dialog closed); the web build's picker yields nothing yet (#1058) |
 | 2026-10-11 | trivial | Tables on the page: Ctrl shares a column border's change among the columns right of it, the left edge moves a left-aligned table's indent (a centred or right-aligned one keeps its alignment), a border of cells selected across moves only in their rows, Alt shows the column widths on the ruler (#711); 80% → 90% |
 | 2026-10-11 | trivial | Rulers: table column and row markers drag their borders (one undo step; from the ruler only the column left of a border changes, with Shift the neighbour makes up the difference), and in a cell the indents and tabs are measured from it (#700) |

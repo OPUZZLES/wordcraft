@@ -39,8 +39,7 @@ const MAX_PARTS: usize = 50_000;
 /// Most graphic work (items plus path segments, see `story::graphic_work`) built for one file's
 /// charts and diagrams; later ones are left empty.
 const MAX_GRAPHIC_WORK: usize = 2_000_000;
-/// Bibliography sources kept from a file (Word's own source manager holds far fewer).
-const MAX_SOURCES: usize = 10_000;
+use crate::bibliography::MAX_SOURCES;
 /// Custom XML parts looked at for bibliography sources.
 const MAX_BIBLIOGRAPHY_PARTS: usize = 64;
 /// Characters kept of a bibliography's citation style name.
@@ -1207,116 +1206,22 @@ impl Reader<'_> {
         {
             self.doc.settings.bib_style = Some(name.chars().take(MAX_STYLE_NAME).collect());
         }
-        let child_text = |el: &El, local: &str| el.els().find(|e| e.local() == local).map(|e| e.text()).unwrap_or_default();
-        let parse_persons = |parent: &El| -> String {
-            let mut names = Vec::new();
-            let person_els: Vec<&El> = {
-                let in_lists: Vec<&El> =
-                    parent.els().filter(|e| e.local() == "NameList").flat_map(|n| n.els().filter(|e| e.local() == "Person")).collect();
-                if in_lists.is_empty() { parent.els().filter(|e| e.local() == "Person").collect() } else { in_lists }
-            };
-            for name_el in person_els {
-                let last = child_text(name_el, "Last");
-                let first = child_text(name_el, "First");
-                let middle = child_text(name_el, "Middle");
-                let name = if !first.is_empty() && !middle.is_empty() {
-                    format!("{last}, {first} {middle}")
-                } else if !first.is_empty() {
-                    format!("{last}, {first}")
-                } else {
-                    last
-                };
-                if !name.is_empty() {
-                    names.push(name);
-                }
-            }
-            names.join("; ")
-        };
-
         for src_el in root.els().filter(|e| e.local() == "Source") {
             if self.doc.sources.len() >= MAX_SOURCES {
                 log::warn!("docx: more than {MAX_SOURCES} bibliography sources; the rest are dropped");
                 break;
             }
-            let tag = child_text(src_el, "Tag");
-            let raw_kind = child_text(src_el, "SourceType");
-            let kind = crate::write::from_source_type(&raw_kind);
-            let (author, editor) = match src_el.els().find(|e| e.local() == "Author") {
-                Some(a) => {
-                    let auth = a.els().find(|e| e.local() == "Author").map(parse_persons).filter(|s| !s.is_empty()).unwrap_or_else(|| {
-                        // A source with no person names may name a corporate author, verbatim.
-                        let corporate =
-                            a.els().find(|e| e.local() == "CorporateAuthor").map(|c| c.text().trim().to_string()).filter(|s| !s.is_empty());
-                        corporate.unwrap_or_else(|| parse_persons(a))
-                    });
-                    let ed = a.els().find(|e| e.local() == "Editor").map(parse_persons).unwrap_or_default();
-                    (auth, ed)
-                }
-                None => (String::new(), String::new()),
-            };
-            let editor = if editor.is_empty() { src_el.els().find(|e| e.local() == "Editor").map(parse_persons).unwrap_or_default() } else { editor };
-            let title = child_text(src_el, "Title");
-            let year = child_text(src_el, "Year");
-            let month = child_text(src_el, "Month");
-            let day = child_text(src_el, "Day");
-            let city = child_text(src_el, "City");
-            let publisher = child_text(src_el, "Publisher");
-            let journal = child_text(src_el, "JournalName");
-            let edition = child_text(src_el, "Edition");
-            let volume = child_text(src_el, "Volume");
-            let issue = child_text(src_el, "Issue");
-            let pages = child_text(src_el, "Pages");
-            let url = child_text(src_el, "URL");
-            let accessed = match child_text(src_el, "Accessed") {
-                a if !a.is_empty() => a,
-                _ => {
-                    let y = child_text(src_el, "YearAccessed");
-                    let m = child_text(src_el, "MonthAccessed");
-                    let d = child_text(src_el, "DayAccessed");
-                    if !y.is_empty() && !m.is_empty() && !d.is_empty() {
-                        format!("{y}-{m}-{d}")
-                    } else if !y.is_empty() && !m.is_empty() {
-                        format!("{y}-{m}")
-                    } else {
-                        y
-                    }
-                }
-            };
-            let doi = match child_text(src_el, "DOI") {
-                d if !d.is_empty() => d,
-                _ => child_text(src_el, "StandardNumber"),
-            };
-
-            // Keep sources with some content, once each (by tag, or title and author untagged).
-            if tag.is_empty() && title.is_empty() && author.is_empty() && editor.is_empty() {
+            let src = crate::bibliography::source(src_el);
+            if src.tag.is_empty() && src.title.is_empty() && src.author.is_empty() && src.editor.is_empty() {
                 continue;
             }
-            let fresh = if tag.is_empty() {
-                seen.untagged.insert((title.clone(), if author.is_empty() { editor.clone() } else { author.clone() }))
+            let fresh = if src.tag.is_empty() {
+                seen.untagged.insert((src.title.clone(), if src.author.is_empty() { src.editor.clone() } else { src.author.clone() }))
             } else {
-                seen.tags.insert(tag.clone())
+                seen.tags.insert(src.tag.clone())
             };
             if fresh {
-                self.doc.sources.push(wordcraft_doc::Source {
-                    tag,
-                    kind,
-                    author,
-                    title,
-                    year,
-                    city,
-                    publisher,
-                    journal,
-                    volume,
-                    pages,
-                    url,
-                    editor,
-                    edition,
-                    issue,
-                    month,
-                    day,
-                    accessed,
-                    doi,
-                });
+                self.doc.sources.push(src);
             }
         }
         Ok(())

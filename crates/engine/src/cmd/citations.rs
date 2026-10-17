@@ -292,7 +292,7 @@ pub fn specs() -> Vec<CommandSpec> {
         CommandSpec::new("references.sources", "Manage Sources", "References › Citations & Bibliography", sources)
             .params(r#"{"add"?: Source, "remove"?: tag} → list"#),
         CommandSpec::new("references.importSources", "Import Sources Library", "References › Citations & Bibliography", import_sources).params(
-            r#"{"path": string, "format"?: "bibtex|ris|csl-json|auto" (default: the extension, else the content)} → {"added": n, "updated": n, "skipped": [{"tag"?, "reason"}], "total": n} (entries the file held)"#,
+            r#"{"path": string, "format"?: "bibtex|ris|csl-json|word-xml|auto" (default: the extension, else the content)} → {"added": n, "updated": n, "skipped": [{"tag"?, "reason"}], "total": n} (entries the file held)"#,
         ),
         CommandSpec::new("references.citation", "Insert Citation", "References › Citations & Bibliography", citation).params(r#"{"tag"?: string, "source"?: Source (added if new), "pages"?: string}"#),
         CommandSpec::new("references.citationStyle", "Style", "References › Citations & Bibliography", |s, v| {
@@ -608,6 +608,9 @@ fn sniffed_format(b: &[u8]) -> Option<&'static str> {
     }
     let b = b.strip_prefix(&[0xEF, 0xBB, 0xBF][..]).unwrap_or(b);
     let t = after_ws(b);
+    if t.first() == Some(&b'<') || b.starts_with(&[0xff, 0xfe]) || b.starts_with(&[0xfe, 0xff]) {
+        return Some("xml");
+    }
     // `TY  - …` (spacing around the hyphen tolerated): an RIS record opens the file.
     if t.get(..2).is_some_and(|x| x.eq_ignore_ascii_case(b"TY")) && after_ws(t.get(2..).unwrap_or(&[])).first() == Some(&b'-') {
         return Some("ris");
@@ -634,11 +637,12 @@ fn library_ext(path: &str, bytes: &[u8]) -> Option<&'static str> {
         Some("bib") => Some("bib"),
         Some("ris") => Some("ris"),
         Some("json") => Some("json"),
+        Some("xml") => Some("xml"),
         _ => sniffed_format(bytes),
     }
 }
 
-/// References ▸ Manage Sources ▸ Import: read a BibTeX, RIS or CSL-JSON library and upsert its
+/// References ▸ Manage Sources ▸ Import: read a BibTeX, RIS, CSL-JSON or Word XML library and upsert its
 /// sources by tag through the `references.sources {"add"}` semantics (an existing tag is
 /// updated in place, a new one pushed). Entries the file gives no tag get one generated, with
 /// a `-2` suffix on collision; an entry with no field at all is skipped with a reason. One
@@ -651,18 +655,22 @@ fn import_sources(s: &mut Session, v: &Value) -> CmdResult {
         "bibtex" => Some("bib"),
         "ris" => Some("ris"),
         "csl-json" => Some("json"),
-        other => return Err(CmdError::Params(format!("`format` must be bibtex, ris, csl-json or auto, not `{other}`"))),
+        "word-xml" => Some("xml"),
+        other => return Err(CmdError::Params(format!("`format` must be bibtex, ris, csl-json, word-xml or auto, not `{other}`"))),
     };
     // Refused by size before it is read in: the file is named by the user and could be any size
     // on disk. The 1 KiB margin lets the parser's own message govern files between the caps.
     let cap = wordcraft_formats::MAX_LIBRARY_BYTES as u64 + 1024;
     let bytes = crate::io::read_file_capped(path, cap, "source library").map_err(|e| CmdError::Params(e.to_string()))?;
-    let ext = forced
-        .or_else(|| library_ext(path, &bytes))
-        .ok_or_else(|| CmdError::Params(format!("{path}: not a BibTeX, RIS or CSL-JSON library; give `format` or a .bib/.ris/.json file")))?;
-    let sources = wordcraft_formats::import_sources(ext, &bytes)
-        .unwrap_or_else(|| Err("not a BibTeX, RIS or CSL-JSON library".into()))
-        .map_err(|e| CmdError::Params(format!("{path}: {e}")))?;
+    let ext = forced.or_else(|| library_ext(path, &bytes)).ok_or_else(|| {
+        CmdError::Params(format!("{path}: not a BibTeX, RIS, CSL-JSON or Word XML library; give `format` or a .bib/.ris/.json/.xml file"))
+    })?;
+    let sources = if ext == "xml" {
+        wordcraft_docx::read_bibliography_sources(&bytes).map_err(|e| e.to_string())
+    } else {
+        wordcraft_formats::import_sources(ext, &bytes).unwrap_or_else(|| Err("not a source library".into()))
+    }
+    .map_err(|e| CmdError::Params(format!("{path}: {e}")))?;
     let mut added = 0;
     let mut updated = 0;
     let mut skipped: Vec<Value> = Vec::new();

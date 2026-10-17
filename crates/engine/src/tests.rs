@@ -1884,9 +1884,16 @@ fn hostile_params_never_panic() {
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("empty.bib"), b"").unwrap();
         std::fs::write(dir.join("wrong.txt"), b"not any kind of library").unwrap();
+        std::fs::write(
+            dir.join("broken.xml"),
+            br#"<Sources xmlns="http://schemas.openxmlformats.org/officeDocument/2006/bibliography"><Source><Tag>Existing</Tag></Sources>"#,
+        )
+        .unwrap();
+        std::fs::write(dir.join("entity.xml"), br#"<!DOCTYPE Sources [<!ENTITY x SYSTEM "file:///not-a-source">]><Sources xmlns="http://schemas.openxmlformats.org/officeDocument/2006/bibliography"/>"#).unwrap();
         // A sparse 100 MB library: refused by its size, before the whole thing is read in.
         std::fs::File::create(dir.join("big.bib")).unwrap().set_len(100 << 20).unwrap();
         let mut s = Session::new(crate::sample::sample_document());
+        let sources = s.doc.sources.clone();
         for bad in [
             json!({}),
             json!({"path": 5}),
@@ -1897,11 +1904,16 @@ fn hostile_params_never_panic() {
             json!({"path": dir.join("wrong.txt").to_string_lossy()}),
             json!({"path": dir.join("missing.ris").to_string_lossy(), "format": "nope"}),
             json!({"path": dir.join("big.bib").to_string_lossy()}),
+            json!({"path": dir.join("broken.xml").to_string_lossy(), "format": "word-xml"}),
+            json!({"path": dir.join("entity.xml").to_string_lossy(), "format": "word-xml"}),
+            json!({"path": dir.join("missing.xml").to_string_lossy(), "format": "word-xml"}),
+            json!({"path": dir.join("big.bib").to_string_lossy(), "format": "word-xml"}),
         ] {
             match s.run("references.importSources", &bad) {
                 Err(crate::CmdError::Params(_)) => {}
                 other => panic!("expected a Params error for {bad}, got {other:?}"),
             }
+            assert_eq!(s.doc.sources, sources, "a refused library must not replace sources");
         }
         // The oversized file is refused at the read, so the error names the cap (and the file
         // is never read in, however large it is).

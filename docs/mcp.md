@@ -41,7 +41,7 @@ config works across the suite) keep the agent to the folders you give it:
 - Every file a command reads must lie inside the **read root**: `open_document` and `file.open`,
   `file.newFromTemplate`, `insert.textFromFile` and `insert.object`, `insert.picture` and
   `picture.change` with a `path`, `mailings.recipients` with a `path` (csv, tsv, txt, xlsx, xlsm,
-  ods), `references.importSources` with a `path` (bib, ris, json), `review.compare` (`path` and
+  ods), `references.importSources` with a `path` (bib, ris, json, xml), `review.compare` (`path` and
   `original`), the templates and documents `tools.updateStyles`,
   `styles.organizer` and `styles.copyFrom` read. The pictures an opened HTML file names are read
   from beside that file, so they are inside the read root too (a link that leads out is not followed).
@@ -177,3 +177,23 @@ the distance from the text). Missing fields are `none`, 0, no colour and 0, so a
 | `kinsoku`, `wordWrap`, `overflowPunct`, `autoSpaceDE`, `autoSpaceDN`, `snapToGrid` | bool | East Asian typography; unset = on |
 | `topLinePunct` | bool | East Asian typography; unset = off |
 | `numChange`, `fmtChange` | | Track Changes bookkeeping |
+
+
+## Word bibliography XML
+
+The existing engine command accepts a Word bibliography library:
+```json
+{"command":"references.importSources","params":{"path":"Sources.xml","format":"word-xml"}}
+```
+
+With format omitted, .xml or XML-looking content selects the same reader. The normal automation
+read root applies. Only the document's sources are imported, not Word's global master list.
+An import upserts tags, reports added/updated/skipped counts and is one Undo. Re-importing an
+existing tag follows the existing source import's update behavior.
+
+The reader accepts the 2006 OOXML and legacy 2004 bibliography namespaces, UTF-8 and BOM-marked
+UTF-16. Malformed XML, DTDs, unresolved entities, oversized files and excessive nesting fail
+before changing sources. Limits: 16 MiB, 32 levels, 10,000 sources and 4,000 characters per
+value. Sources past the entry limit are omitted and long values are cut at character boundaries,
+as with the other source-library formats. GUID, LCID and fields absent from the Source model
+are not imported. Corporate-author text imports, but the existing model does not preserve the corporate/person distinction. Custom citation styles and live manager integration remain separate.
