@@ -595,6 +595,26 @@ fn empty_tbl_borders_elements_leave_sides_unset() {
     assert!(b.top.is_some() && b.between.is_some() && b.inside_v.is_some());
 }
 
+/// A style ID defined twice is its last definition, whole (Word drops the earlier one rather
+/// than merging: observed with synthetic documents). Generators that write a placeholder
+/// Heading 1 and then their own made headings come out in the placeholder's font and size.
+#[test]
+fn a_style_defined_twice_is_its_last_definition() {
+    let styles = format!(
+        r#"<w:styles {W_NS}>
+<w:style w:type="paragraph" w:styleId="Heading1"><w:name w:val="heading 1"/><w:pPr><w:jc w:val="center"/></w:pPr><w:rPr><w:i/><w:color w:val="FF0000"/><w:sz w:val="40"/></w:rPr></w:style>
+<w:style w:type="paragraph" w:styleId="Heading1"><w:name w:val="heading 1"/><w:rPr><w:b/><w:color w:val="0000FF"/><w:sz w:val="24"/></w:rPr></w:style>
+</w:styles>"#
+    );
+    let body = r#"<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>Probe</w:t></w:r></w:p>"#;
+    let d = wordcraft_docx::read(&docx(body, &[("rId1", "styles", "styles.xml")], &[("word/styles.xml", &styles)])).unwrap();
+    assert_eq!(d.styles.styles.iter().filter(|s| s.id == "Heading1").count(), 1);
+    let h = d.styles.get("Heading1").unwrap();
+    assert_eq!((h.chr.bold, h.chr.italic, h.chr.size), (Some(true), None, Some(12.0)));
+    assert_eq!(h.chr.color, Some(TextColor::Rgb(Rgb(0, 0, 0xFF))));
+    assert_eq!(h.para.align, None, "nothing kept from the first definition");
+}
+
 #[test]
 fn vml_image_and_inline_drawing() {
     let png: &[u8] = b"\x89PNG\r\n\x1a\nnot really a png";
@@ -649,6 +669,24 @@ fn chart_and_diagram_drawings_are_graphic_objects() {
         }
         o => panic!("{o:?}"),
     }
+}
+
+/// A text box shape's style text colour (`wps:style/a:fontRef`) is kept on its story, as what
+/// automatic text colour means inside it; a box without one has none.
+#[test]
+fn a_text_box_s_style_font_colour_is_read() {
+    let shape = |style: &str| {
+        format!(
+            r#"<w:r><w:drawing><wp:anchor behindDoc="0"><wp:positionH relativeFrom="column"><wp:posOffset>0</wp:posOffset></wp:positionH><wp:positionV relativeFrom="paragraph"><wp:posOffset>0</wp:posOffset></wp:positionV><wp:extent cx="1270000" cy="635000"/><wp:wrapNone/><wp:docPr id="1" name="S"/><a:graphic><a:graphicData uri="http://schemas.microsoft.com/office/word/2010/wordprocessingShape"><wps:wsp><wps:spPr><a:prstGeom prst="rect"/></wps:spPr>{style}<wps:txbx><w:txbxContent><w:p><w:r><w:t>In the box</w:t></w:r></w:p></w:txbxContent></wps:txbx><wps:bodyPr/></wps:wsp></a:graphicData></a:graphic></wp:anchor></w:drawing></w:r>"#
+        )
+    };
+    let style = r#"<wps:style><a:lnRef idx="2"><a:srgbClr val="000000"/></a:lnRef><a:fillRef idx="1"><a:srgbClr val="203040"/></a:fillRef><a:effectRef idx="0"><a:srgbClr val="000000"/></a:effectRef><a:fontRef idx="minor"><a:srgbClr val="FFFFFF"/></a:fontRef></wps:style>"#;
+    let d = read_body(&format!("<w:p>{}{}</w:p>", shape(style), shape("")));
+    let boxes: Vec<_> =
+        paras(&d)[0].objects.iter().filter_map(|o| if let InlineObject::Shape { story: Some(id), .. } = o { Some(*id) } else { None }).collect();
+    let [styled, plain] = boxes.as_slice() else { panic!("{boxes:?}") };
+    assert_eq!(d.parts[styled].body.auto_color, Some(Rgb(0xFF, 0xFF, 0xFF)));
+    assert_eq!(d.parts[plain].body.auto_color, None);
 }
 
 #[test]
@@ -2908,4 +2946,31 @@ fn empty_field_keeps_begin_props() {
     assert_eq!(p.props_at(0).size, Some(6.0));
     assert_eq!(p.props_at(0).italic, Some(true));
     assert!(matches!(&p.objects[0], InlineObject::Field { result, .. } if result.is_empty()));
+}
+
+#[test]
+fn shape_dashes_import_and_save() {
+    use wordcraft_doc::line_dash::LineDash;
+    for (xml, expected) in [
+        (r#"<a:prstDash val="dash"/>"#, LineDash::Dash),
+        (r#"<a:prstDash val="sysDashDot"/>"#, LineDash::SystemDashDot),
+        (
+            r#"<a:custDash><a:ds d="400000" sp="300000"/><a:ds d="100000" sp="300000"/></a:custDash>"#,
+            LineDash::Custom(vec![(400_000, 300_000), (100_000, 300_000)]),
+        ),
+        (r#"<a:custDash><a:ds d="400%" sp="300%"/></a:custDash>"#, LineDash::Custom(vec![(400_000, 300_000)])),
+        (r#"<a:custDash><a:ds d="NaN%" sp="-1"/></a:custDash>"#, LineDash::Solid),
+        (r#"<a:prstDash val="solid"/>"#, LineDash::Solid),
+        ("", LineDash::Solid),
+    ] {
+        let sppr = format!(r#"<a:prstGeom prst="rect"/><a:noFill/><a:ln w="12700"><a:solidFill><a:srgbClr val="C00000"/></a:solidFill>{xml}</a:ln>"#);
+        let body = anchored_wsp("Annotation", 889000, 355600, &sppr, "", "<wps:cNvSpPr/>");
+        let d = read_body(&format!("<w:p>{body}</w:p>"));
+        let saved = wordcraft_docx::read(&wordcraft_docx::write(&d).unwrap()).unwrap();
+        for doc in [&d, &saved] {
+            let InlineObject::Shape { w, h, stroke, stroke_width, extra, .. } = &paras(doc)[0].objects[0] else { panic!("shape") };
+            assert_eq!(extra.dash, expected);
+            assert_eq!((*w, *h, *stroke, *stroke_width), (70.0, 28.0, Some(Rgb(192, 0, 0)), 1.0));
+        }
+    }
 }

@@ -948,6 +948,99 @@ fn copying_an_equation_puts_mathml_on_the_clipboard() {
     assert!(r["html"].as_str().is_some_and(|h| h.contains("Speed") && !h.contains("<math")), "{r}");
 }
 
+/// Whether `xml` is one element whose tags all nest and close (enough to check a clipboard
+/// payload without an XML parser in the engine's tests).
+fn one_balanced_element(xml: &str) -> bool {
+    let mut stack: Vec<String> = Vec::new();
+    let mut closed_root = false;
+    let mut rest = xml;
+    while let Some(lt) = rest.find('<') {
+        if closed_root || (stack.is_empty() && !rest[..lt].trim().is_empty()) {
+            return false;
+        }
+        let Some(gt) = rest[lt..].find('>') else { return false };
+        let tag = &rest[lt + 1..lt + gt];
+        rest = &rest[lt + gt + 1..];
+        if let Some(name) = tag.strip_prefix('/') {
+            if stack.pop().as_deref() != Some(name.trim()) {
+                return false;
+            }
+            closed_root = stack.is_empty();
+        } else if !tag.ends_with('/') {
+            stack.push(tag.split_whitespace().next().unwrap_or_default().to_string());
+        } else if stack.is_empty() {
+            closed_root = true;
+        }
+    }
+    closed_root && stack.is_empty() && rest.trim().is_empty()
+}
+
+#[test]
+fn copying_one_equation_gives_its_mathml_for_the_math_clipboard_formats() {
+    // #1297: Word reads a pasted equation first from the clipboard's "MathML" formats; a copy of
+    // one equation alone carries its MathML for the host to put there.
+    let cases = [
+        ("y=(a+b)/(c-d)", "<mfrac>"),
+        ("x_i^2+e^(-t)", "<msubsup>"),
+        ("√(x^2+1)+∛8", "<msqrt>"),
+        ("∑_(k=1)^n k^2", "<munderover>"),
+        ("∫_0^1 f(x)dx", "∫"),
+        ("■(1&0@0&1)", "<mtable>"),
+    ];
+    for (linear, element) in cases {
+        let mut s = s();
+        run(&mut s, "insert.equation", json!({"linear": linear, "edit": false}));
+        run(&mut s, "select.all", json!({}));
+        let r = run(&mut s, "edit.copy", json!({}));
+        let mathml = r["mathml"].as_str().unwrap_or_default().to_string();
+        assert!(mathml.starts_with("<math xmlns=\"http://www.w3.org/1998/Math/MathML\""), "{linear}: {mathml}");
+        assert!(mathml.contains(element), "{linear}: {mathml}");
+        // Alone on its line, it is a display equation.
+        assert!(mathml.contains("display=\"block\""), "{linear}: {mathml}");
+        assert!(one_balanced_element(&mathml), "{linear}: not one well-formed element: {mathml}");
+        // No XML prolog: the W3C transfer rules want `<math` first, so readers that sniff the
+        // start of the text recognise it.
+        assert!(!mathml.contains("<?xml"), "{mathml}");
+        // Pasting it back (as a MathML reader would get it) gives the same equation.
+        let mut t = s_with_paste(&mathml);
+        assert_eq!(equations(&t), equations(&s), "{mathml}");
+        // Its presentation elements alone, without our linear-format annotation (which Word
+        // ignores), still read as an equation of the same shape.
+        let bare = match (mathml.find("<annotation"), mathml.find("</annotation>")) {
+            (Some(a), Some(b)) => format!("{}{}", &mathml[..a], &mathml[b + "</annotation>".len()..]),
+            _ => mathml.clone(),
+        };
+        t = s_with_paste(&bare);
+        assert_eq!(equations(&t).len(), 1, "{linear}: {bare}");
+    }
+}
+
+fn s_with_paste(html: &str) -> Session {
+    let mut t = s();
+    run(&mut t, "edit.paste", json!({"text": "", "html": html}));
+    t
+}
+
+#[test]
+fn copying_an_equation_with_text_offers_no_math_clipboard_formats() {
+    // #1297: Word takes the "MathML" format before the HTML, so offering it for a copy with text
+    // around the equation would drop the text. Text alone has none either.
+    let mut s = s();
+    run(&mut s, "document.setText", json!({"text": "Speed "}));
+    run(&mut s, "caret.docEnd", json!({}));
+    run(&mut s, "insert.equation", json!({"linear": "y=2x_s", "edit": false}));
+    run(&mut s, "select.all", json!({}));
+    let r = run(&mut s, "edit.copy", json!({}));
+    assert!(r.get("mathml").is_none() && r["html"].as_str().is_some_and(|h| h.contains("<math")), "{r}");
+    run(&mut s, "select.range", json!({"anchor": {"block": 0, "off": 0}, "focus": {"block": 0, "off": 5}}));
+    let r = run(&mut s, "edit.copy", json!({}));
+    assert!(r.get("mathml").is_none(), "{r}");
+    // Cut of the equation alone offers it.
+    run(&mut s, "select.range", json!({"anchor": {"block": 0, "off": 6}, "focus": {"block": 0, "off": 9}}));
+    let r = run(&mut s, "edit.cut", json!({}));
+    assert!(r["mathml"].as_str().is_some_and(|m| m.contains("<msub>") && !m.contains("display=")), "an inline equation: {r}");
+}
+
 #[test]
 fn copying_bold_text_puts_html_on_the_clipboard() {
     // #1523: formatted text reaches other programs as HTML, not only as plain text.
@@ -1240,6 +1333,62 @@ fn paste_keeps_source_formatting_from_other_programs() {
     assert_eq!(props_at(&s, 4).italic, Some(true));
 }
 
+/// A CF_HTML ("HTML Format") clipboard payload around `html`, with the byte offsets Windows writes.
+fn cf_html(html: &str) -> String {
+    let n = "Version:1.0\r\nStartHTML:0000000000\r\nEndHTML:0000000000\r\nStartFragment:0000000000\r\nEndFragment:0000000000\r\n".len();
+    let a = html.find("<body>").map_or(0, |i| i + 6);
+    let b = html.find("</body>").unwrap_or(html.len());
+    format!(
+        "Version:1.0\r\nStartHTML:{n:010}\r\nEndHTML:{:010}\r\nStartFragment:{:010}\r\nEndFragment:{:010}\r\n{html}",
+        n + html.len(),
+        n + a,
+        n + b
+    )
+}
+
+/// LibreOffice copies a paragraph indented on both sides as `<blockquote>`, its margins in the
+/// page's stylesheet (#1270). Pasting it gives a Normal paragraph with those indents — not the
+/// Quote style (centred, italic) — by Paste and by Paste Special > HTML alike.
+#[test]
+fn pasted_blockquote_is_an_indented_paragraph_not_a_quote() {
+    let page = "<!DOCTYPE html><html><head><meta name=\"generator\" content=\"LibreOffice\"/><style type=\"text/css\">\
+        blockquote { margin-left: 1cm; margin-right: 2cm; background: transparent }\
+        p { line-height: 115%; margin-bottom: 0.25cm }</style></head>\
+        <body><p>First plain.</p><blockquote lang=\"en-US\"><b>Bold indented.</b></blockquote><p>Last plain.</p></body></html>";
+    let check = |s: &Session, left: f32, right: f32| {
+        assert!(text(s).starts_with("First plain.\nBold indented.\nLast plain."), "{}", text(s));
+        let q = s.doc.body.get(1).and_then(|b| b.as_para()).unwrap();
+        assert_ne!(q.props.style.as_deref(), Some("Quote"), "not the Quote style");
+        let rp = s.doc.styles.resolve_para(&q.props);
+        assert_ne!(rp.align, wordcraft_doc::props::Align::Center, "not centred");
+        assert!((rp.indent_left - left).abs() < 0.1, "left {}", rp.indent_left);
+        assert!((rp.indent_right - right).abs() < 0.1, "right {}", rp.indent_right);
+        let rc = s.doc.styles.resolve_char(q.props.style.as_deref(), q.props_of_char(0));
+        assert!(!rc.italic, "not italic");
+        assert!(rc.bold, "keeps its bold");
+    };
+    let mut s = s();
+    run(&mut s, "edit.paste", json!({"text": "First plain.\nBold indented.\nLast plain.", "html": cf_html(page)}));
+    check(&s, 72.0 / 2.54, 144.0 / 2.54);
+    let mut s2 = self::s();
+    run(&mut s2, "edit.pasteSpecial", json!({"as": "html", "html": cf_html(page)}));
+    check(&s2, 72.0 / 2.54, 144.0 / 2.54);
+    // No margins given: half an inch each side.
+    let mut s3 = self::s();
+    run(&mut s3, "edit.paste", json!({"text": "a\nq", "html": "<p>a</p><blockquote>q</blockquote>"}));
+    let q = s3.doc.body.get(1).and_then(|b| b.as_para()).unwrap();
+    assert_ne!(q.props.style.as_deref(), Some("Quote"));
+    assert_eq!((q.props.indent_left, q.props.indent_right), (Some(36.0), Some(36.0)));
+}
+
+/// Opening an .html file keeps `<blockquote>` as the Quote style, so HTML round-trips.
+#[test]
+fn opened_html_blockquote_stays_a_quote() {
+    let d = crate::io::open_bytes("q.html", b"<p>a</p><blockquote>q</blockquote>").unwrap();
+    let q = d.body.get(1).and_then(|b| b.as_para()).unwrap();
+    assert_eq!(q.props.style.as_deref(), Some("Quote"));
+}
+
 /// Paste Special lists a picture on the system clipboard and pastes it (#687).
 #[test]
 fn paste_special_lists_and_pastes_a_picture() {
@@ -1337,6 +1486,37 @@ fn tables_commands() {
     run(&mut s, "table.deleteTable", json!({}));
     assert!(s.doc.body.iter().all(|b| b.as_table().is_none()));
     assert!(s.run("table.merge", &json!({})).is_err());
+}
+
+#[test]
+fn delete_row_on_a_merge_start_promotes_the_cell_below() {
+    use wordcraft_doc::props::VMerge;
+    let vm = |s: &Session, r: usize| {
+        let t = s.doc.body.iter().find_map(|b| b.as_table()).unwrap();
+        t.rows[r].cells[0].props.vmerge
+    };
+    // Merge of two rows: the cell below becomes an ordinary cell.
+    let mut s = s();
+    run(&mut s, "insert.table", json!({"rows": 3, "cols": 2}));
+    run(&mut s, "caret.down", json!({}));
+    run(&mut s, "caret.up", json!({"extend": true}));
+    run(&mut s, "table.merge", json!({}));
+    run(&mut s, "caret.up", json!({}));
+    run(&mut s, "table.deleteRow", json!({}));
+    assert_eq!(vm(&s, 0), VMerge::None, "first row's cell continues a merge that no longer exists");
+    // Merge of three rows: the cell below restarts the merge.
+    let mut s = Session::new(wordcraft_doc::Document::new());
+    run(&mut s, "insert.table", json!({"rows": 4, "cols": 2}));
+    run(&mut s, "caret.down", json!({}));
+    run(&mut s, "caret.down", json!({}));
+    run(&mut s, "caret.up", json!({"extend": true}));
+    run(&mut s, "caret.up", json!({"extend": true}));
+    run(&mut s, "table.merge", json!({}));
+    run(&mut s, "caret.up", json!({}));
+    run(&mut s, "caret.up", json!({}));
+    run(&mut s, "table.deleteRow", json!({}));
+    assert_eq!(vm(&s, 0), VMerge::Restart);
+    assert_eq!(vm(&s, 1), VMerge::Continue);
 }
 
 fn cells(s: &Session) -> Option<((usize, usize), (usize, usize))> {
@@ -5767,7 +5947,11 @@ const PORTUGUESE_TEST_DIC: &str = "11\nsaudade\ncoração\ne\nele\ndisse\nnão\n
 fn dictionaries_folder_option_is_saved_searched_and_reported() {
     let dir = std::env::temp_dir().join(format!("wc-engine-dictionaries-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
-    for (name, aff, dic) in [("pl_PL", POLISH_TEST_AFF, POLISH_TEST_DIC), ("pt_BR", PORTUGUESE_TEST_AFF, PORTUGUESE_TEST_DIC)] {
+    for (name, aff, dic) in [
+        ("pl_PL", POLISH_TEST_AFF, POLISH_TEST_DIC),
+        ("pt_BR", PORTUGUESE_TEST_AFF, PORTUGUESE_TEST_DIC),
+        ("id_ID", INDONESIAN_TEST_AFF, INDONESIAN_TEST_DIC),
+    ] {
         std::fs::write(dir.join(format!("{name}.aff")), aff).unwrap();
         std::fs::write(dir.join(format!("{name}.dic")), dic).unwrap();
     }
@@ -5784,6 +5968,7 @@ fn dictionaries_folder_option_is_saved_searched_and_reported() {
     let file = |lang: &str| dicts.iter().find(|d| d["language"] == lang).map(|d| d["file"].clone());
     assert_eq!(file("pl"), Some(json!(dir.join("pl_PL.dic").to_string_lossy())));
     assert_eq!(file("pt"), Some(json!(dir.join("pt_BR.dic").to_string_lossy())));
+    assert_eq!(file("id"), Some(json!(dir.join("id_ID.dic").to_string_lossy())));
     // Polish text is checked against the folder's dictionary.
     run(&mut s, "document.setText", json!({"text": "rzeka płynie żeka"}));
     run(&mut s, "select.all", json!({}));
@@ -5830,6 +6015,49 @@ fn portuguese_proofing_through_the_review_commands() {
     run(&mut s, "review.addToDictionary", json!({"word": "coraçao"}));
     let left = run(&mut s, "review.issues", json!({}));
     assert_eq!(left.as_array().unwrap().len(), 1, "{left}");
+}
+
+fn indonesian_test_dictionary() {
+    wordcraft_proof::id::install_dictionary(INDONESIAN_TEST_AFF, INDONESIAN_TEST_DIC).unwrap();
+}
+
+// Hand-written synthetic fixture (no system dictionary data).
+const INDONESIAN_TEST_AFF: &str = "SET UTF-8\nFLAG UTF-8\nTRY aniekrumgtslhbdopy\nSFX A Y 1\nSFX A 0 an .\n";
+const INDONESIAN_TEST_DIC: &str = "8\nrumah\nsekolah\nanak\nbermain\ndi\nmakan/A\nsaya\nkami\n";
+
+/// Indonesian proofing (#498) through the same commands as Review, F7, Change and Add to
+/// Dictionary.
+#[test]
+fn indonesian_proofing_through_the_review_commands() {
+    indonesian_test_dictionary();
+    let mut s = s();
+    run(&mut s, "document.setText", json!({"text": "Saya di sekolha, anak anak bermain."}));
+    run(&mut s, "select.all", json!({}));
+    run(&mut s, "review.language", json!({"lang": "id_id", "default": true}));
+    assert_eq!(s.doc.styles.default_chr.lang.as_deref(), Some("id-ID"));
+    assert_eq!(run(&mut s, "format.state", json!({}))["lang"], "id-ID");
+    let issues = run(&mut s, "review.issues", json!({}));
+    let arr = issues.as_array().unwrap();
+    assert_eq!(arr.len(), 2, "{issues}");
+    assert!(arr.iter().all(|i| i["lang"] == "id"), "{issues}");
+    assert!(
+        arr.iter().any(|i| i["text"] == "sekolha" && i["kind"] == "spelling" && i["suggestions"].as_array().unwrap().iter().any(|s| s == "sekolah")),
+        "{issues}"
+    );
+    assert!(arr.iter().any(|i| i["text"] == "anak anak" && i["kind"] == "grammar" && i["suggestions"][0] == "anak-anak"), "{issues}");
+    run(&mut s, "caret.docStart", json!({}));
+    assert_eq!(run(&mut s, "review.spelling", json!({}))["text"], "sekolha");
+    run(&mut s, "review.applySuggestion", json!({"text": "sekolah"}));
+    assert!(text(&s).starts_with("Saya di sekolah,"), "{}", text(&s));
+    run(&mut s, "select.text", json!({"text": "sekolah"}));
+    run(&mut s, "text.insert", json!({"text": "zqkataidengine"}));
+    assert_eq!(run(&mut s, "review.issues", json!({})).as_array().unwrap().len(), 2);
+    run(&mut s, "review.addToDictionary", json!({"word": "zqkataidengine"}));
+    let left = run(&mut s, "review.issues", json!({}));
+    let left = left.as_array().unwrap();
+    assert_eq!(left.len(), 1);
+    assert_eq!(left[0]["kind"], "grammar");
+    assert_eq!(left[0]["lang"], "id");
 }
 
 /// Czech proofing through the same commands as Review, F7, Change and Add to Dictionary.

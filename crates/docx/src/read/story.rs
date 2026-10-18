@@ -1338,7 +1338,15 @@ impl Reader<'_> {
             part.body.inset = (inset != wordcraft_doc::TEXT_BOX_INSET).then_some(inset);
             part.body.auto_fit = bp.child("a:spAutoFit").is_some();
         }
-        let mut extra = ShapeExtra::default();
+        // The shape style's text colour (`a:fontRef`, often `lt1`: white on the accent fill).
+        if let Some(id) = story
+            && let Some(c) = wsp.child("wps:style").and_then(|s| s.child("a:fontRef"))
+            && let Some(rgb) = super::drawing_color::color(c, &self.doc.settings.theme_colors)
+            && let Some(part) = self.doc.parts.get_mut(&id)
+        {
+            part.body.auto_color = Some(rgb);
+        }
+        let mut extra = ShapeExtra { dash: super::shape_style::line_dash(ln), ..Default::default() };
         // A rounded rectangle's own corner (`adj`, ECMA-376 §20.1.10.56); other presets drawn as
         // rounded rectangles keep the default.
         if prst == "roundRect" {

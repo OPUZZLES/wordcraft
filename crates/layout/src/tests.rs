@@ -2289,6 +2289,59 @@ fn a_split_row_keeps_its_bottom_margin_and_widow_control() {
     assert!(l.pages[0].items.iter().all(|it| !matches!(it, Placed::Cell { .. })), "and the row with it");
 }
 
+/// When widow/orphan control leaves a cell of a row split across pages with nothing on the page,
+/// though its first line would fit, the whole row moves on: Word doesn't leave the other cells
+/// behind beside an empty one (observed with synthetic documents). A cell that keeps lines splits
+/// as usual.
+#[test]
+fn a_cell_emptied_by_widow_control_takes_its_row_to_the_next_page() {
+    use wordcraft_doc::props::LineSpacing;
+    // Letter, 1 inch margins: 648 pt of text. `filler` lines of exactly 14 pt, then a row whose
+    // second cell holds one paragraph of `lines` lines, 14 pt each.
+    let pages_of = |filler: usize, lines: usize, widow: bool| {
+        let exact =
+            ParaProps { line_spacing: Some(LineSpacing::Exactly(14.0)), space_before: Some(0.0), space_after: Some(0.0), ..Default::default() };
+        let text: Vec<String> = (0..filler).map(|i| format!("Filler {i}")).collect();
+        let mut d = Document::from_text(&format!("{}\nAfter", text.join("\n")));
+        for i in 0..=filler {
+            *para_props(&mut d, i) = exact.clone();
+        }
+        let mut t = Table::new(1, 2, 400.0);
+        t.props.cell_margins = Some([0.0, 5.4, 0.0, 5.4]);
+        let cell_para = |s: &str| {
+            let mut p = wordcraft_doc::Paragraph::with_text(s, Default::default());
+            p.props = ParaProps { widow_control: Some(widow), ..exact.clone() };
+            wordcraft_doc::para_block(p)
+        };
+        t.rows[0].cells[0].blocks = vec![cell_para("A1")];
+        let b: Vec<String> = (1..=lines).map(|i| format!("B{i}")).collect();
+        t.rows[0].cells[1].blocks = vec![cell_para(&b.join(&wordcraft_doc::para::LINE_BREAK.to_string()))];
+        d.insert_block(StoryRef::Body, &Path::top(filler), wordcraft_doc::Block::Table(t)).unwrap();
+        let l = lay(&d);
+        // Lines of each cell per page: (first cell, second cell).
+        l.pages
+            .iter()
+            .map(|p| {
+                let count = |cell: u32| {
+                    p.items
+                        .iter()
+                        .filter_map(|i| {
+                            if let Placed::Lines { path, l0, l1, .. } = i { (path.0 == [filler as u32, 0, cell, 0]).then_some(l1 - l0) } else { None }
+                        })
+                        .sum::<usize>()
+                };
+                (count(0), count(1))
+            })
+            .collect::<Vec<_>>()
+    };
+    // 44 filler lines leave 32 pt: two lines fit.
+    assert_eq!(pages_of(44, 4, true)[..2], [(1, 2), (0, 2)], "four lines split two and two");
+    assert_eq!(pages_of(44, 3, true)[..2], [(0, 0), (1, 3)], "two and a widow: the whole row moves");
+    assert_eq!(pages_of(44, 3, false)[..2], [(1, 2), (0, 1)], "without widow control it splits where it falls");
+    // 45 filler lines leave 18 pt: one line fits, an orphan.
+    assert_eq!(pages_of(45, 4, true)[..2], [(0, 0), (1, 4)], "an orphan: the whole row moves");
+}
+
 /// The cell's last paragraph needs its space after on the page too: a row ending in an empty
 /// paragraph with 8pt after, whose text fits but whose space after doesn't, splits before it
 /// (Word keeps the "Remarks:" line on the page) instead of moving whole.
@@ -3629,6 +3682,35 @@ fn floats_in_headers_and_table_cells_are_drawn() {
     let c = shapes(&l.pages[0].items);
     assert_eq!(c.len(), 1, "cell float drawn");
     assert!(c[0].x > 72.0 && c[0].x < 72.0 + 234.0, "inside the first cell: {:?}", c[0]);
+}
+
+/// Inside a text box whose shape style gives its text a colour (`a:fontRef`, typically white on
+/// the accent fill), automatic text takes that colour instead of black; text with a colour of
+/// its own keeps it (Word, observed with synthetic documents).
+#[test]
+fn automatic_text_in_a_styled_text_box_takes_the_box_s_colour() {
+    let glyph_colors = |auto_color: Option<Rgb>| {
+        let mut d = Document::from_text("Body");
+        let id = text_box(&mut d, 4, "Auto", 200.0, 60.0, page_float(100.0, 300.0));
+        if let Some(p) = d.parts.get_mut(&id) {
+            p.body.auto_color = auto_color;
+            if let Some(wordcraft_doc::Block::Para(q)) = p.blocks.first_mut().map(std::sync::Arc::make_mut) {
+                let mut own = wordcraft_doc::Paragraph::with_text("Green", Default::default());
+                own.runs[0].props.color = Some(wordcraft_doc::props::TextColor::Rgb(Rgb(0, 0x80, 0)));
+                q.text.push_str(&own.text);
+                q.runs.extend(own.runs);
+            }
+        }
+        let l = lay(&d);
+        let items = display::page_display(&d, &l.pages[0], &display::DisplayOptions::default());
+        let color_of = |want: &str| {
+            items.iter().find_map(|i| if let display::Draw::Glyphs { text, color, .. } = i { text.contains(want).then_some(*color) } else { None })
+        };
+        (color_of("Body"), color_of("Auto"), color_of("Green"))
+    };
+    let white = Rgb(0xFF, 0xFF, 0xFF);
+    assert_eq!(glyph_colors(Some(white)), (Some(Rgb::BLACK), Some(white), Some(Rgb(0, 0x80, 0))));
+    assert_eq!(glyph_colors(None), (Some(Rgb::BLACK), Some(Rgb::BLACK), Some(Rgb(0, 0x80, 0))));
 }
 
 #[test]
