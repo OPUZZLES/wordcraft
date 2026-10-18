@@ -4734,8 +4734,8 @@ mod tests {
             roles.push(node.accesskit_node().role());
             ancestor = node.parent();
         }
-        assert!(roles.iter().any(|r| matches!(r, Role::Dialog | Role::AlertDialog)), "Save has no dialog ancestor: {roles:?}");
-        let dialog = h.get(By::new().predicate(|n| matches!(n.role(), Role::Dialog | Role::AlertDialog)));
+        assert!(roles.contains(&Role::AlertDialog), "Save has no alert-dialog ancestor: {roles:?}");
+        let dialog = h.get(By::new().predicate(|n| n.role() == Role::AlertDialog));
         let node = dialog.accesskit_node();
         assert!(node.label().is_some_and(|s| s.contains("contract.docx") && s.contains("save changes")));
         assert!(node.description().is_some_and(|s| s.contains("Your changes will be lost")));
@@ -4747,7 +4747,7 @@ mod tests {
             *message = reason.into();
         }
         h.run_steps(2);
-        let dialog = h.get(By::new().predicate(|n| matches!(n.role(), Role::Dialog | Role::AlertDialog)));
+        let dialog = h.get(By::new().predicate(|n| n.role() == Role::AlertDialog));
         assert!(dialog.accesskit_node().description().is_some_and(|s| s.contains(reason)));
         h.key_press(egui::Key::Escape);
         h.run_steps(3);
