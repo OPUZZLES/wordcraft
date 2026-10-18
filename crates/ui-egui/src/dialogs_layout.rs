@@ -435,6 +435,8 @@ pub struct LanguageForm {
     pub lang: String,
     pub no_proof: bool,
     pub detect: bool,
+    /// Set As Default commits with OK; Cancel drops the choice.
+    pub set_default: bool,
 }
 
 impl LanguageForm {
@@ -443,12 +445,16 @@ impl LanguageForm {
         let style = s.doc.para_at(&s.sel.focus).and_then(|p| p.props.style.as_deref());
         let here = s.doc.styles.resolve_char(style, &s.typing_props());
         let lang = here.lang.unwrap_or_else(|| "en-US".into());
-        LanguageForm { lang, no_proof: here.no_proof, detect: s.prefs.detect_language }
+        LanguageForm { lang, no_proof: here.no_proof, detect: s.prefs.detect_language, set_default: false }
     }
 
     /// `review.language` parameters for OK.
     pub fn params(&self) -> Value {
-        json!({"lang": self.lang, "noProof": self.no_proof, "detect": self.detect})
+        let mut params = json!({"lang": self.lang, "noProof": self.no_proof, "detect": self.detect});
+        if self.set_default {
+            params["defaultScope"] = json!("future");
+        }
+        params
     }
 }
 
@@ -480,13 +486,15 @@ fn language_ui(app: &mut WordApp, ui: &mut Ui, f: &mut LanguageForm) -> bool {
     ui.checkbox(&mut f.no_proof, tl!("Do not check spelling or grammar"));
     ui.checkbox(&mut f.detect, tl!("Detect language automatically"));
     ui.add_space(4.0);
-    let set_default = ui.button(tl!("Set As Default")).clicked();
-    if set_default && run(app, "review.language", json!({"lang": f.lang, "default": true, "detect": f.detect})) {
-        app.status(crate::i18n::fmt(tl!("{language} is now the document's default language."), &[("language", &language_name(&f.lang))]));
+    if ui.button(tl!("Set As Default")).clicked() {
+        f.set_default = true;
     }
     let (ok, cancel) = buttons(ui, "OK", true);
-    if ok {
-        return run(app, "review.language", f.params());
+    if ok && run(app, "review.language", f.params()) {
+        if f.set_default {
+            app.status(tl!("These settings will be used for new documents."));
+        }
+        return true;
     }
     cancel
 }
@@ -1182,6 +1190,64 @@ mod tests {
         assert_eq!(a.session.doc.styles.default_chr.lang.as_deref(), Some("fr-FR"));
         assert!(a.dialog.is_none());
         assert_eq!(language_name("xx-YY"), "xx-YY", "an unknown tag shows as itself");
+    }
+
+    /// #2882: Set As Default is staged until OK, then persists for new documents only.
+    #[test]
+    fn proofing_default_language_dialog_cancel_and_ok_are_atomic() {
+        use egui_kittest::kittest::Queryable;
+        for accept in [false, true] {
+            let mut a = app();
+            a.run("ui.language", json!({"value": "en"})).unwrap();
+            a.run("select.all", json!({})).unwrap();
+            let before = a.session.doc.clone();
+            let preferences = a.prefs();
+            a.run("review.language", json!({})).unwrap();
+            let Some(Dialog::Layout(d)) = &mut a.dialog else { panic!("Language dialog") };
+            let LayoutDialog::Language(f) = &mut **d else { panic!("Language form") };
+            f.lang = "fr-FR".into();
+            let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+                |ui, a: &mut WordApp| {
+                    let ctx = ui.ctx().clone();
+                    a.logic(&ctx);
+                    a.ui(ui);
+                },
+                a,
+            );
+            h.run_steps(3);
+            h.get_by_label("Set As Default").click();
+            h.run_steps(3);
+            assert_eq!(h.state().session.doc, before, "Set As Default must not commit before OK");
+            assert_eq!(serde_json::to_value(h.state().prefs()).unwrap(), serde_json::to_value(&preferences).unwrap());
+            h.get_by_label(if accept { "OK" } else { "Cancel" }).click();
+            h.run_steps(3);
+            assert!(h.state().dialog.is_none());
+            if !accept {
+                assert_eq!(h.state().session.doc, before);
+                assert_eq!(serde_json::to_value(h.state().prefs()).unwrap(), serde_json::to_value(&preferences).unwrap());
+                continue;
+            }
+            assert_eq!(h.state_mut().run("format.state", json!({})).unwrap()["lang"], "fr-FR");
+            let saved = serde_json::to_vec(&h.state().prefs()).unwrap();
+            h.state_mut().run("edit.undo", json!({})).unwrap();
+            assert_eq!(h.state().session.doc, before, "one undo restores the document");
+            let mut fresh = WordApp::new(Session::new(wordcraft_doc::Document::new()), crate::Services::default());
+            fresh.apply_prefs(serde_json::from_slice(&saved).unwrap());
+            assert_eq!(fresh.session.doc.styles.default_chr.lang.as_deref(), Some("fr-FR"));
+            assert!(!fresh.session.dirty && !fresh.session.can_undo());
+            fresh.session.set_editing_language(Some("pl-PL"));
+            fresh.run("file.new", json!({})).unwrap();
+            assert_eq!(fresh.session.doc.styles.default_chr.lang.as_deref(), Some("fr-FR"));
+            let revision = fresh.session.rev();
+            fresh.session.set_editing_language(Some("pl-PL"));
+            assert_eq!(fresh.session.rev(), revision, "restoring the same language is idle");
+            // Preferences must not retag a document already opened with its own language.
+            let mut loaded = WordApp::new(Session::new(before.clone()), crate::Services::default());
+            loaded.session.path = Some(std::path::PathBuf::from("loaded.docx"));
+            loaded.apply_prefs(serde_json::from_slice(&saved).unwrap());
+            loaded.session.set_editing_language(Some("pl-PL"));
+            assert_eq!(loaded.session.doc, before);
+        }
     }
 
     /// #2717: language and no-proof can come from defaults or either kind of style.

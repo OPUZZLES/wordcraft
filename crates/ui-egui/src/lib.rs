@@ -790,6 +790,9 @@ impl WordApp {
             }
         }
         self.session.prefs = std::mem::take(&mut self.ui.editing);
+        // Restored proofing defaults apply only to the untouched startup blank, never opened files.
+        let language = self.session.editing_lang.clone();
+        self.session.set_editing_language(language.as_deref());
         // The saved dictionaries folder (#1063) is searched from the start.
         if let Some(f) = self.session.prefs.dictionaries_folder.as_deref() {
             wordcraft_engine::cmd::options::use_dictionaries_folder(Some(f));

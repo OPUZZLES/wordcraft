@@ -492,6 +492,12 @@ pub struct MathEdit {
     pub pos: wordcraft_doc::math_edit::MathPos,
 }
 
+/// A damaged language preference must not discard the rest of the saved preferences.
+fn read_proofing_language<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Option<String>, D::Error> {
+    let value = Value::deserialize(deserializer)?;
+    Ok(value.as_str().and_then(wordcraft_proof::lang::normalize_tag))
+}
+
 /// Editing preferences that persist between runs (the front end saves and restores them).
 /// File › Options sets most of them (`file.options`).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -508,6 +514,9 @@ pub struct Prefs {
     pub print_markup: bool,
     /// Language › Detect language automatically (per user, as in Word).
     pub detect_language: bool,
+    /// An explicit proofing language for new blank documents; None follows the interface.
+    #[serde(deserialize_with = "read_proofing_language")]
+    pub proofing_language: Option<String>,
     /// Typing over a selection replaces it; off, the typed text goes in front of it.
     pub typing_replaces_selection: bool,
     /// The Insert key switches overtype on and off.
@@ -557,6 +566,7 @@ impl Default for Prefs {
             ignore_numbers: true,
             ignore_internet: true,
             detect_language: true,
+            proofing_language: None,
             autocorrect: Default::default(),
         }
     }
@@ -844,18 +854,26 @@ impl Session {
     /// Set the language new documents are written in ([`Session::editing_lang`]; `None` or a
     /// malformed tag: US English). A document nobody has touched yet — untitled, unchanged, no
     /// undo steps, no text — switches too, so the blank document a session starts with follows
-    /// the interface language. Nothing else changes and no undo step is added.
+    /// the interface language unless an explicit proofing preference wins. No undo step is added.
     pub fn set_editing_language(&mut self, tag: Option<&str>) {
-        let tag = tag.and_then(wordcraft_proof::lang::normalize_tag);
-        if self.editing_lang == tag {
-            return;
-        }
-        self.editing_lang = tag;
+        self.editing_lang = tag.and_then(wordcraft_proof::lang::normalize_tag);
         let untouched = self.path.is_none() && !self.dirty && self.history.is_empty() && self.redo.is_empty();
         if untouched && self.doc.plain_text(StoryRef::Body).trim().is_empty() && self.doc.paragraph_count() <= 1 {
-            self.doc.styles.default_chr.lang = Some(self.editing_lang.clone().unwrap_or_else(|| "en-US".into()));
-            self.rev = self.rev.wrapping_add(1);
-            self.relayout();
+            let lang = self.new_document_language();
+            let mut changed = self.doc.styles.default_chr.lang.as_ref() != Some(&lang);
+            self.doc.styles.default_chr.lang = Some(lang.clone());
+            if self.prefs.proofing_language.is_some()
+                && let Some(normal) = self.doc.styles.get_mut("Normal")
+                && normal.chr.lang.is_some()
+                && normal.chr.lang.as_ref() != Some(&lang)
+            {
+                normal.chr.lang = Some(lang);
+                changed = true;
+            }
+            if changed {
+                self.rev = self.rev.wrapping_add(1);
+                self.relayout();
+            }
         }
     }
 
@@ -1030,7 +1048,25 @@ impl Session {
     /// A new blank document (the Normal template) on the region's paper: Letter in the US and
     /// other Letter regions, A4 elsewhere (#838). Margins stay 2.54 cm (1") all round.
     pub fn blank_document(&self) -> Document {
-        blank_document(&self.region())
+        let mut doc = blank_document(&self.region());
+        let lang = self.new_document_language();
+        doc.styles.default_chr.lang = Some(lang.clone());
+        if self.prefs.proofing_language.is_some()
+            && let Some(normal) = doc.styles.get_mut("Normal")
+            && normal.chr.lang.is_some()
+        {
+            normal.chr.lang = Some(lang);
+        }
+        doc
+    }
+
+    fn new_document_language(&self) -> String {
+        self.prefs
+            .proofing_language
+            .as_deref()
+            .and_then(wordcraft_proof::lang::normalize_tag)
+            .or_else(|| self.editing_lang.clone())
+            .unwrap_or_else(|| "en-US".into())
     }
 
     /// Replace the document (open/new).

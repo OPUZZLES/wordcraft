@@ -699,7 +699,7 @@ pub fn specs() -> Vec<CommandSpec> {
         })
         .params(r#"{"format": "decimal|upperRoman|lowerLetter…", "text"?: "%1.", "start"?: n}"#),
         CommandSpec::new("review.language", "Language", "Review › Language", language).params(
-            r#"{"lang"?: "en-US|en-GB|pl-PL|fr-FR|…" (BCP 47; default en-US), "noProof"?: bool, "detect"?: bool (detect language automatically, a preference), "default"?: bool (also the document's default language)}"#,
+            r#"{"lang"?: "en-US|en-GB|pl-PL|fr-FR|…" (BCP 47; default en-US), "noProof"?: bool, "detect"?: bool (detect language automatically, a preference), "default"?: bool (also the document's default language), "defaultScope"?: "document"|"future" (future also remembers the language for new blank documents)}"#,
         ),
         CommandSpec::new("review.showMarkup", "Show Markup", "Review › Tracking", |s, v| {
             s.view.show_markup = p::bool(v, "value").unwrap_or(!s.view.show_markup);
@@ -753,45 +753,59 @@ pub fn specs() -> Vec<CommandSpec> {
 
 /// Set Proofing Language: the selection's language and "do not check spelling or grammar",
 /// or (`default`) the document's default language; `detect` is the per-user preference.
-/// Nothing at all sets US English, as before.
+/// The future scope also remembers it for new blanks. Nothing at all sets US English, as before.
 fn language(s: &mut Session, v: &Value) -> CmdResult {
     let lang = match p::str(v, "lang") {
         Some(t) => Some(
             wordcraft_proof::lang::normalize_tag(t)
-                .ok_or_else(|| CmdError::Params(format!("`lang` must be a language tag such as pl-PL or en-US, not {t:?}")))?,
+                .ok_or_else(|| CmdError::Params(format!("lang must be a language tag such as pl-PL or en-US, not {t:?}")))?,
         ),
         None => None,
     };
+    let scope = match v.get("defaultScope") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(scope)) if scope == "document" || scope == "future" => Some(scope.as_str()),
+        _ => return Err(CmdError::Params("defaultScope must be document or future".into())),
+    };
     let no_proof = p::bool(v, "noProof");
     let detect = p::bool(v, "detect");
-    if let Some(d) = detect {
-        s.prefs.detect_language = d;
-    }
-    if p::bool(v, "default") == Some(true) {
-        let l = lang.clone().ok_or_else(|| CmdError::Params("`default` needs `lang`".into()))?;
+    let default_lang = if p::bool(v, "default") == Some(true) || scope.is_some() {
+        Some(lang.clone().ok_or_else(|| CmdError::Params("a default language needs lang".into()))?)
+    } else {
+        None
+    };
+    if let Some(l) = &default_lang {
         s.doc.styles.default_chr.lang = Some(l.clone());
         // A Normal style that names its own language follows the new default.
         if let Some(n) = s.doc.styles.styles.iter_mut().find(|x| x.id == "Normal")
             && n.chr.lang.is_some()
         {
-            n.chr.lang = Some(l);
+            n.chr.lang = Some(l.clone());
         }
     }
     let lang = match (lang, no_proof, detect) {
         (None, None, None) => Some("en-US".to_string()),
         (l, ..) => l,
     };
-    if lang.is_none() && no_proof.is_none() {
-        return Ok(json!({"detect": s.prefs.detect_language}));
+    let result = if lang.is_none() && no_proof.is_none() {
+        json!({"detect": detect.unwrap_or(s.prefs.detect_language)})
+    } else {
+        super::format::apply(s, &|c| {
+            if let Some(l) = &lang {
+                c.lang = Some(l.clone());
+            }
+            if let Some(np) = no_proof {
+                c.no_proof = Some(np);
+            }
+        })?
+    };
+    if let Some(detect) = detect {
+        s.prefs.detect_language = detect;
     }
-    super::format::apply(s, &|c| {
-        if let Some(l) = &lang {
-            c.lang = Some(l.clone());
-        }
-        if let Some(np) = no_proof {
-            c.no_proof = Some(np);
-        }
-    })
+    if scope == Some("future") {
+        s.prefs.proofing_language = default_lang;
+    }
+    Ok(result)
 }
 
 fn macros(s: &mut Session, v: &Value) -> CmdResult {

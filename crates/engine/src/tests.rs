@@ -6399,6 +6399,46 @@ fn review_language_validates_tags_and_marks_text_unchecked() {
     assert_eq!(run(&mut s, "review.issues", json!({})), json!([]));
 }
 
+/// #2882: document defaults remain local; an explicit future scope survives preferences.
+#[test]
+fn proofing_default_language_persists_without_changing_document_only_defaults() {
+    let mut session = s();
+    session.set_editing_language(Some("pl-PL"));
+    run(&mut session, "review.language", json!({"lang": "de-DE", "default": true}));
+    run(&mut session, "file.new", json!({}));
+    assert_eq!(session.doc.styles.default_chr.lang.as_deref(), Some("pl-PL"), "legacy default is document-only");
+    run(&mut session, "review.language", json!({"lang": "fr_fr", "defaultScope": "future"}));
+    let saved = serde_json::to_value(&session.prefs).unwrap();
+    assert_eq!(saved["proofingLanguage"], "fr-FR");
+    run(&mut session, "edit.undo", json!({}));
+    assert_eq!(session.doc.styles.default_chr.lang.as_deref(), Some("pl-PL"), "one undo restores document formatting");
+    run(&mut session, "file.new", json!({}));
+    assert_eq!(session.doc.styles.default_chr.lang.as_deref(), Some("fr-FR"), "a user preference is not document undo");
+    session.set_editing_language(Some("de-DE"));
+    assert_eq!(session.doc.styles.default_chr.lang.as_deref(), Some("fr-FR"), "explicit preference wins over interface locale");
+    let mut reopened = s();
+    reopened.prefs = serde_json::from_value(saved).unwrap();
+    reopened.set_editing_language(Some("en-US"));
+    assert_eq!(reopened.doc.styles.default_chr.lang.as_deref(), Some("fr-FR"), "untouched startup blank follows restored preferences");
+    assert!(!reopened.dirty && !reopened.can_undo());
+    let before = reopened.doc.clone();
+    let prefs = reopened.prefs.clone();
+    for params in [json!({"lang":"pl-PL", "defaultScope":"all", "detect":false}), json!({"defaultScope":"future"})] {
+        assert!(reopened.run("review.language", &params).is_err());
+        assert_eq!(reopened.doc, before);
+        assert_eq!(reopened.prefs, prefs);
+    }
+    for invalid in [json!("not a tag!"), json!(["fr-FR"]), json!(35)] {
+        reopened.prefs = serde_json::from_value(json!({"proofingLanguage":invalid,"detectLanguage":false})).unwrap();
+        reopened.set_editing_language(Some("pl-PL"));
+        assert_eq!(reopened.doc.styles.default_chr.lang.as_deref(), Some("pl-PL"));
+        assert!(!reopened.prefs.detect_language, "a damaged language must not discard other preferences");
+    }
+    reopened.prefs = serde_json::from_value(json!({"detectLanguage":false})).unwrap();
+    run(&mut reopened, "file.new", json!({}));
+    assert_eq!(reopened.doc.styles.default_chr.lang.as_deref(), Some("pl-PL"), "old preferences keep locale fallback");
+}
+
 /// The editing language (set by the front end from the interface language): new blank
 /// documents and opened plain text are written in it; the untouched first document switches,
 /// a document with changes never does, and templates stay English.

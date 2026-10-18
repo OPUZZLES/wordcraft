@@ -188,21 +188,11 @@ fn new(s: &mut Session, v: &Value) -> CmdResult {
         "letter" => crate::sample::letter(),
         "resume" => crate::sample::resume(),
         "report" => crate::sample::report(),
-        _ => normal_document(s),
+        _ => s.blank_document(),
     };
     s.set_document(doc);
     s.path = None;
     sel_result(s)
-}
-
-/// A blank document on the Normal template: the region's paper (#838), written in the editing
-/// language (the templates' text is English).
-fn normal_document(s: &Session) -> Document {
-    let mut d = s.blank_document();
-    if let Some(lang) = &s.editing_lang {
-        d.styles.default_chr.lang = Some(lang.clone());
-    }
-    d
 }
 
 fn open(s: &mut Session, v: &Value) -> CmdResult {
@@ -216,12 +206,12 @@ fn open(s: &mut Session, v: &Value) -> CmdResult {
         // An empty file (File Explorer's New › Microsoft Word Document makes one) opens as a new
         // blank document that saves back to it (#1384).
         if bytes.is_empty() {
-            (normal_document(s), false)
+            (s.blank_document(), false)
         } else {
             crate::io::open_bytes_in(path, &bytes, password, &s.region()).map_err(CmdError::Failed)?
         }
     } else if crate::io::is_empty_file(std::path::Path::new(path)) {
-        (normal_document(s), false)
+        (s.blank_document(), false)
     } else {
         crate::io::open_path_in(std::path::Path::new(path), password, &s.region()).map_err(CmdError::Failed)?
     };
