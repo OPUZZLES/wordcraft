@@ -5540,6 +5540,7 @@ checksum = "9440ea3e5aeabb0ac63af70daf835274065238cdd0cec83418f417eae38bacee"
 name = "xtask"
 version = "0.8.0"
 dependencies = [
+ "serde",
  "serde_json",
 ]
 
