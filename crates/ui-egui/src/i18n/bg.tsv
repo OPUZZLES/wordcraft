@@ -16,6 +16,13 @@
 # polite imperative (Въведете, Изберете). Counts use count-neutral wording (`Думи: 21`), so no
 # plural forms are needed.
 
+# Native save conflicts (#813)
+	Save conflict	Конфликт при запазване
+	The file changed or is unavailable	Файлът е променен или недостъпен
+	Your edits are still here. Save them to a different file to keep both versions.	Вашите промени са запазени тук. Запишете ги в друг файл, за да запазите и двете версии.
+	Keep editing	Продължаване на редактирането
+	Save copy…	Запазване на копие…
+
 	(no style)	(без стил)
 	(no suggestions)	(няма предложения)
 	1.5 Line Spacing	Междуредие 1,5
@@ -147,6 +154,7 @@
 	Apply to:	Прилагане към:
 	Whole document	Целия документ
 	This section	Този раздел
+	Selected text	Избрания текст
 	Fill	Запълване
 	Setting:	Настройка:
 	3-D	3-D
@@ -717,11 +725,6 @@
 	Rules	Правила
 	Résumé	Автобиография
 	Save	Запазване
-	Save conflict	Конфликт при запазване
-	The file changed or is unavailable	Файлът е променен или недостъпен
-	Your edits are still here. Save them to a different file to keep both versions.	Вашите промени са запазени тук. Запишете ги в друг файл, за да запазите и двете версии.
-	Keep editing	Продължаване на редактирането
-	Save copy…	Запазване на копие…
 	Save As	Запазване като
 	Save a copy in another format. Printing goes through a PDF you can print from any viewer.	Запазване на копие в друг формат. Отпечатването минава през PDF файл, който можете да отпечатате от всяка програма за преглед.
 	Save as Template	Запазване като шаблон
@@ -2639,3 +2642,5 @@
 	Other:	Друго:
 	The number must be between 1 and {max}.	Числото трябва да е между 1 и {max}.
 	The measurement must be between {min} and {max}.	Размерът трябва да е между {min} и {max}.
+	Recently Used Fonts	Наскоро използвани шрифтове
+	All Fonts	Всички шрифтове

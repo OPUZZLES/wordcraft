@@ -12,6 +12,13 @@
 # Product, format and technology names (WordCraft, PDF, Markdown, MCP …) stay in Latin letters.
 # Counts use count-neutral wording (`Riječi: 21`), since Croatian numerals take three noun forms.
 
+# Native save conflicts (#813)
+	The file changed or is unavailable	Datoteka je promijenjena ili nije dostupna
+	Your edits are still here. Save them to a different file to keep both versions.	Vaše su izmjene još uvijek ovdje. Spremite ih u drugu datoteku kako biste zadržali obje verzije.
+	Keep editing	Nastavi uređivati
+	Save copy…	Spremi kopiju…
+	Save conflict	Sukob pri spremanju
+
 	% of all commits	% svih commitova
 	(All)	(Sve)
 	(Custom)	(Prilagođeno)
@@ -2257,6 +2264,7 @@ template	Letter	Pismo
 	This password type isn't supported.	Ova vrsta lozinke nije podržana.
 	This point forward	Od ove točke nadalje
 	This section	Ovaj odjeljak
+	Selected text	Odabrani tekst
 	Three	Tri
 	Through	Kroz
 	Tight	Usko
@@ -2645,11 +2653,5 @@ preview	Title	Naslov
 	Other:	Ostalo:
 	The number must be between 1 and {max}.	Broj mora biti između 1 i {max}.
 	The measurement must be between {min} and {max}.	Mjera mora biti između {min} i {max}.
-
-
-# Native save conflicts (#813)
-	The file changed or is unavailable	Datoteka je promijenjena ili nije dostupna
-	Your edits are still here. Save them to a different file to keep both versions.	Vaše su izmjene još uvijek ovdje. Spremite ih u drugu datoteku kako biste zadržali obje verzije.
-	Keep editing	Nastavi uređivati
-	Save copy…	Spremi kopiju…
-	Save conflict	Sukob pri spremanju
+	Recently Used Fonts	Nedavno korišteni fontovi
+	All Fonts	Svi fontovi

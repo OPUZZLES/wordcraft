@@ -16,6 +16,13 @@
 # A noun after a number stays unchanged (1 từ, 2 từ), so no plural forms are needed.
 # Counts use count-neutral wording (`Từ: 21`).
 
+# Native save conflicts (#813)
+	The file changed or is unavailable	Tệp đã thay đổi hoặc không khả dụng
+	Your edits are still here. Save them to a different file to keep both versions.	Các chỉnh sửa của bạn vẫn còn ở đây. Hãy lưu vào một tệp khác để giữ cả hai phiên bản.
+	Keep editing	Tiếp tục chỉnh sửa
+	Save copy…	Lưu bản sao…
+	Save conflict	Xung đột khi lưu
+
 	(no style)	(không có kiểu)
 	(no suggestions)	(không có gợi ý)
 	1.5 Line Spacing	Giãn dòng 1,5
@@ -141,6 +148,7 @@
 	Apply to:	Áp dụng cho:
 	Whole document	Toàn bộ tài liệu
 	This section	Phần này
+	Selected text	Văn bản đã chọn
 	Fill	Tô nền
 	Setting:	Thiết lập:
 	3-D	3-D
@@ -2637,12 +2645,6 @@
 # Missing dictionary on the status bar (#1441)
 	No spelling dictionary for {language} is installed, so it isn't checked. WordCraft looks for the Hunspell dictionary {name} in the WORDCRAFT_DICTIONARIES folder and in the usual system locations.	Chưa cài từ điển chính tả cho {language}, nên ngôn ngữ này không được kiểm tra. WordCraft tìm từ điển Hunspell {name} trong thư mục WORDCRAFT_DICTIONARIES và ở các vị trí thông thường của hệ thống.
 	{language} (no dictionary)	{language} (không có từ điển)
-# Native save conflicts (#813)
-	The file changed or is unavailable	Tệp đã thay đổi hoặc không khả dụng
-	Your edits are still here. Save them to a different file to keep both versions.	Các chỉnh sửa của bạn vẫn còn ở đây. Hãy lưu vào một tệp khác để giữ cả hai phiên bản.
-	Keep editing	Tiếp tục chỉnh sửa
-	Save copy…	Lưu bản sao…
-	Save conflict	Xung đột khi lưu
 # Table style parts in the Modify Table Style dialog (#714)
 	Odd Banded Rows	Hàng xen kẽ lẻ
 	Even Banded Rows	Hàng xen kẽ chẵn
@@ -2691,3 +2693,5 @@ template	Letter	Thư
 	Other:	Khác:
 	The number must be between 1 and {max}.	Số phải nằm trong khoảng từ 1 đến {max}.
 	The measurement must be between {min} and {max}.	Số đo phải nằm trong khoảng từ {min} đến {max}.
+	Recently Used Fonts	Phông chữ dùng gần đây
+	All Fonts	Tất cả phông chữ

@@ -12,6 +12,13 @@
 # Commands use imperatives; labels use natural Turkish. After a count the noun stays singular
 # (1 sözcük, 2 sözcük). This catalog format has no plural contexts or separate one/other forms.
 
+# Native save conflicts (#813)
+	Save conflict	Kaydetme çakışması
+	The file changed or is unavailable	Dosya değişti veya kullanılamıyor
+	Your edits are still here. Save them to a different file to keep both versions.	Düzenlemeleriniz hâlâ burada. İki sürümü de korumak için bunları farklı bir dosyaya kaydedin.
+	Keep editing	Düzenlemeye devam et
+	Save copy…	Kopyayı kaydet…
+
 	(no suggestions)	(öneri yok)
 	1.5 Line Spacing	1,5 Satır Aralığı
 	A free, open-source word processor written from scratch in Rust.\nPart of the Crafting Apps from the ArtCraft team.	Rust ile sıfırdan yazılmış ücretsiz, açık kaynak bir kelime işlemci.\nArtCraft ekibinin Crafting Apps ailesinin bir parçası.
@@ -1619,6 +1626,7 @@ preview	Title	Örnek
 	Apply to:	Uygula:
 	Whole document	Tüm belge
 	This section	Bu bölüm
+	Selected text	Seçili metin
 	Fill	Dolgu
 	Setting:	Ayar:
 	3-D	3B
@@ -2460,11 +2468,6 @@ preview	Title	Örnek
 	Asian text font:	Asya metni yazı tipi:
 	Latin text font:	Latin metni yazı tipi:
 # Save conflict dialog (#813).
-	Save conflict	Kaydetme çakışması
-	The file changed or is unavailable	Dosya değişti veya kullanılamıyor
-	Your edits are still here. Save them to a different file to keep both versions.	Düzenlemeleriniz hâlâ burada. İki sürümü de korumak için bunları farklı bir dosyaya kaydedin.
-	Keep editing	Düzenlemeye devam et
-	Save copy…	Kopyayı kaydet…
 	Visual effects	Görsel efektler
 	Animation effects:	Animasyon efektleri:
 	On	Açık
@@ -2648,3 +2651,5 @@ preview	Title	Örnek
 	Other:	Diğer:
 	The number must be between 1 and {max}.	Sayı 1 ile {max} arasında olmalıdır.
 	The measurement must be between {min} and {max}.	Ölçü {min} ile {max} arasında olmalıdır.
+	Recently Used Fonts	Son Kullanılan Yazı Tipleri
+	All Fonts	Tüm Yazı Tipleri

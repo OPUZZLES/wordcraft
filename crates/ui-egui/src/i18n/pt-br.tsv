@@ -11,6 +11,13 @@
 # translated UI was consulted or copied; add entries the same way.
 # Product, format and technology names (WordCraft, PDF, Markdown, MCP …) stay in Latin letters.
 
+# Native save conflicts (#813)
+	Save conflict	Conflito ao salvar
+	The file changed or is unavailable	O arquivo foi alterado ou não está disponível
+	Your edits are still here. Save them to a different file to keep both versions.	Suas edições continuam aqui. Salve-as em outro arquivo para manter as duas versões.
+	Keep editing	Continuar editando
+	Save copy…	Salvar cópia…
+
 	(no style)	(sem estilo)
 	(no suggestions)	(sem sugestões)
 	1.5 Line Spacing	Espaçamento de 1,5 linha
@@ -193,6 +200,7 @@
 	Use the Insert key to switch overtype on and off	Usar a tecla Insert para ativar e desativar a sobrescrita
 	Whole document	Documento inteiro
 	This section	Esta seção
+	Selected text	Texto selecionado
 	Fill	Cor de fundo
 	Setting:	Tipo:
 	3-D	3D
@@ -2090,11 +2098,6 @@
 	Ukrainian	Ucraniano
 	{language} is now the document's default language.	{language} agora é o idioma padrão do documento.
 # Save conflict dialog (#813).
-	Save conflict	Conflito ao salvar
-	The file changed or is unavailable	O arquivo foi alterado ou não está disponível
-	Your edits are still here. Save them to a different file to keep both versions.	Suas edições continuam aqui. Salve-as em outro arquivo para manter as duas versões.
-	Keep editing	Continuar editando
-	Save copy…	Salvar cópia…
 	Visual effects	Efeitos visuais
 	Animation effects:	Efeitos de animação:
 	On	Ativado
@@ -2264,3 +2267,5 @@
 	Other:	Outro:
 	The number must be between 1 and {max}.	O número deve estar entre 1 e {max}.
 	The measurement must be between {min} and {max}.	A medida deve estar entre {min} e {max}.
+	Recently Used Fonts	Fontes usadas recentemente
+	All Fonts	Todas as fontes

@@ -9,6 +9,13 @@
 #
 # French translations, written from the English source's meaning (clean-room, not copied
 # from any product's localization). License: MIT OR Apache-2.0.
+# Native save conflicts (#813)
+	Save conflict	Conflit lors de l’enregistrement
+	The file changed or is unavailable	Le fichier a été modifié ou est indisponible
+	Your edits are still here. Save them to a different file to keep both versions.	Vos modifications sont toujours ici. Enregistrez-les dans un autre fichier pour conserver les deux versions.
+	Keep editing	Continuer la modification
+	Save copy…	Enregistrer une copie…
+
 	(no style)	(Aucun style)
 	(no suggestions)	(aucune suggestion)
 	1.5 Line Spacing	Interligne 1,5
@@ -145,6 +152,7 @@
 	Apply to:	Appliquer à :
 	Whole document	Tout le document
 	This section	Cette section
+	Selected text	Texte sélectionné
 	Fill	Remplissage
 	Setting:	Type :
 	3-D	3-D
@@ -720,11 +728,6 @@
 	Rules	Règles
 	Résumé	CV
 	Save	Enregistrer
-	Save conflict	Conflit lors de l’enregistrement
-	The file changed or is unavailable	Le fichier a été modifié ou est indisponible
-	Your edits are still here. Save them to a different file to keep both versions.	Vos modifications sont toujours ici. Enregistrez-les dans un autre fichier pour conserver les deux versions.
-	Keep editing	Continuer la modification
-	Save copy…	Enregistrer une copie…
 	Save a copy in another format. Printing goes through a PDF you can print from any viewer.	Enregistrez une copie dans un autre format. L’impression passe par un PDF que vous pouvez imprimer depuis n’importe quelle visionneuse.
 	Save As	Enregistrer sous
 	Save as Template	Enregistrer comme modèle
@@ -2258,3 +2261,5 @@
 	Other:	Autre :
 	The number must be between 1 and {max}.	Le nombre doit être compris entre 1 et {max}.
 	The measurement must be between {min} and {max}.	La mesure doit être comprise entre {min} et {max}.
+	Recently Used Fonts	Polices récemment utilisées
+	All Fonts	Toutes les polices

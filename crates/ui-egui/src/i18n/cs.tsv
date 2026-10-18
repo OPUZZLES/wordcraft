@@ -13,6 +13,13 @@
 # Product, format and technology names (WordCraft, PDF, Markdown, MCP …) stay in Latin letters.
 # Counts use count-neutral wording (`Počet slov: 21`), so no plural forms are needed.
 
+# Native save conflicts (#813)
+	Save conflict	Konflikt při ukládání
+	The file changed or is unavailable	Soubor byl změněn nebo není dostupný
+	Your edits are still here. Save them to a different file to keep both versions.	Vaše úpravy jsou stále zachované. Uložte je do jiného souboru, aby zůstaly zachovány obě verze.
+	Keep editing	Pokračovat v úpravách
+	Save copy…	Uložit kopii…
+
 	(All)	(Vše)
 	(no style)	(žádný styl)
 	(no suggestions)	(žádné návrhy)
@@ -997,11 +1004,6 @@
 	Save	Uložit
 
 # Save conflict dialog (#813).
-	Save conflict	Konflikt při ukládání
-	The file changed or is unavailable	Soubor byl změněn nebo není dostupný
-	Your edits are still here. Save them to a different file to keep both versions.	Vaše úpravy jsou stále zachované. Uložte je do jiného souboru, aby zůstaly zachovány obě verze.
-	Keep editing	Pokračovat v úpravách
-	Save copy…	Uložit kopii…
 	Save a copy in another format. Printing goes through a PDF you can print from any viewer.	Uloží kopii v jiném formátu. Tisk probíhá prostřednictvím souboru PDF, který vytisknete v libovolném prohlížeči.
 	Save As	Uložit jako
 	Save as Template	Uložit jako šablonu
@@ -1249,6 +1251,7 @@
 	This font has no characters to show.	Toto písmo neobsahuje žádné znaky k zobrazení.
 	This point forward	Od tohoto místa dále
 	This section	Tento oddíl
+	Selected text	Vybraný text
 	Three	Tři
 	Tight	Těsné
 	Title from the document properties	Název z vlastností dokumentu
@@ -2644,3 +2647,5 @@ preview	Title	Ukázka
 	Other:	Jiné:
 	The number must be between 1 and {max}.	Číslo musí být mezi 1 a {max}.
 	The measurement must be between {min} and {max}.	Míra musí být mezi {min} a {max}.
+	Recently Used Fonts	Naposledy použitá písma
+	All Fonts	Všechna písma

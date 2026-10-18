@@ -15,6 +15,13 @@
 # translated UI was consulted or copied; add entries the same way.
 # Product, format and technology names (WordCraft, PDF, Markdown, MCP …) stay in Latin letters.
 
+# Native save conflicts (#813)
+	Save conflict	Сукоб при чувању
+	The file changed or is unavailable	Датотека је измењена или није доступна
+	Your edits are still here. Save them to a different file to keep both versions.	Ваше измене су и даље овде. Сачувајте их у другу датотеку да бисте задржали обе верзије.
+	Keep editing	Настави уређивање
+	Save copy…	Сачувај копију…
+
 	(no style)	(без стила)
 	(no suggestions)	(нема предлога)
 	(picture or object)	(слика или објекат)
@@ -274,6 +281,7 @@
 	Use the Insert key to switch overtype on and off	Тастер Insert укључује и искључује преписивање
 	Whole document	Цео документ
 	This section	Овај одељак
+	Selected text	Изабрани текст
 	Fill	Испуна
 	Setting:	Врста:
 	3-D	3D
@@ -2092,11 +2100,6 @@
 	Ukrainian	Украјински
 	{language} is now the document's default language.	{language} је сада подразумевани језик документа.
 # Save conflict dialog (#813).
-	Save conflict	Сукоб при чувању
-	The file changed or is unavailable	Датотека је измењена или није доступна
-	Your edits are still here. Save them to a different file to keep both versions.	Ваше измене су и даље овде. Сачувајте их у другу датотеку да бисте задржали обе верзије.
-	Keep editing	Настави уређивање
-	Save copy…	Сачувај копију…
 	Visual effects	Визуелни ефекти
 	Animation effects:	Ефекти анимације:
 	On	Укључено
@@ -2266,3 +2269,5 @@
 	Other:	Друго:
 	The number must be between 1 and {max}.	Број мора бити између 1 и {max}.
 	The measurement must be between {min} and {max}.	Мера мора бити између {min} и {max}.
+	Recently Used Fonts	Недавно коришћени фонтови
+	All Fonts	Сви фонтови

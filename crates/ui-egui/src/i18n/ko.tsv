@@ -1,5 +1,12 @@
 # Korean (ko) interface catalog. Same format and clean-room rules as zh-hans.tsv.
 
+# Native save conflicts (#813)
+	The file changed or is unavailable	파일이 변경되었거나 사용할 수 없습니다
+	Your edits are still here. Save them to a different file to keep both versions.	편집 내용은 그대로 남아 있습니다. 두 버전을 모두 보관하려면 다른 파일에 저장하세요.
+	Keep editing	계속 편집
+	Save copy…	복사본 저장…
+	Save conflict	저장 충돌
+
 	(no style)	(스타일 없음)
 	(no suggestions)	(제안 없음)
 	1.5 Line Spacing	1.5줄 간격
@@ -176,6 +183,7 @@
 	Use the Insert key to switch overtype on and off	Insert 키를 눌러 겹쳐쓰기 켜기/끄기
 	Whole document	문서 전체
 	This section	이 구역
+	Selected text	선택한 텍스트
 	Fill	채우기
 	Setting:	설정:
 	3-D	3차원
@@ -2501,11 +2509,5 @@ preview	Title	제목
 	Other:	기타:
 	The number must be between 1 and {max}.	숫자는 1에서 {max} 사이여야 합니다.
 	The measurement must be between {min} and {max}.	측정값은 {min}에서 {max} 사이여야 합니다.
-
-
-# Native save conflicts (#813)
-	The file changed or is unavailable	파일이 변경되었거나 사용할 수 없습니다
-	Your edits are still here. Save them to a different file to keep both versions.	편집 내용은 그대로 남아 있습니다. 두 버전을 모두 보관하려면 다른 파일에 저장하세요.
-	Keep editing	계속 편집
-	Save copy…	복사본 저장…
-	Save conflict	저장 충돌
+	Recently Used Fonts	최근 사용한 글꼴
+	All Fonts	모든 글꼴

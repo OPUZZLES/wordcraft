@@ -14,6 +14,13 @@
 # messages, dialog text) was written from the plain meaning of the English text in ordinary
 # computing vocabulary; no localisation string table or translated text was copied.
 
+# Native save conflicts (#813)
+	Save conflict	Conflitto di salvataggio
+	The file changed or is unavailable	Il file è stato modificato o non è disponibile
+	Your edits are still here. Save them to a different file to keep both versions.	Le modifiche sono ancora presenti. Salvale in un altro file per conservare entrambe le versioni.
+	Keep editing	Continua a modificare
+	Save copy…	Salva copia…
+
 	(no style)	(nessuno stile)
 	(no suggestions)	(nessun suggerimento)
 	1.5 Line Spacing	Interlinea 1,5
@@ -144,6 +151,7 @@
 	Apply to:	Applica a:
 	Whole document	Tutto il documento
 	This section	Questa sezione
+	Selected text	Testo selezionato
 	Fill	Riempimento
 	Setting:	Impostazione:
 	3-D	3D
@@ -702,11 +710,6 @@
 	Save	Salva
 
 # Save conflict dialog (#813).
-	Save conflict	Conflitto di salvataggio
-	The file changed or is unavailable	Il file è stato modificato o non è disponibile
-	Your edits are still here. Save them to a different file to keep both versions.	Le modifiche sono ancora presenti. Salvale in un altro file per conservare entrambe le versioni.
-	Keep editing	Continua a modificare
-	Save copy…	Salva copia…
 	Save As	Salva con nome
 	Save a copy in another format. Printing goes through a PDF you can print from any viewer.	Salva una copia in un altro formato. La stampa passa attraverso un PDF che puoi stampare da qualsiasi visualizzatore.
 	Save as Template	Salva come modello
@@ -2661,3 +2664,5 @@ preview	Title	Esempio
 	Other:	Altro:
 	The number must be between 1 and {max}.	Il numero deve essere compreso tra 1 e {max}.
 	The measurement must be between {min} and {max}.	La misura deve essere compresa tra {min} e {max}.
+	Recently Used Fonts	Caratteri usati di recente
+	All Fonts	Tutti i caratteri

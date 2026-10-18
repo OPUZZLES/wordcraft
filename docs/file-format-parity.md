@@ -1,6 +1,6 @@
 # File-format parity with Microsoft Word
 
-> **Last reviewed:** 2026-10-11 · **Last updated:** 2026-10-18 · **Change:** trivial (save-conflict integration with current main, #813; previously trivial: legacy outline, shadow, emboss and imprint text effects drawn, #2534; previously trivial: DOCX glossary documents (building blocks) read, kept and written; previously trivial: cached field results keep their visible run formatting; previously trivial: cached REF results retain hyperlink destinations; previously trivial: CLI conversions can explicitly refresh fields; previously trivial: a copied equation also goes in the clipboard's MathML formats, #1297; previously trivial: a pasted HTML `<blockquote>` is an indented paragraph, not the Quote style, #1270); previously trivial: every table style part round-trips, #714; previously trivial: VML freeforms read and kept on save; previously trivial: multi-paragraph field instructions no longer add blank lines; previously trivial: `flowChartOr` draws its circle and cross spokes, as in Word; previously trivial: RTF: Mac OS Roman and DOS text, #1653; previously trivial: VML text boxes keep their internal margins, fit to their text and vertical alignment; hidden drawings not shown; previously trivial: PDF export draws horizontal and vertical lines inside groups, #1474; previously trivial: symbol-font text exported as Unicode, #776; previously trivial: text-box margins, Resize shape to fit text and freeforms in groups, #743; previously trivial: formatted paste from the system clipboard's HTML and RTF, #687; previously trivial: independent complex-script formatting inheritance and round-trip regression tests; previously trivial: import/export fixes for TXT, RTF, ODT, HTML and LaTeX, #433–#440; previously major: first version; every format Word reads or writes, measured from the readers and writers on origin/main) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4, plus Word for Windows' extra formats
+> **Last reviewed:** 2026-10-11 · **Last updated:** 2026-10-18 · **Change:** trivial (legacy outline, shadow, emboss and imprint text effects drawn, #2534; previously trivial: DOCX glossary documents (building blocks) read, kept and written; previously trivial: cached field results keep their visible run formatting; previously trivial: cached REF results retain hyperlink destinations; previously trivial: CLI conversions can explicitly refresh fields; previously trivial: a copied equation also goes in the clipboard's MathML formats, #1297; previously trivial: a pasted HTML `<blockquote>` is an indented paragraph, not the Quote style, #1270); previously trivial: every table style part round-trips, #714; previously trivial: VML freeforms read and kept on save; previously trivial: multi-paragraph field instructions no longer add blank lines; previously trivial: `flowChartOr` draws its circle and cross spokes, as in Word; previously trivial: RTF: Mac OS Roman and DOS text, #1653; previously trivial: VML text boxes keep their internal margins, fit to their text and vertical alignment; hidden drawings not shown; previously trivial: PDF export draws horizontal and vertical lines inside groups, #1474; previously trivial: symbol-font text exported as Unicode, #776; previously trivial: text-box margins, Resize shape to fit text and freeforms in groups, #743; previously trivial: formatted paste from the system clipboard's HTML and RTF, #687; previously trivial: independent complex-script formatting inheritance and round-trip regression tests; previously trivial: import/export fixes for TXT, RTF, ODT, HTML and LaTeX, #433–#440; previously major: first version; every format Word reads or writes, measured from the readers and writers on origin/main) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4, plus Word for Windows' extra formats
 
 Every format Word opens or saves, what WordCraft does with it, and how it's tested. Fidelity is the
 share of a typical real-world file's content and formatting that survives (read: shows correctly;
@@ -149,16 +149,9 @@ The bibliography names used by #532 are reserved; bibliography already loaded in
 model belongs to its writer. Word-derived files are not fixtures. No readiness estimate rises
 from these synthetic package checks, and native Word rendering/binding behavior remains untested.
 ## Native save-path guarantees
-
-Native `io::save_path_with` serializes (and, for password-protected DOCX, encrypts) before creating an exclusively owned sibling temporary file. It writes and synchronizes that file, closes it, then replaces the destination. Failed preparation or replacement keeps the original bytes; cleanup removes only the save's temporary file, on a best-effort basis. Existing `<name>.tmp` files, directories and links are untouched. A new document gets the default mode (`0666` less the umask). When replacing an existing regular file, the Unix temporary file starts with mode `0600` and then takes the existing file's basic permissions. Serialization and format support are unchanged.
-
-Synthetic CLI cases and `engine/tests/safe_save.rs` cover occupied names, links, blocked replacement, missing directories, Save As session state, password-protected saves and original-file protection on macOS. Unit tests inject preparation errors and interleave two prepared saves. Standalone IO saves use separate files; the last successful replacement wins. Session-owned Save also applies the content check described below.
-
-
 Native `io::save_path_with` serializes (and, for password-protected DOCX, encrypts) before creating an exclusively owned sibling temporary file. It writes and synchronizes that file, closes it, then replaces the destination. Failed preparation or replacement keeps the original bytes; cleanup removes only the save's temporary file, on a best-effort basis. Existing `<name>.tmp` files, directories and links are untouched. A new document gets the default mode (`0666` less the umask). When replacing an existing regular file, the Unix temporary file starts with mode `0600` and then takes the existing file's basic permissions. Serialization and format support are unchanged. Native `io::write_file` (Print to PDF, `file.printPdf`; Export Page as PNG, `file.exportPng`) writes through the same path (#1355).
-Synthetic CLI cases and `engine/tests/safe_save.rs` cover occupied names, links, blocked replacement, missing directories, Save As session state, password-protected saves and original-file protection on macOS. Unit tests inject preparation errors and interleave two prepared saves. Independent saves use separate files; the last successful replacement wins. This is not document locking or conflict detection.
-Windows/Linux runtime behavior, ACLs and extended metadata, real disk-full conditions, power loss and network filesystems are not verified by these tests. The containing directory is not explicitly synchronized. Cleanup can fail when storage or permissions change, and process termination can leave a temporary file. No Word observation was needed for this filesystem change; it makes no new format-fidelity claim.
-
+Synthetic CLI cases and `engine/tests/safe_save.rs` cover occupied names, links, blocked replacement, missing directories, Save As session state, password-protected saves and original-file protection on macOS. Unit tests inject preparation errors and interleave two prepared saves. Independent saves use separate files; the last successful replacement wins. Session-owned Save additionally applies the content check below; standalone exports have no Session baseline.
+The current refresh also exercises the save/recovery tests and seven synthetic persistent CLI/MCP save cases on Linux. Earlier macOS evidence is historical. Native Mac/Windows GUI, ACLs and extended metadata, real disk-full conditions, power loss and network filesystems remain unqualified. The containing directory is not explicitly synchronized. Cleanup can fail when storage or permissions change, and process termination can leave a temporary file. No Word observation was needed for this filesystem change; it makes no new format-fidelity claim.
 ## Native save protection
 
 Native `file.open` records a SHA-256 content identity from the same bytes parsed. Save compares
@@ -170,6 +163,12 @@ links to the open file retain its protection. Identity belongs to each Session, 
 new/open/recovery and is not serialized in the document. Password-protected files are compared
 as ciphertext; hashing creates no plaintext file.
 
+Alias checks include the current tracked entries after replacement. Open/Save retain observed
+case aliases for missing-file checks; canonically equivalent Unicode names remain reserved
+after deletion, so Save Copy uses a distinct name. These checks create no probe files.
+Identity lookups reject non-regular entries and use nonblocking Unix opens, including when
+an entry changes type during lookup.
+
 Versioned opens and saves also enforce the automation read and write roots. A refused open
 keeps the current document; a refused save keeps the original bytes, local edits and metadata.
 Write-only access to a separate output folder still permits Save As there.
@@ -179,8 +178,9 @@ runs after an idle interval and pauses on failure. Browser-hosted bytes and stan
 `io::save_path_with` exports have no native Session baseline. Save As to an unrelated existing
 file retains its explicit replacement behavior. There is a check-to-rename race, so this does
 not establish atomic multi-writer safety, network-filesystem locking or power-loss durability.
-The directory is not explicitly synchronized. Runtime tests use synthetic documents on macOS;
-Windows/Linux runtime and large-document latency remain unqualified.
+The directory is not explicitly synchronized. Fresh runtime validation uses synthetic Linux documents and save/recovery tests; earlier macOS
+evidence is historical. Focused checks of the production FileVersion module also run on a native case-insensitive Mac
+filesystem. The full Mac/Windows GUI, native Windows runtime and large-document latency remain unqualified.
 
 ## What decides beta for formats
 

@@ -15,6 +15,13 @@
 # Author: Konrad Witkowski with Claude (AI agent); licensed MIT OR Apache-2.0, like WordCraft.
 # Not yet reviewed by a second native speaker.
 
+# Native save conflicts (#813)
+	Save conflict	Konflikt zapisu
+	The file changed or is unavailable	Plik został zmieniony lub jest niedostępny
+	Your edits are still here. Save them to a different file to keep both versions.	Twoje zmiany są nadal zachowane. Zapisz je w innym pliku, aby zachować obie wersje.
+	Keep editing	Kontynuuj edycję
+	Save copy…	Zapisz kopię…
+
 	(no suggestions)	(brak propozycji)
 	1.5 Line Spacing	Interlinia 1,5
 	A free, open-source word processor written from scratch in Rust.\nPart of the Crafting Apps from the ArtCraft team.	Darmowy edytor tekstu o otwartym kodzie, napisany od podstaw w języku Rust.\nCzęść rodziny Crafting Apps zespołu ArtCraft.
@@ -625,11 +632,6 @@
 	Save	Zapisz
 
 # Save conflict dialog (#813).
-	Save conflict	Konflikt zapisu
-	The file changed or is unavailable	Plik został zmieniony lub jest niedostępny
-	Your edits are still here. Save them to a different file to keep both versions.	Twoje zmiany są nadal zachowane. Zapisz je w innym pliku, aby zachować obie wersje.
-	Keep editing	Kontynuuj edycję
-	Save copy…	Zapisz kopię…
 	Save As	Zapisz jako
 	Save a copy in another format. Printing goes through a PDF you can print from any viewer.	Zapisz kopię w innym formacie. Drukowanie odbywa się przez plik PDF, który można wydrukować w dowolnej przeglądarce.
 	Save as Template	Zapisz jako szablon
@@ -1336,6 +1338,7 @@
 	This font has no characters to show.	Ta czcionka nie zawiera znaków do pokazania.
 	This point forward	Od tego miejsca
 	This section	Ta sekcja
+	Selected text	Zaznaczony tekst
 	Title from the document properties	Tytuł z właściwości dokumentu
 	Total	Razem
 	Track Changes Options	Opcje śledzenia zmian
@@ -2642,3 +2645,5 @@ preview	Title	Tytuł
 	Other:	Inny:
 	The number must be between 1 and {max}.	Liczba musi być z zakresu od 1 do {max}.
 	The measurement must be between {min} and {max}.	Miara musi być z zakresu od {min} do {max}.
+	Recently Used Fonts	Ostatnio używane czcionki
+	All Fonts	Wszystkie czcionki

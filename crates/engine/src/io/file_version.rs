@@ -1,10 +1,12 @@
 //! Content identity for a session's native file. No polling or typing-path filesystem work.
 use super::FileConflict;
 use sha2::{Digest, Sha256};
+use std::ffi::OsStr;
 use std::fs::{self, File};
 use std::io::{BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use unicode_normalization::UnicodeNormalization;
 
 const MAX_BYTES: u64 = 2 << 30;
 
@@ -14,6 +16,7 @@ pub(crate) struct FileVersion {
     resolved: PathBuf,
     handle: Option<Arc<same_file::Handle>>,
     digest: [u8; 32],
+    case_aliases: [bool; 2],
 }
 
 /// Keep the logical spelling: a retargeted parent symlink still names the session's file.
@@ -29,17 +32,92 @@ fn resolved_spelling(path: &Path) -> Option<PathBuf> {
     }
 }
 
+/// Unix opens must not wait for a writer if a path turns into a FIFO during lookup.
+fn open_read(path: &Path) -> std::io::Result<File> {
+    #[cfg(unix)]
+    {
+        use rustix::fs::{Mode, OFlags};
+        rustix::fs::open(path, OFlags::RDONLY | OFlags::NONBLOCK | OFlags::CLOEXEC, Mode::empty()).map(File::from).map_err(Into::into)
+    }
+    #[cfg(not(unix))]
+    {
+        File::open(path)
+    }
+}
+
+#[derive(Clone, Copy)]
+enum EntryKind {
+    File,
+    Directory,
+}
+
+/// Identity checks accept only the expected entry type, before and after opening it.
+fn entry_handle(path: &Path, kind: EntryKind) -> std::io::Result<same_file::Handle> {
+    let accepts = |meta: &fs::Metadata| match kind {
+        EntryKind::File => meta.is_file(),
+        EntryKind::Directory => meta.is_dir(),
+    };
+    if !accepts(&fs::metadata(path)?) {
+        return Err(std::io::Error::other("unexpected entry type during file identity check"));
+    }
+    #[cfg(unix)]
+    let handle = same_file::Handle::from_file(open_read(path)?)?;
+    #[cfg(not(unix))]
+    let handle = same_file::Handle::from_path(path)?;
+    if !accepts(&handle.as_file().metadata()?) {
+        return Err(std::io::Error::other("entry type changed during file identity check"));
+    }
+    Ok(handle)
+}
+
 fn regular(path: &Path) -> std::io::Result<File> {
     let meta = fs::metadata(path)?;
     if !meta.is_file() || meta.len() > MAX_BYTES {
         return Err(std::io::Error::other("expected a regular file no larger than 2 GB"));
     }
-    let file = File::open(path)?;
+    let file = open_read(path)?;
     let meta = file.metadata()?;
     if !meta.is_file() || meta.len() > MAX_BYTES {
         return Err(std::io::Error::other("expected a regular file no larger than 2 GB"));
     }
     Ok(file)
+}
+
+/// Observe case aliases while the entry exists; deletion otherwise loses that evidence.
+/// No files are created. An uncertain lookup reserves case-equivalent names conservatively.
+fn observes_case_aliases(path: &Path) -> bool {
+    let Some(name) = path.file_name() else { return false };
+    let mut other = name.to_ascii_uppercase();
+    if other == name {
+        other = name.to_ascii_lowercase();
+    }
+    if other == name
+        && let Some(text) = name.to_str()
+    {
+        other = text.to_uppercase().into();
+        if other == name {
+            other = text.to_lowercase().into();
+        }
+    }
+    if other == name {
+        return false;
+    }
+    entry_handle(path, EntryKind::File)
+        .and_then(|a| entry_handle(&path.with_file_name(other), EntryKind::File).map(|b| a == b))
+        .unwrap_or_else(|e| e.kind() != std::io::ErrorKind::NotFound || !path.exists())
+}
+
+/// Canonically equivalent Unicode names stay reserved after deletion. Case aliases are
+/// reserved where they were observed; distinct ASCII case remains available on Linux.
+fn equivalent_missing_name(a: &OsStr, b: &OsStr, folds_case: bool) -> bool {
+    if a == b || folds_case && a.eq_ignore_ascii_case(b) {
+        return true;
+    }
+    let (Some(a), Some(b)) = (a.to_str(), b.to_str()) else { return false };
+    a.nfd().eq(b.nfd())
+        || folds_case
+            && (a.chars().flat_map(char::to_uppercase).nfd().eq(b.chars().flat_map(char::to_uppercase).nfd())
+                || a.chars().flat_map(char::to_lowercase).nfd().eq(b.chars().flat_map(char::to_lowercase).nfd()))
 }
 
 impl FileVersion {
@@ -52,9 +130,12 @@ impl FileVersion {
                 return Err(std::io::Error::other("file grew beyond 2 GB"));
             }
             let handle = same_file::Handle::from_file(file)?;
+            let path = absolute(path);
+            let resolved = fs::canonicalize(&path)?;
             let version = Self {
-                path: absolute(path),
-                resolved: fs::canonicalize(path)?,
+                case_aliases: [observes_case_aliases(&path), observes_case_aliases(&resolved)],
+                path,
+                resolved,
                 handle: Some(Arc::new(handle)),
                 digest: Sha256::digest(&bytes).into(),
             };
@@ -69,13 +150,26 @@ impl FileVersion {
         if absolute == self.path || absolute == self.resolved {
             return Ok(true);
         }
-        if fs::canonicalize(path).ok().or_else(|| resolved_spelling(path)).is_some_and(|p| p == self.resolved) {
+        // A replaced final symlink must not hide the directory entry being saved.
+        if resolved_spelling(path).is_some_and(|p| p == self.resolved) || fs::canonicalize(path).is_ok_and(|p| p == self.resolved) {
             return Ok(true);
         }
         match fs::metadata(path) {
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return self.owns_missing(path),
             Ok(meta) if meta.is_file() => {}
             _ => return Err(FileConflict { path: path.to_path_buf() }),
+        }
+        let conflict = || FileConflict { path: path.to_path_buf() };
+        let current = entry_handle(path, EntryKind::File).map_err(|_| conflict())?;
+        // The original handle can name an old inode after replacement. Compare the current
+        // tracked entries too, including case aliases on filesystems that preserve spelling.
+        for owned in [&self.path, &self.resolved] {
+            match entry_handle(owned, EntryKind::File) {
+                Ok(handle) if handle == current => return Ok(true),
+                Ok(_) => {}
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(_) => return Err(conflict()),
+            }
         }
         let Some(original) = &self.handle else { return Err(FileConflict { path: path.to_path_buf() }) };
         // same-file's Windows comparison includes size: refresh the retained file handle's
@@ -85,8 +179,25 @@ impl FileVersion {
             .as_file()
             .try_clone()
             .and_then(same_file::Handle::from_file)
-            .and_then(|original| same_file::Handle::from_path(path).map(|current| original == current))
+            .map(|original| original == current)
             .map_err(|_| FileConflict { path: path.to_path_buf() })
+    }
+
+    fn owns_missing(&self, path: &Path) -> Result<bool, FileConflict> {
+        let (Some(name), Some(parent)) = (path.file_name(), path.parent()) else { return Ok(false) };
+        for (owned, folds_case) in [&self.path, &self.resolved].into_iter().zip(self.case_aliases) {
+            let (Some(original), Some(original_parent)) = (owned.file_name(), owned.parent()) else { continue };
+            if !equivalent_missing_name(name, original, folds_case) {
+                continue;
+            }
+            match entry_handle(parent, EntryKind::Directory).and_then(|a| entry_handle(original_parent, EntryKind::Directory).map(|b| a == b)) {
+                Ok(true) => return Ok(true),
+                Ok(false) => {}
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(_) => return Err(FileConflict { path: path.to_path_buf() }),
+            }
+        }
+        Ok(false)
     }
 
     pub(super) fn verify(&self, path: &Path) -> Result<(), FileConflict> {
@@ -116,10 +227,14 @@ impl FileVersion {
     /// Keep the identity of serialized bytes, never a second read that might capture an
     /// external writer's version. Handle lookup is best effort after a committed replacement.
     pub(super) fn saved(path: &Path, bytes: &[u8]) -> Self {
+        let path = absolute(path);
+        let resolved = fs::canonicalize(&path).unwrap_or_else(|_| path.clone());
+        let handle = entry_handle(&path, EntryKind::File).ok().map(Arc::new);
         Self {
-            path: absolute(path),
-            resolved: fs::canonicalize(path).unwrap_or_else(|_| absolute(path)),
-            handle: same_file::Handle::from_path(path).ok().map(Arc::new),
+            case_aliases: [observes_case_aliases(&path), observes_case_aliases(&resolved)],
+            path,
+            resolved,
+            handle,
             digest: Sha256::digest(bytes).into(),
         }
     }

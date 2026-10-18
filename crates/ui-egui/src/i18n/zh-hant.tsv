@@ -1,6 +1,13 @@
 # Traditional Chinese (zh-hant, Taiwan vocabulary) interface catalog. Same format and clean-room
 # rules as zh-hans.tsv.
 
+# Native save conflicts (#813)
+	Save conflict	儲存衝突
+	The file changed or is unavailable	檔案已變更或無法使用
+	Your edits are still here. Save them to a different file to keep both versions.	您的編輯仍保留在此。將其儲存至另一個檔案，即可同時保留兩個版本。
+	Keep editing	繼續編輯
+	Save copy…	儲存複本…
+
 	(no style)	（無樣式）
 	(no suggestions)	（無建議）
 	1.5 Line Spacing	1.5 倍行距
@@ -214,6 +221,7 @@
 	Use the Insert key to switch overtype on and off	使用 Insert 鍵切換取代模式
 	Whole document	整份文件
 	This section	本節
+	Selected text	選取的文字
 	Fill	填滿
 	Setting:	設定：
 	3-D	立體
@@ -2079,11 +2087,6 @@
 	Ukrainian	烏克蘭文
 	{language} is now the document's default language.	{language} 現在是此文件的預設語言。
 # Save conflict dialog (#813).
-	Save conflict	儲存衝突
-	The file changed or is unavailable	檔案已變更或無法使用
-	Your edits are still here. Save them to a different file to keep both versions.	您的編輯仍保留在此。將其儲存至另一個檔案，即可同時保留兩個版本。
-	Keep editing	繼續編輯
-	Save copy…	儲存複本…
 	Visual effects	視覺效果
 	Animation effects:	動畫效果：
 	On	開
@@ -2253,3 +2256,5 @@
 	Other:	其他：
 	The number must be between 1 and {max}.	數字必須介於 1 和 {max} 之間。
 	The measurement must be between {min} and {max}.	度量值必須介於 {min} 和 {max} 之間。
+	Recently Used Fonts	最近使用的字型
+	All Fonts	所有字型

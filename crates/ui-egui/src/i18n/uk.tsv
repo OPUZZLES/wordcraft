@@ -11,6 +11,13 @@
 # Product, format and technology names (WordCraft, PDF, Markdown, MCP …) stay in Latin letters.
 # Author: @dmatviichuk with Codex; licensed MIT OR Apache-2.0, like WordCraft.
 
+# Native save conflicts (#813)
+	Save conflict	Конфлікт під час збереження
+	The file changed or is unavailable	Файл змінено або він недоступний
+	Your edits are still here. Save them to a different file to keep both versions.	Ваші зміни досі тут. Збережіть їх в інший файл, щоб зберегти обидві версії.
+	Keep editing	Продовжити редагування
+	Save copy…	Зберегти копію…
+
 	(no style)	(без стилю)
 	(no suggestions)	(немає пропозицій)
 	1.5 Line Spacing	Міжрядковий інтервал 1,5
@@ -195,6 +202,7 @@
 	Use the Insert key to switch overtype on and off	Клавіша Insert вмикає та вимикає режим заміни
 	Whole document	Увесь документ
 	This section	Цей розділ
+	Selected text	До виділеного тексту
 	Fill	Колір заливки
 	Setting:	Тип:
 	3-D	Об'ємна
@@ -2090,11 +2098,6 @@
 	Ukrainian	Українська
 	{language} is now the document's default language.	{language} тепер типова мова документа.
 # Save conflict dialog (#813).
-	Save conflict	Конфлікт під час збереження
-	The file changed or is unavailable	Файл змінено або він недоступний
-	Your edits are still here. Save them to a different file to keep both versions.	Ваші зміни досі тут. Збережіть їх в інший файл, щоб зберегти обидві версії.
-	Keep editing	Продовжити редагування
-	Save copy…	Зберегти копію…
 	Visual effects	Візуальні ефекти
 	Animation effects:	Ефекти анімації:
 	On	Увімкнено
@@ -2264,3 +2267,5 @@
 	Other:	Інше:
 	The number must be between 1 and {max}.	Число має бути від 1 до {max}.
 	The measurement must be between {min} and {max}.	Розмір має бути від {min} до {max}.
+	Recently Used Fonts	Нещодавно використані шрифти
+	All Fonts	Усі шрифти

@@ -1022,6 +1022,18 @@ impl Document {
         &mut self.last_section
     }
 
+    /// Remove the section break on the mark of top-level body paragraph `block`: its section
+    /// joins the following one ([`SectionProps::absorb`]). False when there is no break there.
+    pub fn remove_section_break(&mut self, block: usize) -> bool {
+        if !matches!(self.body.get(block).map(|b| &**b), Some(Block::Para(p)) if p.section.is_some()) {
+            return false;
+        }
+        let Some(Block::Para(p)) = self.body.get_mut(block).map(Arc::make_mut) else { return false };
+        let Some(before) = p.section.take() else { return false };
+        self.section_mut(block).absorb(&before);
+        true
+    }
+
     /// Allocate a new part id and insert the part. Part ids run out only past `u32::MAX` parts, more
     /// than memory holds; then nothing is added and the id is 0, which [`free_id`] never gives a part.
     pub fn add_part(&mut self, kind: PartKind, blocks: Blocks) -> u32 {

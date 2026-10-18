@@ -14,6 +14,13 @@
 # translated UI was consulted or copied; add entries the same way.
 # Product, format and technology names (WordCraft, PDF, Markdown, MCP …) stay as they are.
 
+# Native save conflicts (#813)
+	The file changed or is unavailable	Filen har ändrats eller är inte tillgänglig
+	Your edits are still here. Save them to a different file to keep both versions.	Dina ändringar finns kvar här. Spara dem i en annan fil för att behålla båda versionerna.
+	Keep editing	Fortsätt redigera
+	Save copy…	Spara kopia…
+	Save conflict	Konflikt vid sparande
+
 	(no style)	(ingen stil)
 	(no suggestions)	(inga förslag)
 	1.5 Line Spacing	Radavstånd 1,5
@@ -191,6 +198,7 @@
 	Use the Insert key to switch overtype on and off	Använd Insert-tangenten för att slå på och av överskrivning
 	Whole document	Hela dokumentet
 	This section	Det här avsnittet
+	Selected text	Markerad text
 	Fill	Fyllning
 	Setting:	Inställning:
 	3-D	3D
@@ -2660,11 +2668,5 @@ preview	Title	Titel
 	Other:	Annat:
 	The number must be between 1 and {max}.	Talet måste vara mellan 1 och {max}.
 	The measurement must be between {min} and {max}.	Måttet måste vara mellan {min} och {max}.
-
-
-# Native save conflicts (#813)
-	The file changed or is unavailable	Filen har ändrats eller är inte tillgänglig
-	Your edits are still here. Save them to a different file to keep both versions.	Dina ändringar finns kvar här. Spara dem i en annan fil för att behålla båda versionerna.
-	Keep editing	Fortsätt redigera
-	Save copy…	Spara kopia…
-	Save conflict	Konflikt vid sparande
+	Recently Used Fonts	Senast använda typsnitt
+	All Fonts	Alla typsnitt

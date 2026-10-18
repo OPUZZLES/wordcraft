@@ -13,6 +13,13 @@
 # Product, format and technology names (WordCraft, PDF, Markdown, MCP …) stay in Latin letters.
 # Counts use count-neutral wording (`Слов: 21`), so no plural forms are needed.
 
+# Native save conflicts (#813)
+	Save conflict	Конфликт при сохранении
+	The file changed or is unavailable	Файл изменён или недоступен
+	Your edits are still here. Save them to a different file to keep both versions.	Ваши правки сохранились здесь. Сохраните их в другой файл, чтобы оставить обе версии.
+	Keep editing	Продолжить редактирование
+	Save copy…	Сохранить копию…
+
 	(no suggestions)	(нет вариантов)
 	1.5 Line Spacing	Полуторный интервал
 	A free, open-source word processor written from scratch in Rust.\nPart of the Crafting Apps from the ArtCraft team.	Бесплатный текстовый процессор с открытым исходным кодом, написанный с нуля на Rust.\nВходит в Crafting Apps от команды ArtCraft.
@@ -1620,6 +1627,7 @@ preview	Title	Пример
 	Apply to:	Применить к:
 	Whole document	Ко всему документу
 	This section	К этому разделу
+	Selected text	К выделенному тексту
 	Fill	Заливка
 	Setting:	Тип:
 	3-D	Объёмная
@@ -2461,11 +2469,6 @@ preview	Title	Пример
 	Asian text font:	Шрифт азиатского текста:
 	Latin text font:	Шрифт латинского текста:
 # Save conflict dialog (#813).
-	Save conflict	Конфликт при сохранении
-	The file changed or is unavailable	Файл изменён или недоступен
-	Your edits are still here. Save them to a different file to keep both versions.	Ваши правки сохранились здесь. Сохраните их в другой файл, чтобы оставить обе версии.
-	Keep editing	Продолжить редактирование
-	Save copy…	Сохранить копию…
 	Visual effects	Визуальные эффекты
 	Animation effects:	Эффекты анимации:
 	On	Включено
@@ -2649,3 +2652,5 @@ preview	Title	Пример
 	Other:	Другой:
 	The number must be between 1 and {max}.	Число должно быть от 1 до {max}.
 	The measurement must be between {min} and {max}.	Размер должен быть от {min} до {max}.
+	Recently Used Fonts	Недавно использованные шрифты
+	All Fonts	Все шрифты

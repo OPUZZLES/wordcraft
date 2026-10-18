@@ -9,6 +9,7 @@ use wordcraft_doc::numbering::{Level, LevelSuffix};
 use wordcraft_doc::para::{COLUMN_BREAK, InlineObject, LINE_BREAK, NoteKind, OBJ, PAGE_BREAK, RubyAlign, SOFT_HYPHEN, WrapText};
 use wordcraft_doc::props::{Align, CharProps, LineSpacing, ParaProps, TabAlign, TabLeader, TabStop};
 use wordcraft_doc::resolve::{ResolvedChar, ResolvedPara};
+use wordcraft_doc::section::NumFormat;
 use wordcraft_doc::{Document, Paragraph};
 use wordcraft_fonts::FaceRef;
 
@@ -60,6 +61,21 @@ impl<'a> SymbolRun<'a> {
             _ => u,
         }
     }
+}
+
+/// Whether a bullet level's `text` has a private-use character that no installed font draws:
+/// its font isn't installed (or lacks it) and it isn't a symbol-font code with a Unicode
+/// equivalent. Private-use codes mean something different in every font, so another face's
+/// glyph there is an unrelated icon, not a bullet.
+fn undrawable_bullet(text: &str, lvl: &Level, rc: &ResolvedChar) -> bool {
+    let private = |c: char| matches!(u32::from(c), 0xE000..=0xF8FF | 0xF0000..=0x10FFFF);
+    lvl.format == NumFormat::Bullet
+        && text.chars().any(|c| {
+            private(c) && wordcraft_doc::symbol_fonts::symbol_char(&rc.font, c).is_none() && {
+                let r = wordcraft_fonts::word::resolve(&rc.font, rc.bold, rc.italic);
+                r.substituted || !r.face.covers(c)
+            }
+        })
 }
 
 /// A face at a size with the formatting needed to draw it.
@@ -671,10 +687,12 @@ fn east_asian(c: char) -> bool {
 const MISSING_ROMAN_FONT: &str = "Cambria";
 
 /// The family to look `font` up as: [`MISSING_ROMAN_FONT`] for a missing roman font, else `font`.
+/// A missing Thai font keeps its name: it is drawn in a Thai face, not in Cambria (#1549).
 fn lookup_family<'f>(doc: &Document, font: &'f str) -> &'f str {
     let db = wordcraft_fonts::FontDb::global();
     let roman = doc.settings.roman_fonts.iter().any(|f| f.eq_ignore_ascii_case(font));
     if roman
+        && !wordcraft_fonts::word::is_thai_family(font)
         && !wordcraft_doc::symbol_fonts::is_symbol_font(font)
         && !db.has_family(font)
         && !db.has_family(wordcraft_fonts::word::charset_base_family(font))
@@ -683,6 +701,28 @@ fn lookup_family<'f>(doc: &Document, font: &'f str) -> &'f str {
     } else {
         font
     }
+}
+
+/// One face for a run in a Thai font that isn't installed (#1549): Word substitutes one font
+/// (Cordia New) for the whole run, so the Latin letters, digits and ฿ keep the Thai letters' face
+/// and size. `None` unless `font` is a Thai family, it was substituted, and its substitute
+/// `primary` lacks some of the run's Thai or Latin characters; then the first face covering all of
+/// them, if one does. Other families keep Latin text in their own substitute, as Word does.
+pub(crate) fn thai_run_face(font: &str, substituted: bool, primary: FaceRef, text: &str, bold: bool, italic: bool) -> Option<FaceRef> {
+    if !substituted || !wordcraft_fonts::word::is_thai_family(font) {
+        return None;
+    }
+    let run: Vec<char> = text.chars().filter(|c| thai_or_latin(*c)).collect();
+    if run.iter().all(|c| primary.covers(*c)) {
+        return None;
+    }
+    wordcraft_fonts::FontDb::global().fallback_for_run(&run, primary.id(), bold, italic).map(|f| FaceRef::of(&f))
+}
+
+/// Text a Thai substitute draws: Thai letters, digits and signs (฿), and Latin letters, digits
+/// and punctuation.
+fn thai_or_latin(c: char) -> bool {
+    matches!(u32::from(c), 0x0021..=0x024F | 0x0E00..=0x0E7F) && !c.is_whitespace() && !c.is_control() && c != SOFT_HYPHEN
 }
 
 impl<'a> Builder<'a> {
@@ -780,6 +820,13 @@ impl<'a> Builder<'a> {
             .map(|r| r.face);
         let use_levels = para_text && !self.levels.is_empty();
         let context = if self.env.numeral == NumeralMode::Context && use_levels { context_digit_dirs(text, &self.levels, base) } else { Vec::new() };
+        // A missing Thai font: one face for the run's Thai and Latin text (#1549). A run with its
+        // own complex-script font keeps that font for the Thai letters.
+        let run_face: Option<FaceRef> = if primary_cs.is_none_or(|f| f.id() == primary.id()) {
+            thai_run_face(&rc.font, resolved.substituted, primary, text, rc.bold, rc.italic)
+        } else {
+            None
+        };
         // One fallback face for the run's East Asian characters: the first face in fallback order
         // covering every character the primary font lacks, so the run draws in a single CJK face
         // instead of mixing faces per character (e.g. a bundled Japanese Mincho for JIS-covered
@@ -793,7 +840,7 @@ impl<'a> Builder<'a> {
             if ea.is_empty() {
                 None
             } else {
-                wordcraft_fonts::FontDb::global().fallback_for_east_asian(&ea, primary.id(), rc.bold, rc.italic).map(|f| FaceRef::of(&f))
+                wordcraft_fonts::FontDb::global().fallback_for_run(&ea, primary.id(), rc.bold, rc.italic).map(|f| FaceRef::of(&f))
             }
         };
         // Split by font coverage (fallback faces), small caps case, script formatting and direction.
@@ -817,6 +864,8 @@ impl<'a> Builder<'a> {
             let face = match cur {
                 Some(k) if mark => k.face,
                 _ if !complex && east_asian(c) && primary_ea.is_some_and(|f| f.covers(c)) => primary_ea,
+                // The run's one substitute face for a missing Thai font (#1549).
+                _ if !c.is_control() && c != SOFT_HYPHEN && run_face.is_some_and(|f| f.covers(dc)) => run_face,
                 _ if prim.covers(dc) || c.is_whitespace() || c.is_control() || c == SOFT_HYPHEN => None,
                 // Stay in the fallback face the word started in while it covers the letters.
                 Some(SegKey { face: Some(f), .. }) if f.covers(dc) => Some(f),
@@ -1528,6 +1577,12 @@ pub fn layout_para(p: &Paragraph, env: &ParaEnv) -> ParaLayout {
     let label = env.label.as_ref().filter(|_| !break_only).map(|(text, lvl)| {
         let lc = p.mark.clone().overlaid(&lvl.chr);
         let rc = resolve(&lc);
+        // A bullet no installed font can draw would come from whatever icon font has its
+        // private-use code (Font Awesome's Twitter logo at U+F081, #1683): it shows the level's
+        // default bullet instead.
+        let fixed = undrawable_bullet(text, lvl, &rc)
+            .then(|| wordcraft_doc::numbering::default_bullet(usize::from(rp.numbering.map_or(0, |n| n.level))).to_string());
+        let text: &str = fixed.as_deref().unwrap_or(text);
         // A Symbol/Wingdings bullet (U+F0B7…) is drawn as its Unicode equivalent when the font
         // isn't installed (shaping maps it); the label's text reads as that character too.
         let shown = |t: &str| -> String { wordcraft_doc::symbol_fonts::map_text(&rc.font, t) };
@@ -2544,6 +2599,21 @@ impl ParaLayout {
             }
         }
         l.xs.last().copied()
+    }
+    /// The farthest right a caret goes on left-to-right line `li`: spaces at the end of a line
+    /// hang past its right edge, but the caret after them stays at the edge, as in Word (#2146);
+    /// text that overflows the line still carries it. `None` on bidirectional lines.
+    pub fn caret_limit(&self, li: usize) -> Option<f32> {
+        let l = self.lines.get(li)?;
+        if !l.vis.is_empty() {
+            return None;
+        }
+        let ink = (l.c0..l.c1).rev().find(|&k| self.clusters.get(k).is_some_and(|c| c.kind != ClKind::Space));
+        let end = match ink {
+            Some(k) => l.xs.get(k + 1 - l.c0).copied(),
+            None => l.xs.first().copied(),
+        };
+        Some(end.unwrap_or(l.left).max(l.right))
     }
     /// The line holding offset `off` (a position at a wrap point belongs to the next line).
     pub fn line_of(&self, off: usize) -> usize {

@@ -15,6 +15,13 @@
 # computing vocabulary. No Microsoft Word (or other product) localisation, string table or
 # translated UI was consulted or copied; add entries the same way.
 
+# Native save conflicts (#813)
+	Save conflict	Mentési ütközés
+	The file changed or is unavailable	A fájl megváltozott vagy nem érhető el
+	Your edits are still here. Save them to a different file to keep both versions.	A módosításai megmaradtak. Mentse őket egy másik fájlba, hogy mindkét változat megmaradjon.
+	Keep editing	Szerkesztés folytatása
+	Save copy…	Másolat mentése…
+
 	(no suggestions)	(nincs javaslat)
 	1.5 Line Spacing	1,5-es sorköz
 	A free, open-source word processor written from scratch in Rust.\nPart of the Crafting Apps from the ArtCraft team.	Ingyenes, nyílt forráskódú szövegszerkesztő, az alapoktól Rustban írva.\nA Crafting Apps családba tartozik, az ArtCraft csapatától.
@@ -621,11 +628,6 @@
 	Rules	Szabályok
 	Résumé	Önéletrajz
 	Save	Mentés
-	Save conflict	Mentési ütközés
-	The file changed or is unavailable	A fájl megváltozott vagy nem érhető el
-	Your edits are still here. Save them to a different file to keep both versions.	A módosításai megmaradtak. Mentse őket egy másik fájlba, hogy mindkét változat megmaradjon.
-	Keep editing	Szerkesztés folytatása
-	Save copy…	Másolat mentése…
 	Save a copy in another format. Printing goes through a PDF you can print from any viewer.	Másolat mentése más formátumban. A nyomtatás PDF-en keresztül történik, amelyet bármelyik nézegetőből kinyomtathatsz.
 	Save As	Mentés másként
 	Save as Template	Mentés sablonként
@@ -1647,6 +1649,7 @@
 	Apply to:	Alkalmazás erre:
 	Whole document	Teljes dokumentum
 	This section	Ez a szakasz
+	Selected text	Kijelölt szöveg
 	Fill	Kitöltés
 	Setting:	Beállítás:
 	3-D	Térhatású
@@ -2646,3 +2649,5 @@
 	Other:	Egyéb:
 	The number must be between 1 and {max}.	A számnak 1 és {max} között kell lennie.
 	The measurement must be between {min} and {max}.	A méretnek {min} és {max} között kell lennie.
+	Recently Used Fonts	Legutóbb használt betűtípusok
+	All Fonts	Összes betűtípus
