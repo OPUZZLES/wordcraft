@@ -134,7 +134,7 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 
 ## Progress log
 
-Imported Word 97–2003 `.doc`/`.dot` files now ask for a supported DOCX target on interactive Save (#2445). Save before Close waits for that write; cancel or failure keeps the draft and original file. This does not add binary Word output.
+Imported Word 97–2003 `.doc`/`.dot` files now ask for a supported DOCX target on interactive Save (#2445). Save before Close waits for that write; cancel or failure keeps the draft and original file. This does not add binary Word output. Late Save As answers are rejected before writing if automation has replaced the document.
 
 - 2026-10-15: Find opens Navigation on Results; editing the query restores Results after manual Headings/Pages navigation. Typed and selected-text searches retain document contents (#2096).
 
@@ -449,6 +449,7 @@ Imported Word 97–2003 `.doc`/`.dot` files now ask for a supported DOCX target 
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-18 | trivial | #2445: pending Save As answers keep their originating document identity, so a replacement document is never written to an old picker destination; real Save-button and focused-editor shortcut controls verified |
 | 2026-10-16 | trivial | #2445: interactive Save on import-only .doc/.dot paths uses the existing DOCX Save As flow; cancel and failed writes keep the draft, and Close waits for a successful save. Explicit/script saves still report unsupported legacy output |
 | 2026-10-16 | trivial | Progress log: the Spike |
 | 2026-10-16 | trivial | Progress log: `w:eastAsianLayout` kept on save |

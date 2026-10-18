@@ -53,7 +53,7 @@ pub(crate) enum AfterPick {
     /// Insert the picked picture, or replace the pending Change Picture target.
     Picture,
     /// Save the document there, then carry on.
-    SaveAs(AfterSave),
+    SaveAs { after: AfterSave, document: u64 },
     /// Save a copy there in this format (`pdf`, `docx`, `png`…).
     Export { ext: String },
     /// Write the PDF of these print settings there (File › Print › Save these pages as PDF).
@@ -237,7 +237,10 @@ impl WordApp {
                 }
                 r
             }
-            AfterPick::SaveAs(after) => {
+            AfterPick::SaveAs { after, document } => {
+                if document != self.session.document_id() {
+                    return Err("the document for this save has been replaced".into());
+                }
                 // The save's error, kept for the Save Changes prompt to explain (#1445).
                 let result = picked.map(|path| self.run("file.save", json!({"path": path})));
                 let saved = matches!(&result, Some(Ok(v)) if v.get("saved").and_then(Value::as_bool) == Some(true) || v.get("downloaded").is_some());
@@ -275,7 +278,7 @@ impl WordApp {
     /// Ask where to save, save there, then do `after`.
     pub(crate) fn save_as(&mut self, after: AfterSave) -> Asked {
         let name = self.default_save_name();
-        self.ask_file(FileDialogRequest::Save { name }, AfterPick::SaveAs(after))
+        self.ask_file(FileDialogRequest::Save { name }, AfterPick::SaveAs { after, document: self.session.document_id() })
     }
 
     /// File › Export: ask where to save a copy in this format, then write it.
@@ -452,6 +455,44 @@ mod tests {
         let _ = std::fs::remove_dir_all(dir);
     }
 
+    /// A late Save As answer belongs to the imported document that opened the picker.
+    #[test]
+    fn imported_word_stale_save_as_never_writes_the_replacement_document() {
+        for close in [false, true] {
+            let dir = scratch(if close { "imported-stale-close" } else { "imported-stale-save" });
+            let original = dir.join("contract.doc");
+            let bytes = legacy_word_bytes();
+            std::fs::write(&original, &bytes).unwrap();
+            let destination = dir.join("existing.docx");
+            let sentinel = b"Existing destination must survive";
+            std::fs::write(&destination, sentinel).unwrap();
+            let (mut a, shown) = async_app();
+            a.run("file.open", json!({"path": original})).unwrap();
+            typed(&mut a);
+            if close {
+                a.run("file.close", json!({})).unwrap();
+                a.run("ui.saveChanges", json!({"answer": "save"})).unwrap();
+            } else {
+                a.run("file.save", json!({})).unwrap();
+            }
+            assert!(a.file_dialog_open());
+            let previous = a.session.document_id();
+            // Automation bypasses the user prompt and can replace a document during a picker.
+            a.execute("file.new", json!({})).unwrap();
+            typed(&mut a);
+            assert_ne!(previous, a.session.document_id());
+            let draft = a.session.doc.clone();
+            let revision = a.session.rev();
+            answer(&shown, Some(&destination.to_string_lossy()));
+            let _ = a.poll_file_dialog().unwrap();
+            assert!(std::fs::read(&destination).unwrap() == sentinel, "stale picker overwrote the destination");
+            assert_eq!(std::fs::read(&original).unwrap(), bytes);
+            assert_eq!(a.session.doc, draft);
+            assert_eq!(a.session.rev(), revision);
+            assert!(a.session.dirty && a.session.path.is_none() && !a.quit_requested);
+        }
+    }
+
     #[test]
     fn imported_word_programmatic_and_explicit_saves_never_open_dialogs() {
         let dir = scratch("imported-explicit");
@@ -473,38 +514,46 @@ mod tests {
     }
 
     #[test]
-    fn imported_word_toolbar_and_save_shortcut_ask_for_docx() {
+    fn imported_word_save_controls_ask_for_docx() {
+        use egui_kittest::kittest::Queryable;
         let dir = scratch("imported-entry-points");
         let original = dir.join("contract.doc");
         let bytes = legacy_word_bytes();
         std::fs::write(&original, &bytes).unwrap();
         let (mut a, shown) = async_app();
-        a.run("file.open", json!({"path": original.to_string_lossy()})).unwrap();
-        a.run("text.insert", json!({"text": "Revised "})).unwrap();
-        crate::widgets::run_from_ribbon(&mut a, "file.save", json!({}));
-        assert!(a.file_dialog_open(), "the toolbar command asks for a supported target");
-        answer(&shown, None);
-        a.poll_file_dialog().unwrap().unwrap();
-
-        let ctx = egui::Context::default();
-        let input = egui::RawInput {
-            events: vec![egui::Event::Key {
-                key: egui::Key::S,
-                physical_key: None,
-                pressed: true,
-                repeat: false,
-                modifiers: egui::Modifiers::COMMAND,
-            }],
-            ..Default::default()
-        };
-        ctx.run_ui(input, |ui| crate::keys::global_shortcuts(&mut a, ui.ctx())).drop_without_applying_deltas();
-        assert!(a.file_dialog_open(), "the Mod+S key event asks too");
+        a.run("ui.language", json!({"value": "en"})).unwrap();
+        a.run("file.open", json!({"path": original})).unwrap();
+        typed(&mut a);
+        a.run("ui.backstage", json!({"value": true, "page": "home"})).unwrap();
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        h.run_steps(4);
+        h.get_by_label("Save").click();
+        h.run_steps(3);
+        assert!(h.state().file_dialog_open(), "the Save button asks for a supported target");
         assert_eq!(shown.borrow()[0].0, FileDialogRequest::Save { name: "contract.docx".into() });
         answer(&shown, None);
-        a.poll_file_dialog().unwrap().unwrap();
-        assert!(a.session.dirty);
+        h.run_steps(3);
+
+        h.state_mut().run("ui.backstage", json!({"value": false})).unwrap();
+        h.state_mut().canvas.want_focus = true;
+        h.run_steps(6);
+        assert!(h.state().canvas.focused, "Mod+S starts in the editor");
+        h.event(egui::Event::Key { key: egui::Key::S, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::COMMAND });
+        h.run_steps(3);
+        assert!(h.state().file_dialog_open(), "the focused editor's Mod+S asks too");
+        assert_eq!(shown.borrow()[0].0, FileDialogRequest::Save { name: "contract.docx".into() });
+        answer(&shown, None);
+        h.run_steps(3);
+        assert!(h.state().session.dirty);
+        assert_eq!(h.state().session.path.as_deref(), Some(original.as_path()));
         assert_eq!(std::fs::read(&original).unwrap(), bytes);
-        let _ = std::fs::remove_dir_all(dir);
     }
 
     /// Dialogs the fake host was asked to show, each with the channel its answer goes through.

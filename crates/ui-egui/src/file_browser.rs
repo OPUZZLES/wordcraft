@@ -280,7 +280,10 @@ impl WordApp {
         let (req, after) = match purpose {
             "picture" => (FileDialogRequest::Open { purpose: "picture".into() }, AfterPick::Picture),
             "recipients" => (FileDialogRequest::Open { purpose: "recipients".into() }, AfterPick::Recipients),
-            "save" => (FileDialogRequest::Save { name: self.default_save_name() }, AfterPick::SaveAs(crate::file_dialogs::AfterSave::Nothing)),
+            "save" => (
+                FileDialogRequest::Save { name: self.default_save_name() },
+                AfterPick::SaveAs { after: crate::file_dialogs::AfterSave::Nothing, document: self.session.document_id() },
+            ),
             _ => (FileDialogRequest::Open { purpose: "document".into() }, AfterPick::OpenDocument),
         };
         self.show_file_browser(req, after, false);
