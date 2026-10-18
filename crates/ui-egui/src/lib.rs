@@ -1091,9 +1091,9 @@ impl WordApp {
         let go = match choice {
             SaveChoice::Cancel => false,
             SaveChoice::DontSave => true,
-            // A new document: ask where through Save As; the command runs once that has saved,
-            // which with the desktop's non-blocking dialog is on a later frame (#94).
-            SaveChoice::Save if self.session.path.is_none() && self.services.download.is_none() => {
+            // A new document or an import-only Word file: ask where through Save As. The command
+            // runs once that has saved, on a later frame with the non-blocking dialog (#94).
+            SaveChoice::Save if (self.session.path.is_none() || self.legacy_word_path()) && self.services.download.is_none() => {
                 return match self.save_as(file_dialogs::AfterSave::Continue { then, params, document }) {
                     file_dialogs::Asked::Done(r) => r,
                     file_dialogs::Asked::Pending => Ok(json!({"pending": "saveAs"})),
@@ -1119,9 +1119,23 @@ impl WordApp {
         self.execute_user(&then, params).map(|r| json!({"done": true, "result": r}))
     }
 
-    /// [`WordApp::execute`] for something the user did: a document that turns out to be
-    /// password-protected asks for the password (and opens with it) instead of failing (#55).
+    /// User commands can ask for a supported Save As target or an opening password (#55).
+    /// Scripts and agents use [`WordApp::execute`], which never opens these dialogs.
     pub(crate) fn execute_user(&mut self, id: &str, params: Value) -> Result<Value, String> {
+        // Legacy Word files are import-only (#2445). Only a user's implicit Save asks for
+        // a supported target; scripts and explicitly supplied paths keep their normal errors.
+        if id == "file.save"
+            && params.get("path").and_then(Value::as_str).is_none()
+            && self.has_document()
+            && self.legacy_word_path()
+            && self.services.download.is_none()
+        {
+            return match self.save_as(file_dialogs::AfterSave::Nothing) {
+                file_dialogs::Asked::Done(r) => r,
+                file_dialogs::Asked::Pending => Ok(json!({"pending": "saveAs"})),
+                file_dialogs::Asked::Busy => Ok(json!({"saved": false})),
+            };
+        }
         let retry = (id == "file.open").then(|| params.clone());
         let r = self.execute(id, params);
         if let (Err(e), Some(params)) = (&r, retry)
@@ -1788,6 +1802,16 @@ impl WordApp {
             self.status(i18n::fmt(tl!("Recipients: {count}"), &[("count", &records)]));
         }
         r
+    }
+
+    /// These paths have readers but no writer, so an interactive save needs another format.
+    fn legacy_word_path(&self) -> bool {
+        self.session
+            .path
+            .as_ref()
+            .and_then(|p| p.extension())
+            .and_then(|e| e.to_str())
+            .is_some_and(|e| e.eq_ignore_ascii_case("doc") || e.eq_ignore_ascii_case("dot"))
     }
 
     /// The name Save suggests: the open file's own Word format (so a .docm keeps its macros),
@@ -4940,6 +4964,60 @@ mod tests {
         assert_eq!(prompt(h.state()), None, "answered");
         assert!(!h.state().has_document() && !h.state().quit_requested, "Don't Save closes the document, not the window (#1712)");
         assert_eq!(std::fs::read(&path).unwrap(), before, "nothing was saved");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// #1015: focusing Save is not enough: its dialog must expose the question and any failed
+    /// save's explanation, so assistive technology has context for the three choices.
+    #[test]
+    fn save_prompt_exposes_its_context_to_accessibility() {
+        use egui::accesskit::Role;
+        use egui_kittest::kittest::{By, NodeT, Queryable};
+        let dir = scratch("save-accessibility");
+        let path = docx_on_disk(&dir, "Draft");
+        let mut a = app();
+        a.run("file.open", json!({"path": path.to_string_lossy()})).unwrap();
+        a.run("text.insert", json!({"text": "Revised "})).unwrap();
+        a.canvas.want_focus = true;
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        h.run_steps(6);
+        assert!(h.state().canvas.focused);
+        h.state_mut().run("file.close", json!({})).unwrap();
+        h.run_steps(3);
+        let save = h.query_all_by_role(Role::Button).find(|n| n.accesskit_node().label().as_deref() == Some("Save") && n.is_focused()).unwrap();
+        let mut ancestor = save.parent();
+        let mut roles = Vec::new();
+        while let Some(node) = ancestor {
+            roles.push(node.accesskit_node().role());
+            ancestor = node.parent();
+        }
+        assert!(roles.contains(&Role::AlertDialog), "Save has no alert-dialog ancestor: {roles:?}");
+        let dialog = h.get(By::new().predicate(|n| n.role() == Role::AlertDialog));
+        let node = dialog.accesskit_node();
+        assert!(node.label().is_some_and(|s| s.contains("contract.docx") && s.contains("save changes")));
+        assert!(node.description().is_some_and(|s| s.contains("Your changes will be lost")));
+        for label in ["Save", "Don't Save", "Cancel"] {
+            assert!(dialog.query_by_role_and_label(Role::Button, label).is_some(), "missing {label}");
+        }
+        let reason = "Couldn't save contract.docx: disk full";
+        if let Some(dialogs::Dialog::SaveChanges { message, .. }) = &mut h.state_mut().dialog {
+            *message = reason.into();
+        }
+        h.run_steps(2);
+        let dialog = h.get(By::new().predicate(|n| n.role() == Role::AlertDialog));
+        assert!(dialog.accesskit_node().description().is_some_and(|s| s.contains(reason)));
+        h.key_press(egui::Key::Escape);
+        h.run_steps(3);
+        assert!(h.state().dialog.is_none());
+        assert!(h.state().canvas.focused && h.state().session.dirty);
+        assert!(body_text(h.state()).contains("Revised Draft"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
