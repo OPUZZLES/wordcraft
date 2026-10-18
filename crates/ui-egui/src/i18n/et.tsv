@@ -466,6 +466,10 @@
 	More templates →	Veel malle →
 	Move or Resize	Teisalda või muuda suurust
 	Multilevel List	Mitmetasemeline loend
+	Multilevel List Library	Mitmetasemeliste loendite teek
+	Article I.	Artikkel I.
+	Chapter 1	Peatükk 1
+	Section 1.01	Jaotis 1.01
 	Multiple Pages	Mitu lehte
 	Name (A–Z)	Nimi (A–Z)
 	Name:	Nimi:
@@ -1510,6 +1514,8 @@
 	Math AutoCorrect	Matemaatika automaatparandus
 	More >>	Rohkem >>
 	Moves	Teisaldused
+	Moved from:	Teisaldatud kohast:
+	Moved to:	Teisaldatud kohta:
 	New document	Uus dokument
 	No changes (read only)	Muudatusi pole (kirjutuskaitstud)
 	Only allow this kind of editing:	Luba ainult seda tüüpi muutmist:
@@ -2291,3 +2297,5 @@
 	The measurement must be between {min} and {max}.	Mõõt peab olema vahemikus {min} kuni {max}.
 	Recently Used Fonts	Viimati kasutatud fondid
 	All Fonts	Kõik fondid
+	Spike	Koguja
+	Insert Spike	Lisa kogujast

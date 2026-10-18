@@ -439,8 +439,12 @@ fn body(ui: &mut Ui, b: &mut FileBrowser, t: &Tokens) -> Option<Option<PathBuf>>
     let enter = !location_done && ui.input(|i| i.key_pressed(egui::Key::Enter));
     ui.horizontal(|ui| {
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            cancel |= ui.button(tl!("Cancel")).clicked();
-            let ok = ui.add(egui::Button::new(egui::RichText::new(tl!(b.ok_label())).color(egui::Color32::WHITE)).fill(APP_COLOR));
+            let (ok, cancelb) = crate::dialogs::ok_cancel_responses(
+                ui,
+                |ui| ui.add(egui::Button::new(egui::RichText::new(tl!(b.ok_label())).color(egui::Color32::WHITE)).fill(APP_COLOR)),
+                tl!("Cancel"),
+            );
+            cancel |= cancelb.clicked();
             pick |= ok.clicked() || enter;
         });
     });

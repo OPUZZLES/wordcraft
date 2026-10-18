@@ -623,6 +623,10 @@
 	Modify…	Izmeni…
 	Move or Resize	Pomeri ili promeni veličinu
 	Multilevel List	Višenivoska lista
+	Multilevel List Library	Biblioteka višenivoskih lista
+	Article I.	Član I.
+	Chapter 1	Poglavlje 1
+	Section 1.01	Odeljak 1.01
 	Multiple Pages	Više strana
 	Name (A–Z)	Naziv (A–Š)
 	Name:	Naziv:
@@ -1501,6 +1505,8 @@
 	Math AutoCorrect	Automatska ispravka matematike
 	More >>	Više >>
 	Moves	Premeštanja
+	Moved from:	Premešteno odavde:
+	Moved to:	Premešteno ovde:
 	New document	Novi dokument
 	No changes (read only)	Bez izmena (samo za čitanje)
 	Only allow this kind of editing:	Dozvoli samo ovu vrstu uređivanja:
@@ -2267,3 +2273,5 @@
 	The measurement must be between {min} and {max}.	Mera mora biti između {min} i {max}.
 	Recently Used Fonts	Nedavno korišćeni fontovi
 	All Fonts	Svi fontovi
+	Spike	Sakupljač
+	Insert Spike	Umetni iz sakupljača

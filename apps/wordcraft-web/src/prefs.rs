@@ -82,7 +82,7 @@ mod tests {
         for junk in [None, Some(""), Some("not json"), Some("[1,2]"), Some("{\"theme\":42}")] {
             let mut a = app();
             restore(&mut a, junk);
-            assert_eq!(a.ui.theme, wordcraft_ui_egui::theme::Appearance::Light);
+            assert_eq!(a.ui.theme, wordcraft_ui_egui::theme::Appearance::System, "junk keeps the default appearance");
         }
     }
 }

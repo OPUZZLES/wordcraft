@@ -269,6 +269,8 @@ pub enum Dialog {
     Link {
         url: String,
         text: String,
+        /// Focus and select the address when the dialog first opens.
+        focus: bool,
         /// "Place in This Document" instead of "Existing File or Web Page".
         place: bool,
         /// The document's places (`link.targets`), read when that tab is first shown.
@@ -1022,7 +1024,9 @@ impl Dialog {
                     valign: sp.valign,
                 }
             }
-            "link" => Dialog::Link { url: "https://".into(), text: app.session.selected_text(), place: false, targets: None, pick: None },
+            "link" => {
+                Dialog::Link { url: "https://".into(), text: app.session.selected_text(), place: false, targets: None, pick: None, focus: true }
+            }
             "bookmark" => Dialog::Bookmark { name: bookmark_at_caret(&app.session), by_location: false, hidden: false, deleted: false },
             "wordCount" => Dialog::WordCount { stats: app.session.run("review.wordCount", &json!({})).unwrap_or_default() },
             "zoom" => Dialog::Zoom { percent: (app.session.view.zoom * 100.0).round() },
@@ -1442,6 +1446,24 @@ fn page_paper_group(ui: &mut Ui, paper: &mut (f32, f32), landscape: &mut bool, c
     });
 }
 
+/// Cancel key for dialogs: Escape everywhere, plus ⌘. (Command+Period) on macOS.
+pub(crate) fn cancel_key_pressed(ui: &Ui) -> bool {
+    ui.input(|i| i.key_pressed(egui::Key::Escape) || (cfg!(target_os = "macos") && i.modifiers.command && i.key_pressed(egui::Key::Period)))
+}
+
+/// Lays out an OK and a Cancel button right-to-left, in the platform's order:
+/// macOS puts Cancel left of the default OK button; Windows and Linux put OK left of Cancel.
+/// Returns `(ok, cancel)` responses. Call inside a right-to-left layout.
+pub(crate) fn ok_cancel_responses(ui: &mut Ui, draw_ok: impl FnOnce(&mut Ui) -> egui::Response, cancel: &str) -> (egui::Response, egui::Response) {
+    if cfg!(target_os = "macos") {
+        let okb = draw_ok(ui);
+        (okb, ui.button(cancel))
+    } else {
+        let cancelb = ui.button(cancel);
+        (draw_ok(ui), cancelb)
+    }
+}
+
 pub(crate) fn buttons(ui: &mut Ui, ok: &str) -> (bool, bool) {
     let mut r = (false, false);
     ui.add_space(8.0);
@@ -1449,10 +1471,10 @@ pub(crate) fn buttons(ui: &mut Ui, ok: &str) -> (bool, bool) {
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             // Enter and Escape belong to the Colors dialog while it is open above this one.
             let keys = !crate::colors::is_open(ui.ctx());
-            if ui.button(tl!("Cancel")).clicked() || (keys && ui.input(|i| i.key_pressed(egui::Key::Escape))) {
+            let (okb, cancelb) = ok_cancel_responses(ui, |ui| ui.add(crate::widgets::primary_button(ui, ok)), tl!("Cancel"));
+            if cancelb.clicked() || (keys && cancel_key_pressed(ui)) {
                 r.1 = true;
             }
-            let okb = ui.add(crate::widgets::primary_button(ui, ok));
             if okb.clicked() || (keys && ui.input(|i| i.key_pressed(egui::Key::Enter))) {
                 r.0 = true;
             }
@@ -2026,7 +2048,7 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
             }
             ok || cancel
         }
-        Dialog::Link { url, text, place, targets, pick } => {
+        Dialog::Link { url, text, place, targets, pick, focus } => {
             // Word's "Link to:" choices; the places are read once, when that tab is first shown.
             ui.horizontal(|ui| {
                 ui.label(tl!("Link to:"));
@@ -2042,7 +2064,13 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
                 ui.end_row();
                 if !*place {
                     ui.label(tl!("Address:"));
-                    ui.text_edit_singleline(url);
+                    let mut out = egui::TextEdit::singleline(url).id(egui::Id::new("link_address")).show(ui);
+                    if std::mem::take(focus) {
+                        out.response.request_focus();
+                        let all = egui::text::CCursorRange::two(egui::text::CCursor::new(0), egui::text::CCursor::new(url.chars().count()));
+                        out.state.cursor.set_char_range(Some(all));
+                        out.state.store(ui.ctx(), out.response.id);
+                    }
                     ui.end_row();
                 }
             });
@@ -3224,6 +3252,10 @@ fn bookmark(app: &mut WordApp, ui: &mut Ui, name: &mut String, by_location: &mut
                 ui.set_width(232.0);
                 ui.set_height(150.0);
                 egui::ScrollArea::vertical().id_salt("bookmark_list").max_height(150.0).auto_shrink([false, false]).show(ui, |ui| {
+                    if marks.is_empty() {
+                        // #1904: a blank box says nothing; reuse the Field dialog's wording.
+                        ui.label(egui::RichText::new(tl!("The document has no bookmarks yet.")).small().color(t.text_dim));
+                    }
                     for n in &marks {
                         if ui.selectable_label(*n == *name, n.as_str()).clicked() {
                             *name = n.clone();
@@ -3772,6 +3804,34 @@ mod tests {
         assert_eq!(h.state().session.doc.bookmarks().len(), 3, "one undo step");
     }
 
+    /// #1904: with no bookmarks the list says so instead of a blank box.
+    #[test]
+    fn the_bookmark_dialog_says_when_there_are_no_bookmarks() {
+        let mut app = app_with("Alpha beta gamma");
+        app.dialog = Dialog::open("bookmark", &mut app);
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            app,
+        );
+        for _ in 0..4 {
+            h.step();
+        }
+        let texts: Vec<String> = h
+            .output()
+            .shapes
+            .iter()
+            .filter_map(|s| match &s.shape {
+                egui::Shape::Text(t) => Some(t.galley.text().to_string()),
+                _ => None,
+            })
+            .collect();
+        assert!(texts.iter().any(|t| t.contains("The document has no bookmarks yet.")), "placeholder shown");
+    }
+
     /// Find, Replace and Go To are one dialog with three tabs (#712).
     #[test]
     fn find_replace_and_go_to_are_one_dialog() {
@@ -3852,7 +3912,9 @@ mod tests {
             ("tr", "İTALİK", "İtalik   —   Giriş › Yazı Tipi"),
             ("tr", "içindekiler", "İçindekiler Tablosu   —   Başvurular › İçindekiler Tablosu"),
             ("tr", "YAZI TİPİ", "İtalik   —   Giriş › Yazı Tipi"),
-            ("tr", "INSERT", "Tablo   —   Ekle › Tablolar"),
+            // Dozens of commands match a lone INSERT and the box shows 14, in registry order: the
+            // witness is an early one; Table is checked below, past the box's limit.
+            ("tr", "INSERT", "Bölünemez Boşluk   —   Ekle › Semboller"),
             ("tr", "INSERT.TABLE", "Tablo   —   Ekle › Tablolar"),
             ("tr", "FORMAT.ITALIC", "İtalik   —   Giriş › Yazı Tipi"),
             ("tr", "TABLE OF CONTENTS", "İçindekiler Tablosu   —   Başvurular › İçindekiler Tablosu"),
@@ -3871,6 +3933,9 @@ mod tests {
             assert_eq!(crate::i18n::lowercase("Iİıi"), if language == "tr" { "ıiıi" } else { "ii\u{307}ıi" });
         }
         assert_eq!(serde_json::to_value(&h.state().session.doc).unwrap(), before, "search does not change the document");
+        crate::i18n::set_current(crate::i18n::Lang::from_pref("tr"));
+        let reg = h.state().session.registry.clone();
+        assert!(command_matches(reg.get("insert.table").unwrap(), "INSERT"), "tr: INSERT finds Table");
         crate::i18n::set_current(crate::i18n::Lang::EN);
     }
 

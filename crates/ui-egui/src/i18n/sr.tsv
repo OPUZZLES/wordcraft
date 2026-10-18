@@ -627,6 +627,10 @@
 	Modify…	Измени…
 	Move or Resize	Помери или промени величину
 	Multilevel List	Вишенивоска листа
+	Multilevel List Library	Библиотека вишенивоских листа
+	Article I.	Члан I.
+	Chapter 1	Поглавље 1
+	Section 1.01	Одељак 1.01
 	Multiple Pages	Више страна
 	Name (A–Z)	Назив (А–Ш)
 	Name:	Назив:
@@ -1505,6 +1509,8 @@
 	Math AutoCorrect	Аутоматска исправка математике
 	More >>	Више >>
 	Moves	Премештања
+	Moved from:	Премештено одавде:
+	Moved to:	Премештено овде:
 	New document	Нови документ
 	No changes (read only)	Без измена (само за читање)
 	Only allow this kind of editing:	Дозволи само ову врсту уређивања:
@@ -2271,3 +2277,5 @@
 	The measurement must be between {min} and {max}.	Мера мора бити између {min} и {max}.
 	Recently Used Fonts	Недавно коришћени фонтови
 	All Fonts	Сви фонтови
+	Spike	Сакупљач
+	Insert Spike	Уметни из сакупљача

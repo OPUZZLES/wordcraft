@@ -109,10 +109,10 @@ fn insert(s: &mut Session, v: &Value) -> CmdResult {
     // A list label ("a. ") becomes a list before AutoCorrect could capitalise it.
     let listed = text == " " && s.prefs.autocorrect.enabled && list_autoformat(s)?;
     if !listed {
-        super::tools::autocorrect(s)?;
+        super::tools::autocorrect(s).inspect_err(|_| s.autocap = None)?;
     }
     if text == " " && !listed && s.prefs.autocorrect.enabled && s.prefs.autocorrect.dashes {
-        dash_autoformat(s)?;
+        dash_autoformat(s).inspect_err(|_| s.autocap = None)?;
     }
     if let Some((para, sel)) = typed
         && s.doc.para_at(&f) != Some(&para)
@@ -122,8 +122,14 @@ fn insert(s: &mut Session, v: &Value) -> CmdResult {
             *p = para;
             p.touch();
             s.push_undo("AutoFormat", doc, sel);
+            // Undo right after it makes the capitalised word an exception.
+            let depth = s.undo_steps_so_far();
+            if let Some(c) = s.autocap.as_mut().filter(|c| c.depth == u64::MAX) {
+                c.depth = depth;
+            }
         }
     }
+    s.autocap.take_if(|c| c.depth == u64::MAX);
     sel_result(s)
 }
 
@@ -165,7 +171,10 @@ fn list_autoformat(s: &mut Session) -> Result<bool, CmdError> {
     let len = para.len();
     para.delete(0, len)?;
     para.props.numbering = Some(NumRef { num, level: 0 });
-    para.props.style = Some("ListParagraph".into());
+    // A heading stays a heading (Word: "1. " in a Heading 1 gives a numbered Heading 1).
+    if para.props.style.as_deref().is_none_or(|st| st == "Normal") {
+        para.props.style = Some("ListParagraph".into());
+    }
     s.sel = Selection::caret(Pos { off: 0, ..f });
     Ok(true)
 }
@@ -587,6 +596,7 @@ fn new_paragraph(s: &mut Session, _: &Value) -> CmdResult {
     // Enter finishes a word like a space does ("teh" → "the", sentence capitals, links).
     if s.sel.is_collapsed() && at.off > 0 {
         super::tools::autocorrect_word(s, true)?;
+        s.autocap.take_if(|c| c.depth == u64::MAX);
         at = s.sel.focus.clone();
     }
     let new = split_para(s, &at)?;
@@ -678,6 +688,9 @@ fn backspace_inner(s: &mut Session, _: &Value) -> CmdResult {
     let Some(para) = s.doc.para_at(&f) else { return sel_result(s) };
     if f.off > 0 {
         let a = Pos { off: para.backspace_from(f.off), ..f.clone() };
+        if let Some(c) = s.autocap.as_mut() {
+            c.note_backspace(&a, &f);
+        }
         s.sel = Selection { anchor: a, focus: f };
         delete_selection(s)?;
         return sel_result(s);

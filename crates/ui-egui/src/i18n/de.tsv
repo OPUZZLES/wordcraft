@@ -518,6 +518,10 @@
 	Modify…	Ändern…
 	Move or Resize	Verschieben oder Größe ändern
 	Multilevel List	Mehrstufige Liste
+	Multilevel List Library	Bibliothek mehrstufiger Listen
+	Article I.	Artikel I.
+	Chapter 1	Kapitel 1
+	Section 1.01	Abschnitt 1.01
 	Multiple Pages	Mehrere Seiten
 	Name (A–Z)	Name (A–Z)
 	Name:	Name:
@@ -1536,6 +1540,8 @@
 	Math AutoCorrect	Math. AutoKorrektur
 	More >>	Mehr >>
 	Moves	Verschiebungen
+	Moved from:	Verschoben von:
+	Moved to:	Verschoben nach:
 	New document	Neues Dokument
 	No changes (read only)	Keine Änderungen (schreibgeschützt)
 	Only allow this kind of editing:	Nur diese Art der Bearbeitung zulassen:
@@ -2257,3 +2263,5 @@
 	The measurement must be between {min} and {max}.	Das Maß muss zwischen {min} und {max} liegen.
 	Recently Used Fonts	Zuletzt verwendete Schriftarten
 	All Fonts	Alle Schriftarten
+	Spike	Sammlung
+	Insert Spike	Sammlung einfügen

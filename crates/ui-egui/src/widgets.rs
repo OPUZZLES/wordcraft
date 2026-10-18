@@ -847,7 +847,9 @@ fn list_rows<'a>(
 ) -> (Option<String>, f32, f32) {
     let mut out = None;
     let row_h = if preview.is_some() { COMBO_PREVIEW_ROW_H } else { ui.spacing().interact_size.y };
-    let mut area = egui::ScrollArea::vertical().max_height(420.0);
+    let desired_h = (n as f32 * (row_h + ui.spacing().item_spacing.y)).min(420.0);
+    ui.set_min_height(desired_h);
+    let mut area = egui::ScrollArea::vertical().max_height(desired_h);
     if let (Some(h), Some((offset, view_h))) = (highlight, scroll) {
         let top = h as f32 * (row_h + ui.spacing().item_spacing.y);
         let bottom = top + row_h;

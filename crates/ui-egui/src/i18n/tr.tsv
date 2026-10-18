@@ -447,6 +447,10 @@
 	Modify Style	Stili Değiştir
 	Modify…	Değiştir…
 	Multilevel List	Çok Düzeyli Liste
+	Multilevel List Library	Çok Düzeyli Liste Kitaplığı
+	Article I.	Madde I.
+	Chapter 1	Bölüm 1
+	Section 1.01	Kısım 1.01
 	Multiple Pages	Birden Çok Sayfa
 	Name (A–Z)	Ad (A–Z)
 	Name:	Ad:
@@ -2095,6 +2099,8 @@ preview	Title	Örnek
 	Math AutoCorrect	Matematik Otomatik Düzelt
 	More >>	Daha fazla >>
 	Moves	Taşımalar
+	Moved from:	Taşındı (kaynak):
+	Moved to:	Taşındı (hedef):
 	New document	Yeni belge
 	No changes (read only)	Değişiklik yok (salt okunur)
 	Only allow this kind of editing:	Yalnızca bu tür düzenlemeye izin ver:
@@ -2653,3 +2659,5 @@ preview	Title	Örnek
 	The measurement must be between {min} and {max}.	Ölçü {min} ile {max} arasında olmalıdır.
 	Recently Used Fonts	Son Kullanılan Yazı Tipleri
 	All Fonts	Tüm Yazı Tipleri
+	Spike	Biriktirici
+	Insert Spike	Biriktiriciyi Ekle

@@ -356,6 +356,39 @@ fn smart_quotes_nested_and_opening_delimiters() {
     assert_eq!(s.doc.plain_text(StoryRef::Body), "«‘french’» „‘german’“");
 }
 
+/// #2223: the double-hyphen arrow is a replacement, not the existing arrow bullet.
+#[test]
+fn double_hyphen_arrow_autocorrect_preserves_typing_scope_and_undo() {
+    let mut s = typed("go --> ");
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "Go → ");
+    assert_eq!(paras(&s)[0].1, None);
+    run(&mut s, "edit.undo", json!({}));
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "Go --> ");
+    let s = typed("go --> here");
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "Go → here");
+    let s = typed("--> ");
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "→ ");
+    assert_eq!(paras(&s)[0].1, None);
+}
+
+#[test]
+fn double_hyphen_arrow_respects_autocorrect_preferences() {
+    for prefs in [json!({"enabled": false}), json!({"replaceText": false}), json!({"delete": "-->"})] {
+        let mut s = s();
+        run(&mut s, "tools.autocorrect", prefs);
+        typ(&mut s, "go --> here");
+        assert!(s.doc.plain_text(StoryRef::Body).ends_with(" --> here"));
+    }
+    let mut s = s();
+    run(&mut s, "review.language", json!({"lang": "pl-PL", "default": true}));
+    typ(&mut s, "go --> here");
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "Go → here");
+    let mut s = self::s();
+    run(&mut s, "tools.autocorrect", json!({"add": {"from": "-->", "to": "custom"}}));
+    typ(&mut s, "go --> here");
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "Go custom here");
+}
+
 /// #835: the English replacement list applies only to English text. Polish "i" ("and") stays
 /// lowercase; symbols still change; English and untagged text still get "I".
 #[test]
@@ -1384,4 +1417,435 @@ fn delete_removes_a_section_break_on_the_last_paragraph() {
         assert_eq!(sections.len(), 2, "{then:?}: undo brings the break back");
         assert_eq!((sections[0].1.headers.default, sections[1].1.headers.default), (header, None), "{then:?}: undo");
     }
+}
+
+fn first_letter_list(s: &Session) -> Vec<String> {
+    s.prefs.autocorrect.exceptions.clone()
+}
+
+/// Undoing an automatic sentence capital adds the word before it to the First Letter exceptions
+/// (Word: "Automatically add words to list", #1857); typing the line again isn't capitalised.
+#[test]
+fn undoing_a_sentence_capital_adds_a_first_letter_exception() {
+    let mut s = typed("hello there. world ");
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "Hello there. World ");
+    run(&mut s, "edit.undo", json!({}));
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "Hello there. world ");
+    assert_eq!(first_letter_list(&s), ["there."]);
+    run(&mut s, "text.newParagraph", json!({}));
+    typ(&mut s, "x there. world ");
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "Hello there. world \nX there. world ");
+}
+
+#[test]
+fn backspacing_a_sentence_capital_and_retyping_adds_a_first_letter_exception() {
+    let mut s = typed("hello there. world ");
+    typ(&mut s, "\u{8}\u{8}\u{8}\u{8}\u{8}\u{8}world ");
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "Hello there. world ");
+    assert_eq!(first_letter_list(&s), ["there."]);
+}
+
+#[test]
+fn automatic_exceptions_can_be_turned_off() {
+    let mut s = typed("");
+    run(&mut s, "tools.autocorrect", json!({"autoAddFirstLetter": false}));
+    typ(&mut s, "hello there. world ");
+    run(&mut s, "edit.undo", json!({}));
+    assert!(first_letter_list(&s).is_empty());
+    let mut s = typed("");
+    run(&mut s, "tools.autocorrect", json!({"autoAddFirstLetter": false}));
+    typ(&mut s, "hello there. world \u{8}\u{8}\u{8}\u{8}\u{8}\u{8}world ");
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "Hello there. World ");
+    assert!(first_letter_list(&s).is_empty());
+}
+
+#[test]
+fn undoing_a_replacement_adds_no_exception() {
+    let mut s = typed("so teh ");
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "So the ");
+    run(&mut s, "edit.undo", json!({}));
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "So teh ");
+    assert!(first_letter_list(&s).is_empty());
+    assert!(s.prefs.autocorrect.entries.is_empty() && s.prefs.autocorrect.removed.is_empty());
+    typ(&mut s, "and teh ");
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "So teh and the ");
+}
+
+/// Checked in Word for Mac: the same rule as First Letter.
+#[test]
+fn undoing_an_initial_caps_fix_adds_an_initial_caps_exception() {
+    let mut s = typed("so TWo ");
+    run(&mut s, "edit.undo", json!({}));
+    assert_eq!(s.prefs.autocorrect.initial_caps_exceptions, ["TWo"]);
+    typ(&mut s, "and TWo ");
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "So TWo and TWo ");
+}
+
+#[test]
+fn undoing_other_edits_after_a_capital_adds_no_exception() {
+    // Typing more, then one Undo, and a second Undo that reverses the capital's step later.
+    let mut s = typed("hello there. world more text");
+    run(&mut s, "edit.undo", json!({}));
+    assert!(first_letter_list(&s).is_empty());
+    run(&mut s, "edit.undo", json!({}));
+    assert!(first_letter_list(&s).is_empty(), "only the Undo that reverses the capital itself counts");
+}
+
+#[test]
+fn a_full_undo_history_does_not_match_later_undos() {
+    let mut s = typed("");
+    for _ in 0..300 {
+        typ(&mut s, "x\n");
+    }
+    typ(&mut s, "hello there. world more text\nand more");
+    run(&mut s, "edit.undo", json!({}));
+    assert!(first_letter_list(&s).is_empty());
+}
+
+#[test]
+fn a_new_document_forgets_the_capital() {
+    let mut s = typed("hello there. world ");
+    run(&mut s, "file.new", json!({}));
+    typ(&mut s, "abc\ndef\nghi\njkl");
+    for _ in 0..8 {
+        let _ = s.run("edit.undo", &json!({}));
+    }
+    assert!(first_letter_list(&s).is_empty());
+}
+
+#[test]
+fn an_overlong_word_is_not_added_as_an_exception() {
+    let mut s = typed(&format!("hi {}. world ", "a".repeat(5000)));
+    run(&mut s, "edit.undo", json!({}));
+    assert!(first_letter_list(&s).is_empty());
+}
+
+/// Each body paragraph's laid-out number (`None`: none) and its style.
+fn numbers(s: &mut Session) -> Vec<(Option<String>, String)> {
+    let l = s.layout();
+    let labels: Vec<Option<String>> = l
+        .pages
+        .iter()
+        .flat_map(|p| &p.items)
+        .filter_map(|i| {
+            if let wordcraft_layout::Placed::Lines { para, l0: 0, .. } = i { Some(para.label.as_ref().map(|lb| lb.text.clone())) } else { None }
+        })
+        .collect();
+    let styles = s.doc.body.iter().filter_map(|b| b.as_para()).map(|p| p.props.style.clone().unwrap_or_else(|| "Normal".into()));
+    labels.into_iter().zip(styles).collect()
+}
+
+fn num(label: Option<&str>, style: &str) -> (Option<String>, String) {
+    (label.map(str::to_string), style.to_string())
+}
+
+/// #1793 (Word for Mac, 2026-10-15): after the "1 / 1.1 / 1.1.1" heading list, a new Heading 2
+/// typed after "Three" is numbered 2.1 on its own; the body text after it stays unnumbered.
+#[test]
+fn a_new_heading_after_a_heading_linked_list_is_numbered() {
+    let mut s = s();
+    typ(&mut s, "One");
+    run(&mut s, "para.heading1", json!({}));
+    typ(&mut s, "\nTwo");
+    run(&mut s, "para.heading2", json!({}));
+    typ(&mut s, "\nThree");
+    run(&mut s, "para.heading1", json!({}));
+    // The caret in "Three" (a Heading 1, the list's first level).
+    run(&mut s, "list.multilevelPreset", json!({"preset": "headings"}));
+    run(&mut s, "caret.docEnd", json!({}));
+    typ(&mut s, "\n");
+    run(&mut s, "para.heading2", json!({}));
+    typ(&mut s, "Four\nBody");
+    assert_eq!(
+        numbers(&mut s),
+        [num(Some("1"), "Heading1"), num(Some("1.1"), "Heading2"), num(Some("2"), "Heading1"), num(Some("2.1"), "Heading2"), num(None, "Normal")]
+    );
+}
+
+/// #1793: plain Numbering on a Heading 1 numbers it "1." and keeps Heading 1 (Word: "1. One").
+#[test]
+fn numbering_a_heading_keeps_the_heading_style() {
+    let mut s = s();
+    typ(&mut s, "One");
+    run(&mut s, "para.heading1", json!({}));
+    run(&mut s, "para.numbering", json!({}));
+    assert_eq!(numbers(&mut s), [num(Some("1."), "Heading1")]);
+}
+
+/// #1793: applying a heading style that carries list numbering numbers the paragraph, even one
+/// whose numbering was switched off before.
+#[test]
+fn applying_a_numbered_heading_style_numbers_the_paragraph() {
+    let mut s = s();
+    typ(&mut s, "One");
+    run(&mut s, "para.heading1", json!({}));
+    run(&mut s, "list.multilevelPreset", json!({"preset": "headings"}));
+    typ(&mut s, "\nTwo");
+    run(&mut s, "para.numbering", json!({}));
+    run(&mut s, "para.numbering", json!({"off": true}));
+    assert_eq!(numbers(&mut s)[1].0, None);
+    run(&mut s, "para.heading2", json!({}));
+    assert_eq!(numbers(&mut s), [num(Some("1"), "Heading1"), num(Some("1.1"), "Heading2")]);
+}
+
+/// #1793: "1. " typed at the start of a heading numbers it and keeps the heading style; only
+/// body text becomes List Paragraph.
+#[test]
+fn typing_1_dot_in_a_heading_keeps_the_heading_style() {
+    let mut s = s();
+    run(&mut s, "para.heading1", json!({}));
+    typ(&mut s, "1. One\n");
+    run(&mut s, "para.normal", json!({}));
+    typ(&mut s, "1. Body");
+    assert_eq!(numbers(&mut s), [num(Some("1."), "Heading1"), num(Some("1."), "ListParagraph")]);
+    for (style, keys) in [("Heading2", "a) Part"), ("Subtitle", "1. Item")] {
+        let mut s = self::s();
+        run(&mut s, "para.style", json!({"style": style}));
+        typ(&mut s, keys);
+        let got = numbers(&mut s);
+        assert_eq!(got.len(), 1);
+        assert!(got[0].0.is_some(), "{style}: a list");
+        assert_eq!(got[0].1, style);
+    }
+}
+
+// Backspace and Delete on selected tables, rows and columns (Word for Mac, #1844).
+
+/// "before", a 3×3 table with cells `a1`…`c3` (column letter, row number), "after"; the caret
+/// in the cell at row `r`, column `c`.
+fn table_between(r: u32, c: u32) -> Session {
+    let mut s = typed("before\n");
+    run(&mut s, "insert.table", json!({"rows": 3, "cols": 3}));
+    typ(&mut s, "a1\tb1\tc1\ta2\tb2\tc2\ta3\tb3\tc3");
+    run(&mut s, "caret.docEnd", json!({}));
+    typ(&mut s, "after");
+    let shape: Vec<&str> = s.doc.body.iter().map(|b| if b.as_table().is_some() { "table" } else { "para" }).collect();
+    assert_eq!(shape, ["para", "table", "para"], "setup");
+    run(&mut s, "caret.set", json!({"pos": {"story": "body", "path": [1, r, c, 0], "off": 0}}));
+    s
+}
+
+fn tables(s: &Session) -> usize {
+    s.doc.body.iter().filter(|b| b.as_table().is_some()).count()
+}
+
+/// The first top-level table's cells, row by row (tracked deletions included).
+fn table_cells(s: &Session) -> Vec<Vec<String>> {
+    s.doc
+        .body
+        .iter()
+        .find_map(|b| b.as_table())
+        .map(|t| {
+            t.rows
+                .iter()
+                .map(|r| r.cells.iter().map(|c| c.blocks.iter().filter_map(|b| b.as_para()).map(|p| p.plain_text()).collect()).collect())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+#[test]
+fn backspace_with_the_whole_table_selected_removes_the_table() {
+    let mut s = table_between(1, 1);
+    run(&mut s, "table.selectTable", json!({}));
+    run(&mut s, "text.backspace", json!({}));
+    assert_eq!(tables(&s), 0, "the table stays: {:?}", table_cells(&s));
+    assert_eq!(texts(&s), ["before", "after"]);
+    // The caret is in the paragraph that followed the table.
+    assert_eq!(s.sel.focus, Pos { story: StoryRef::Body, path: wordcraft_doc::Path::top(1), off: 0 });
+    assert!(s.sel.is_collapsed());
+    // One undo brings it back.
+    run(&mut s, "edit.undo", json!({}));
+    assert_eq!(tables(&s), 1);
+    assert_eq!(table_cells(&s), [["a1", "b1", "c1"], ["a2", "b2", "c2"], ["a3", "b3", "c3"]]);
+}
+
+#[test]
+fn delete_with_the_whole_table_selected_clears_the_cells_and_keeps_the_table() {
+    let mut s = table_between(0, 0);
+    run(&mut s, "table.selectTable", json!({}));
+    run(&mut s, "text.delete", json!({}));
+    assert_eq!(tables(&s), 1);
+    assert_eq!(table_cells(&s), [["", "", ""], ["", "", ""], ["", "", ""]]);
+    assert_eq!(texts(&s), ["before", "after"]);
+}
+
+#[test]
+fn delete_or_backspace_with_the_table_and_the_paragraph_after_selected_removes_the_table() {
+    for key in ["text.delete", "text.backspace"] {
+        // From the first cell to the end of the document: Word's rule widens it to whole rows.
+        let mut s = table_between(0, 0);
+        run(&mut s, "caret.docEnd", json!({"extend": true}));
+        run(&mut s, key, json!({}));
+        assert_eq!(tables(&s), 0, "{key}: {:?}", table_cells(&s));
+        assert_eq!(texts(&s), ["before", ""], "{key}");
+    }
+}
+
+#[test]
+fn delete_or_backspace_with_the_paragraph_before_and_the_table_selected_removes_the_table() {
+    for key in ["text.delete", "text.backspace"] {
+        // From the start of "before" down into the last row: the rows are taken whole.
+        let mut s = table_between(0, 0);
+        run(&mut s, "caret.docStart", json!({}));
+        for _ in 0..3 {
+            run(&mut s, "caret.down", json!({"extend": true}));
+        }
+        assert_eq!(s.sel.focus.path.cell().map(|(_, r, _)| r), Some(2), "{key}: the selection reaches the last row");
+        run(&mut s, key, json!({}));
+        assert_eq!(tables(&s), 0, "{key}: {:?}", table_cells(&s));
+        assert_eq!(texts(&s), ["after"], "{key}");
+        assert_eq!(s.sel.focus, Pos { story: StoryRef::Body, path: wordcraft_doc::Path::top(0), off: 0 }, "{key}");
+    }
+}
+
+#[test]
+fn backspace_deletes_selected_rows_and_delete_clears_them() {
+    let mut s = table_between(1, 0);
+    run(&mut s, "table.selectRow", json!({}));
+    run(&mut s, "text.backspace", json!({}));
+    assert_eq!(table_cells(&s), [["a1", "b1", "c1"], ["a3", "b3", "c3"]]);
+
+    let mut s = table_between(1, 0);
+    run(&mut s, "table.selectRow", json!({}));
+    run(&mut s, "text.delete", json!({}));
+    assert_eq!(table_cells(&s), [["a1", "b1", "c1"], ["", "", ""], ["a3", "b3", "c3"]]);
+}
+
+#[test]
+fn backspace_deletes_selected_columns_and_delete_clears_them() {
+    let mut s = table_between(0, 1);
+    run(&mut s, "table.selectColumn", json!({}));
+    run(&mut s, "text.backspace", json!({}));
+    assert_eq!(table_cells(&s), [["a1", "c1"], ["a2", "c2"], ["a3", "c3"]]);
+
+    let mut s = table_between(0, 1);
+    run(&mut s, "table.selectColumn", json!({}));
+    run(&mut s, "text.delete", json!({}));
+    assert_eq!(table_cells(&s), [["a1", "", "c1"], ["a2", "", "c2"], ["a3", "", "c3"]]);
+}
+
+#[test]
+fn backspace_on_a_selected_nested_table_removes_only_it() {
+    let mut s = table_between(1, 1);
+    run(&mut s, "caret.set", json!({"pos": {"story": "body", "path": [1, 1, 1, 0], "off": 2}}));
+    run(&mut s, "text.newParagraph", json!({}));
+    run(&mut s, "insert.table", json!({"rows": 2, "cols": 2}));
+    typ(&mut s, "x");
+    let cell_blocks = |s: &Session| {
+        s.doc
+            .body
+            .iter()
+            .find_map(|b| b.as_table())
+            .and_then(|t| t.rows.get(1)?.cells.get(1))
+            .map(|c| c.blocks.iter().filter(|b| b.as_table().is_some()).count())
+    };
+    assert_eq!(cell_blocks(&s), Some(1), "setup: a table nested in b2");
+    run(&mut s, "table.selectTable", json!({}));
+    run(&mut s, "text.backspace", json!({}));
+    assert_eq!(cell_blocks(&s), Some(0), "the nested table stays");
+    assert_eq!(tables(&s), 1, "the outer table goes too");
+    // The caret is in the cell's paragraph after where the nested table was.
+    assert_eq!(s.sel.focus.path.cell().map(|(t, r, c)| (t.0, r, c)), Some((vec![1], 1, 1)));
+    assert!(s.doc.para_at(&s.sel.focus).is_some());
+}
+
+#[test]
+fn backspace_on_a_selected_table_that_is_the_only_block_leaves_an_empty_paragraph() {
+    let mut s = s();
+    run(&mut s, "insert.table", json!({"rows": 2, "cols": 2}));
+    typ(&mut s, "x");
+    s.doc.body.retain(|b| b.as_table().is_some());
+    assert_eq!(s.doc.body.len(), 1, "setup: the table is the only block");
+    run(&mut s, "table.selectTable", json!({}));
+    run(&mut s, "text.backspace", json!({}));
+    assert_eq!(tables(&s), 0);
+    assert_eq!(texts(&s), [""]);
+    assert!(s.doc.para_at(&s.sel.focus).is_some(), "the caret is in a paragraph: {:?}", s.sel.focus);
+}
+
+#[test]
+fn tracked_backspace_on_a_selected_table_marks_its_text_deleted_like_delete_table() {
+    let mut s = table_between(0, 0);
+    run(&mut s, "review.trackChanges", json!({"value": true}));
+    run(&mut s, "table.selectTable", json!({}));
+    run(&mut s, "text.backspace", json!({}));
+    // Like Table Layout › Delete Table with tracking on: the structure stays, the text is marked deleted.
+    assert_eq!(tables(&s), 1);
+    assert_eq!(table_cells(&s), [["a1", "b1", "c1"], ["a2", "b2", "c2"], ["a3", "b3", "c3"]]);
+    assert_eq!(s.doc.final_text(StoryRef::Body).replace(['\t', '\n'], ""), "Beforeafter");
+    run(&mut s, "review.rejectAll", json!({}));
+    assert_eq!(s.doc.final_text(StoryRef::Body).replace(['\t', '\n'], ""), "Beforea1b1c1a2b2c2a3b3c3after");
+    assert!(s.doc.revisions.is_empty());
+}
+
+/// One selected cell isn't a whole row or column, even in a one-row or one-column table:
+/// Backspace clears it (Word's cell selection has no end-of-row mark).
+#[test]
+fn backspace_on_one_selected_cell_of_a_one_row_or_one_column_table_clears_it() {
+    for (rows, cols, at) in [(1, 3, [0, 1]), (3, 1, [1, 0])] {
+        let mut s = typed("before\n");
+        run(&mut s, "insert.table", json!({"rows": rows, "cols": cols}));
+        typ(&mut s, "x\ty\tz");
+        run(&mut s, "caret.set", json!({"pos": {"story": "body", "path": [1, at[0], at[1], 0], "off": 0}}));
+        run(&mut s, "table.selectCell", json!({}));
+        run(&mut s, "text.backspace", json!({}));
+        let want: Vec<Vec<String>> =
+            if rows == 1 { vec![vec!["x".into(), "".into(), "z".into()]] } else { vec![vec!["x".into()], vec!["".into()], vec!["z".into()]] };
+        assert_eq!(table_cells(&s), want, "{rows}×{cols}");
+    }
+}
+
+/// #1670: smart quotes in Hebrew follow the characters around the quote in logical order, as
+/// Word does (Word for Mac 16.113.4): an opening “ after a space or at the start, a closing ”
+/// after a letter, and ” inside an acronym (צה"ל), not gershayim; ' after a letter is ’.
+#[test]
+fn smart_quotes_in_hebrew_use_logical_order() {
+    let bidi = |s: &Session| s.doc.body.iter().filter_map(|b| b.as_para()).next().and_then(|p| p.props.bidi);
+    let s = typed("הוא אמר \"שלום\" לי");
+    assert_eq!(bidi(&s), Some(true), "a right-to-left paragraph");
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "הוא אמר “שלום” לי");
+    let s = typed("\"שלום\"");
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "“שלום”");
+    let s = typed("צה\"ל ");
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "צה”ל ");
+    let s = typed("ג'ירפה 'כן'");
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "ג’ירפה ‘כן’");
+}
+
+/// #1923: Turkish and Azerbaijani case mapping (i↔İ, ı↔I) in AutoCorrect, checked against Word
+/// with Turkish proofing; other languages keep the Unicode default.
+#[test]
+fn autocorrect_capitalisation_follows_turkic_case_mapping() {
+    for tag in ["tr-TR", "az-AZ"] {
+        let mut s = s();
+        run(&mut s, "review.language", json!({"lang": tag, "default": true}));
+        typ(&mut s, "istanbul güzel. ");
+        assert_eq!(s.doc.plain_text(StoryRef::Body), "İstanbul güzel. ", "{tag}: i capitalises to İ");
+        let mut s = self::s();
+        run(&mut s, "review.language", json!({"lang": tag, "default": true}));
+        typ(&mut s, "İNgilizce ");
+        assert_eq!(s.doc.plain_text(StoryRef::Body), "İngilizce ", "{tag}: İ kept, N lowercased, no combining dot");
+        let mut s = self::s();
+        run(&mut s, "review.language", json!({"lang": tag, "default": true}));
+        typ(&mut s, "ılık ırmak. ");
+        assert_eq!(s.doc.plain_text(StoryRef::Body), "Ilık ırmak. ", "{tag}: ı capitalises to I");
+        let mut s = self::s();
+        run(&mut s, "review.language", json!({"lang": tag, "default": true}));
+        typ(&mut s, "iSTANBUL ");
+        assert_eq!(s.doc.plain_text(StoryRef::Body), "İstanbul ", "{tag}: cAPS LOCK fix");
+        let mut s = self::s();
+        run(&mut s, "review.language", json!({"lang": tag, "default": true}));
+        typ(&mut s, "kızım. TIklamak ");
+        assert_eq!(s.doc.plain_text(StoryRef::Body), "Kızım. Tıklamak ", "{tag}: TWo INitial CApitals lowercases I to ı");
+    }
+    // Other languages are unchanged; a stray İ still lowercases to a single "i".
+    let mut s = s();
+    run(&mut s, "review.language", json!({"lang": "en-US", "default": true}));
+    typ(&mut s, "istanbul güzel. ");
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "Istanbul güzel. ");
+    let mut s = self::s();
+    run(&mut s, "review.language", json!({"lang": "en-US", "default": true}));
+    typ(&mut s, "İNgilizce ");
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "İngilizce ", "no combining dot in any language");
 }

@@ -290,6 +290,10 @@ fn insert_text(s: &mut Session, text: &str, enter: bool) -> Result<(), CmdError>
     delete_selection(s)?;
     // Typed text is new: never deleted, and not a formatting change of the text around it.
     props.fmt_change = None;
+    // Its direction comes from its own letters, as on screen, not from the run it's typed into:
+    // Latin typed into reopened Hebrew must not be saved as right-to-left (#1543). The DOCX
+    // writer marks the right-to-left pieces itself.
+    props.rtl = None;
     if s.doc.settings.track_changes {
         props.ins = Some(new_revision(s, RevisionKind::Insert));
         props.del = None;

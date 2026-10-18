@@ -590,6 +590,10 @@
 	Modify…	Змінити…
 	Move or Resize	Перемістити або змінити розмір
 	Multilevel List	Багаторівневий список
+	Multilevel List Library	Бібліотека багаторівневих списків
+	Article I.	Стаття I.
+	Chapter 1	Глава 1
+	Section 1.01	Розділ 1.01
 	Multiple Pages	Кілька сторінок
 	Name (A–Z)	Назва (А–Я)
 	Name:	Назва:
@@ -1503,6 +1507,8 @@
 	Math AutoCorrect	Математичне автовиправлення
 	More >>	Більше >>
 	Moves	Переміщення
+	Moved from:	Переміщено звідси:
+	Moved to:	Переміщено сюди:
 	New document	Новий документ
 	No changes (read only)	Без змін (лише читання)
 	Only allow this kind of editing:	Дозволити лише такий тип редагування:
@@ -2269,3 +2275,5 @@
 	The measurement must be between {min} and {max}.	Розмір має бути від {min} до {max}.
 	Recently Used Fonts	Нещодавно використані шрифти
 	All Fonts	Усі шрифти
+	Spike	Накопичувач
+	Insert Spike	Вставити з накопичувача

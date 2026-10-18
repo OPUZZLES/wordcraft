@@ -438,6 +438,10 @@
 	More templates →	Więcej szablonów →
 	Move or Resize	Przenieś lub zmień rozmiar
 	Multilevel List	Lista wielopoziomowa
+	Multilevel List Library	Biblioteka list wielopoziomowych
+	Article I.	Artykuł I.
+	Chapter 1	Rozdział 1
+	Section 1.01	Sekcja 1.01
 	Multiple Pages	Wiele stron
 	Name (A–Z)	Nazwa (A–Z)
 	Name:	Nazwa:
@@ -1897,6 +1901,8 @@
 	Move Up	Przenieś w górę
 	Move with Text	Przenoś z tekstem
 	Moves	Przeniesienia
+	Moved from:	Przeniesiono z:
+	Moved to:	Przeniesiono do:
 	New comments and tracked changes are recorded under this name and these initials.	Nowe komentarze i śledzone zmiany są zapisywane pod tą nazwą i tymi inicjałami.
 	New document	Nowy dokument
 	New word	Nowy wyraz
@@ -2580,6 +2586,21 @@ preview	Title	Tytuł
 	Suggested	Sugerowane
 	Set Proofing Language…	Ustaw język sprawdzania…
 	Language Preferences…	Preferencje językowe…
+	APA	APA
+	Chicago	Chicago
+	GB/T 7714	GB/T 7714
+	GOST (name sort)	GOST (sortowanie według nazwiska)
+	GOST (title sort)	GOST (sortowanie według tytułu)
+	Harvard (Anglia)	Harvard (Anglia)
+	IEEE	IEEE
+	ISO 690 (author-date)	ISO 690 (autor–data)
+	ISO 690 (numerical)	ISO 690 (numeryczny)
+	MLA	MLA
+	SIST02	SIST02
+	Turabian	Turabian
+	Large	Duży
+	Limit and	Granica i
+	Log	Logarytm
 	Printer	Drukarka
 	Select a printer	Wybierz drukarkę
 	Refresh printers	Odśwież drukarki
@@ -2647,3 +2668,5 @@ preview	Title	Tytuł
 	The measurement must be between {min} and {max}.	Miara musi być z zakresu od {min} do {max}.
 	Recently Used Fonts	Ostatnio używane czcionki
 	All Fonts	Wszystkie czcionki
+	Spike	Zbieracz
+	Insert Spike	Wstaw ze zbieracza

@@ -310,21 +310,31 @@ fn style_name(bold: bool, italic: bool) -> &'static str {
     }
 }
 
+type Memo = (u64, HashMap<(String, bool, bool), Resolved>);
+
+fn resolve_cache() -> &'static Mutex<Memo> {
+    static CACHE: OnceLock<Mutex<Memo>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new((0, HashMap::new())))
+}
+
+const FAMILY_CACHE_MAX: usize = 4096;
+/// Family names longer than this (bytes) are resolved but never remembered.
+const FAMILY_KEY_MAX: usize = 256;
+
 /// Resolve `family` with bold/italic to a face (memoised until user fonts are added or removed,
 /// [`FontDb::generation`]).
 pub fn resolve(family: &str, bold: bool, italic: bool) -> Resolved {
-    type Memo = (u64, HashMap<(String, bool, bool), Resolved>);
-    static CACHE: OnceLock<Mutex<Memo>> = OnceLock::new();
-    let cache = CACHE.get_or_init(|| Mutex::new((0, HashMap::new())));
+    let cache = resolve_cache();
     let db = FontDb::global();
     let generation = db.generation();
-    let key = (family.to_string(), bold, italic);
+    let cacheable = family.len() <= FAMILY_KEY_MAX;
+    let key = (if cacheable { family.to_string() } else { String::new() }, bold, italic);
     {
         let mut c = cache.lock().unwrap_or_else(|e| e.into_inner());
         if c.0 != generation {
             *c = (generation, HashMap::new());
         }
-        if let Some(r) = c.1.get(&key) {
+        if cacheable && let Some(r) = c.1.get(&key) {
             return *r;
         }
     }
@@ -341,7 +351,10 @@ pub fn resolve(family: &str, bold: bool, italic: bool) -> Resolved {
     let face = db.face(&fam, style_name(bold, italic));
     let r = Resolved { synth_bold: bold && face.weight < 600.0, synth_italic: italic && !face.italic, substituted, face: FaceRef::of(&face) };
     let mut c = cache.lock().unwrap_or_else(|e| e.into_inner());
-    if c.0 == generation {
+    if cacheable && c.0 == generation {
+        if c.1.len() >= FAMILY_CACHE_MAX {
+            c.1.clear();
+        }
         c.1.insert(key, r);
     }
     r
@@ -392,6 +405,17 @@ mod tests {
         // A negative gap adds nothing; the most negative descender doesn't overflow.
         assert_eq!(hhea_line(1000, -300, -50), (1000.0, 300.0));
         assert_eq!(hhea_line(1000, i16::MIN, 0), (1000.0, 32768.0));
+    }
+
+    #[test]
+    fn family_cache_stays_bounded() {
+        for i in 0..(FAMILY_CACHE_MAX + 50) {
+            let _ = resolve(&format!("Zz Missing Family {i}"), false, false);
+        }
+        assert!(resolve_cache().lock().unwrap_or_else(|e| e.into_inner()).1.len() <= FAMILY_CACHE_MAX);
+        let long = "L".repeat(10_000);
+        let _ = resolve(&long, false, false);
+        assert!(!resolve_cache().lock().unwrap_or_else(|e| e.into_inner()).1.keys().any(|k| k.0.len() > 1000));
     }
 
     #[test]

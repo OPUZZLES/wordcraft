@@ -36,6 +36,76 @@ fn original(d: &Scratch) -> PathBuf {
 }
 
 #[test]
+fn rename_retains_conflict_protection_and_the_original_content_baseline() {
+    for mode in ["unchanged", "replaced", "deleted"] {
+        let d = Scratch::new();
+        let path = original(&d);
+        let frozen = std::fs::read(&path).unwrap();
+        let mut s = open(&path);
+        s.run("file.rename", &json!({"name": "renamed"})).unwrap();
+        let renamed = d.path("renamed.docx");
+        assert!(!path.exists());
+        assert_eq!(std::fs::read(&renamed).unwrap(), frozen);
+        let external = if mode == "replaced" {
+            let replacement = d.path("external.docx");
+            io::save_path(&replacement, &Document::from_text("External version")).unwrap();
+            std::fs::remove_file(&renamed).unwrap();
+            std::fs::rename(replacement, &renamed).unwrap();
+            Some(std::fs::read(&renamed).unwrap())
+        } else {
+            if mode == "deleted" {
+                std::fs::remove_file(&renamed).unwrap();
+            }
+            None
+        };
+        let core = s.doc.core.clone();
+        let result = s.run("file.save", &json!({}));
+        if mode == "unchanged" {
+            result.unwrap();
+            assert_eq!(io::open_path(&renamed).unwrap().plain_text(StoryRef::Body), "Local edit");
+        } else {
+            assert!(matches!(result, Err(wordcraft_engine::CmdError::FileConflict(_))));
+            assert_eq!(s.path.as_deref(), Some(renamed.as_path()));
+            assert!(s.dirty);
+            assert_eq!(s.doc.core, core);
+            assert_eq!(s.doc.plain_text(StoryRef::Body), "Local edit");
+            assert_eq!(std::fs::read(&renamed).ok(), external);
+            let copy = d.path("copy.docx");
+            s.run("file.saveAs", &json!({"path": copy})).unwrap();
+            assert_eq!(io::open_path(&copy).unwrap().plain_text(StoryRef::Body), "Local edit");
+            assert_eq!(std::fs::read(&renamed).ok(), external);
+        }
+        assert!(!path.exists(), "saving a renamed document never recreates its old path");
+    }
+}
+
+#[test]
+fn failed_and_noop_renames_keep_the_existing_version() {
+    for name in ["occupied", "working"] {
+        let d = Scratch::new();
+        let path = original(&d);
+        let occupied = d.path("occupied.docx");
+        io::save_path(&occupied, &Document::from_text("Another document")).unwrap();
+        let frozen = std::fs::read(&occupied).unwrap();
+        let mut s = open(&path);
+        let result = s.run("file.rename", &json!({"name": name}));
+        if name == "occupied" {
+            assert!(result.is_err());
+        } else {
+            result.unwrap();
+        }
+        assert_eq!(s.path.as_deref(), Some(path.as_path()));
+        io::save_path(&path, &Document::from_text("External version")).unwrap();
+        let external = std::fs::read(&path).unwrap();
+        assert!(matches!(s.run("file.save", &json!({})), Err(wordcraft_engine::CmdError::FileConflict(_))));
+        assert!(s.dirty);
+        assert_eq!(s.doc.plain_text(StoryRef::Body), "Local edit");
+        assert_eq!(std::fs::read(&path).unwrap(), external);
+        assert_eq!(std::fs::read(&occupied).unwrap(), frozen);
+    }
+}
+
+#[test]
 fn refreshed_date_fields_keep_the_original_native_file_version() {
     let d = Scratch::new();
     let path = d.path("dated.docx");
@@ -708,4 +778,73 @@ fn special_entries_fail_without_blocking_alias_checks() {
     let copy = d.path("new-copy.docx");
     s.run("file.saveAs", &json!({"path": copy})).unwrap();
     assert_eq!(io::open_path(&copy).unwrap().plain_text(StoryRef::Body), "Local edit");
+}
+
+#[test]
+fn relative_deleted_unicode_alias_retains_conflict_protection() {
+    const CHILD: &str = "WORDCRAFT_RELATIVE_ALIAS_TEST_CHILD";
+    if std::env::var_os(CHILD).is_none() {
+        let d = Scratch::new();
+        let status = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "relative_deleted_unicode_alias_retains_conflict_protection", "--nocapture"])
+            .current_dir(&d.0)
+            .env(CHILD, "1")
+            .stdout(std::process::Stdio::null())
+            .status()
+            .unwrap();
+        assert!(status.success(), "relative alias child failed: {status}");
+        return;
+    }
+    // The child owns its working directory; parallel tests keep their own process cwd.
+    let path = std::env::current_dir().unwrap().join("café.docx");
+    io::save_path(&path, &Document::from_text("Original A")).unwrap();
+    let original = std::fs::read(&path).unwrap();
+    let mut s = open(&path);
+    let core = s.doc.core.clone();
+    std::fs::rename(&path, "frozen-original.docx").unwrap();
+    let result = s.run("file.saveAs", &json!({"path": "cafe\u{301}.docx"}));
+    assert_eq!(std::fs::read("frozen-original.docx").unwrap(), original);
+    assert!(matches!(result, Err(wordcraft_engine::CmdError::FileConflict(_))), "{result:?}");
+    assert!(!Path::new("cafe\u{301}.docx").exists());
+    assert!(s.dirty);
+    assert_eq!(s.doc.core, core);
+    s.run("file.saveAs", &json!({"path": "separate-copy.docx"})).unwrap();
+    assert_eq!(io::open_path(Path::new("separate-copy.docx")).unwrap().plain_text(StoryRef::Body), "Local edit");
+    assert_eq!(std::fs::read("frozen-original.docx").unwrap(), original);
+}
+
+#[cfg(unix)]
+#[test]
+fn lossy_save_through_alias_retains_the_sessions_logical_path() {
+    use std::os::unix::fs::symlink;
+    let d = Scratch::new();
+    let a = d.path("a");
+    let b = d.path("b");
+    std::fs::create_dir(&a).unwrap();
+    std::fs::create_dir(&b).unwrap();
+    let canonical = a.join("working.txt");
+    let external = b.join("working.txt");
+    std::fs::write(&canonical, "Original A").unwrap();
+    std::fs::write(&external, "External B").unwrap();
+    let frozen = std::fs::read(&external).unwrap();
+    let alias = d.path("alias");
+    symlink(&a, &alias).unwrap();
+    let logical = alias.join("working.txt");
+    let mut s = open(&logical);
+    s.run("file.save", &json!({"path": canonical})).unwrap();
+    assert_eq!(s.path.as_ref(), Some(&logical));
+    assert!(s.dirty, "lossy text saves keep the richer document open");
+    std::fs::remove_file(&alias).unwrap();
+    symlink(&b, &alias).unwrap();
+    let core = s.doc.core.clone();
+    let result = s.run("file.save", &json!({}));
+    assert!(matches!(result, Err(wordcraft_engine::CmdError::FileConflict(_))), "{result:?}");
+    assert_eq!(std::fs::read(&external).unwrap(), frozen);
+    assert_eq!(s.doc.core, core);
+    assert!(s.dirty);
+    assert_eq!(s.path.as_ref(), Some(&logical));
+    let copy = d.path("separate-copy.docx");
+    s.run("file.saveAs", &json!({"path": copy})).unwrap();
+    assert_eq!(io::open_path(&copy).unwrap().plain_text(StoryRef::Body), "Local edit");
+    assert_eq!(std::fs::read(&external).unwrap(), frozen);
 }

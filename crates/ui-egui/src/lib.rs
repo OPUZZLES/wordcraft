@@ -826,6 +826,14 @@ impl WordApp {
         }
     }
 
+    /// `run` for a command a mouse drag on a table sends: the view stays where it is.
+    pub(crate) fn run_keep_view(&mut self, id: &str, params: Value) -> Result<Value, String> {
+        self.canvas.keep_view = true;
+        let r = self.run(id, params);
+        self.canvas.keep_view = false;
+        r
+    }
+
     /// Run a command the user asked for (ribbon, shortcut, Backstage, file drop). New, Open,
     /// Close, Envelopes, Labels and Finish & Merge on a document with unsaved changes first ask
     /// Save / Don't Save / Cancel, and the command runs once that is answered (`ui.saveChanges`).
@@ -1311,7 +1319,8 @@ impl WordApp {
             self.canvas.read_first_visible = None;
         }
         // Drawing leaves the caret where it was: following it would pull the view off the ink.
-        if self.session.selects_whole_story() || id == "select.all" {
+        // A mouse drag on a table (`run_keep_view`) does the same (#1738).
+        if self.session.selects_whole_story() || id == "select.all" || self.canvas.keep_view {
             self.canvas.scroll_to_caret = false;
         } else if !["ui.", "view.", "document.", "format.state", "draw."].iter().any(|p| id.starts_with(p)) {
             self.canvas.scroll_to_caret = true;
@@ -1345,6 +1354,15 @@ impl WordApp {
         if req.get("focus").and_then(Value::as_str) == Some("navSearch") {
             self.nav_search_focus = true;
             self.ui.nav_tab = "results".into();
+        }
+        // #1861: the registered Interface Theme command drives the same setting as Options.
+        if let Some(name) = req.get("interfaceTheme").and_then(Value::as_str)
+            && let Some(a) = theme::Appearance::from_code(name)
+        {
+            self.ui.theme = a;
+        }
+        if req.get("toggle").and_then(Value::as_str) == Some("interfaceTheme") {
+            self.ui.theme = if self.ui_is_dark() { theme::Appearance::Light } else { theme::Appearance::Dark };
         }
         if let Some(what) = req.get("open").and_then(Value::as_str) {
             match what {
@@ -3044,6 +3062,45 @@ mod tests {
         assert!(a.session.doc.plain_text(wordcraft_doc::StoryRef::Body).is_empty(), "nothing was typed into the document");
     }
 
+    /// #1610: opening a hyperlink must direct typing and paste into its address.
+    #[test]
+    fn hyperlink_shortcut_focuses_address_and_preserves_document() {
+        let ctx = egui::Context::default();
+        let mut a = app();
+        a.run("text.insert", json!({"text": "Keep this text"})).unwrap();
+        a.run("select.text", json!({"text": "Keep this text"})).unwrap();
+        let frame = |a: &mut WordApp, events: Vec<egui::Event>| {
+            ctx.run_ui(egui::RawInput { events, ..Default::default() }, |ui| {
+                a.logic(ui.ctx());
+                a.ui(ui);
+            })
+            .drop_without_applying_deltas();
+        };
+        for _ in 0..3 {
+            frame(&mut a, Vec::new());
+        }
+        let key = |key, modifiers| egui::Event::Key { key, physical_key: None, pressed: true, repeat: false, modifiers };
+        for (event, expected) in [
+            (egui::Event::Paste("https://example.com".into()), "https://example.com"),
+            (egui::Event::Text("https://example.org".into()), "https://example.org"),
+        ] {
+            frame(&mut a, vec![key(egui::Key::K, egui::Modifiers::COMMAND)]);
+            for _ in 0..2 {
+                frame(&mut a, Vec::new());
+            }
+            assert!(ctx.memory(|m| m.has_focus(egui::Id::new("link_address"))), "Address has focus");
+            frame(&mut a, vec![event]);
+            let Some(dialogs::Dialog::Link { url, text, .. }) = &a.dialog else { panic!("no Link dialog") };
+            assert_eq!(url, expected, "input replaces the initial address");
+            assert_eq!(text, "Keep this text");
+            assert_eq!(a.session.doc.plain_text(wordcraft_doc::StoryRef::Body), "Keep this text");
+            frame(&mut a, vec![key(egui::Key::Escape, egui::Modifiers::NONE)]);
+            frame(&mut a, Vec::new());
+            assert!(a.dialog.is_none(), "Cancel closes the dialog");
+            assert_eq!(a.session.selected_text(), "Keep this text", "Cancel preserves selection");
+        }
+    }
+
     /// Issue #139: Ctrl+wheel over the page didn't zoom.
     #[test]
     fn ctrl_wheel_over_canvas_zooms() {
@@ -3665,6 +3722,67 @@ mod tests {
         assert_eq!((a.canvas.scale, &a.canvas.page_rects), (scale, &pages));
     }
 
+    /// Issue #1743: Ctrl/⌘ + wheel only zooms. The one view movement is the anchor correction that
+    /// keeps the page point under the pointer there; the touchpad coast still running when the
+    /// wheel starts zooming (animation effects off) doesn't scroll on top of it.
+    #[test]
+    fn ctrl_wheel_zoom_does_not_scroll_the_document() {
+        for modifiers in [egui::Modifiers::CTRL, egui::Modifiers::COMMAND] {
+            let ctx = egui::Context::default();
+            let system = std::rc::Rc::new(std::cell::Cell::new(Some(false)));
+            let mut a = app_with_system_animations(&system);
+            a.run("text.insert", json!({"text": "lorem ipsum dolor sit amet consectetur ".repeat(1200)})).unwrap();
+            let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1280.0, 800.0));
+            let mut t = 0.0;
+            let mut frame = |a: &mut WordApp, events: Vec<egui::Event>| {
+                t += 1.0 / 60.0;
+                let input = egui::RawInput { events, time: Some(t), screen_rect: Some(screen), ..Default::default() };
+                ctx.run_ui(input, |ui| {
+                    a.logic(ui.ctx());
+                    a.ui(ui);
+                })
+                .drop_without_applying_deltas();
+            };
+            for _ in 0..3 {
+                frame(&mut a, Vec::new());
+            }
+            let rect = a.canvas.canvas_rect.unwrap();
+            let pointer = rect.center() + egui::vec2(30.0, 40.0);
+            frame(&mut a, vec![egui::Event::PointerMoved(pointer)]);
+            let wheel = |delta: f32, modifiers| egui::Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Point,
+                delta: egui::vec2(0.0, delta),
+                phase: egui::TouchPhase::Move,
+                modifiers,
+            };
+            // Scroll down a little, so the pointer is well inside the document.
+            frame(&mut a, vec![wheel(-3.0, egui::Modifiers::NONE)]);
+            for _ in 0..40 {
+                frame(&mut a, Vec::new());
+            }
+            let layout = a.session.layout();
+            let under = |a: &WordApp| canvas::page_at(&a.canvas.page_rects, &layout, a.canvas.scale, pointer);
+            let (page, x, y) = under(&a).unwrap();
+            let scale = a.canvas.scale;
+            frame(&mut a, vec![wheel(50.0, modifiers)]);
+            let mut last = a.canvas.scroll_offset;
+            for n in 0..60 {
+                last = a.canvas.scroll_offset;
+                if n > 0 {
+                    frame(&mut a, Vec::new());
+                }
+                let (p, px, py) = under(&a).unwrap();
+                assert_eq!(p, page);
+                assert!(
+                    ((px - x).abs() < 1.0 || a.canvas.scroll_offset.x == 0.0) && (py - y).abs() < 1.0,
+                    "the page point stays under the pointer ({modifiers:?} frame {n}): ({x},{y}) -> ({px},{py})"
+                );
+            }
+            assert_eq!(a.canvas.scroll_offset, last, "nothing scrolls once the zoom has settled ({modifiers:?})");
+            assert!(a.canvas.scale > scale, "zoomed ({modifiers:?})");
+        }
+    }
+
     /// Issue #688: dragging a selection past the viewport's bottom edge scrolls on, and the
     /// selection keeps growing as the content moves under the stationary pointer.
     #[test]
@@ -4162,6 +4280,39 @@ mod tests {
         a.run("edit.copy", json!({})).unwrap();
         assert_eq!(body_text(&a), text, "copy kept the text");
         assert!(copied(&ctx).contains(&text), "copy put {text:?} on the clipboard: {:?}", copied(&ctx));
+    }
+
+    /// #2276: copying a selected picture, which has no text, still replaces what the system
+    /// clipboard held, so Paste inserts the picture instead of the text copied before it.
+    #[test]
+    fn copying_a_picture_replaces_the_clipboards_old_text() {
+        let last_copied = |ctx: &egui::Context| -> Option<String> {
+            ctx.output(|o| {
+                o.commands.iter().rev().find_map(|c| match c {
+                    egui::OutputCommand::CopyText(t) => Some(t.clone()),
+                    _ => None,
+                })
+            })
+        };
+        let ctx = egui::Context::default();
+        let mut a = typed();
+        a.ctx = Some(ctx.clone());
+        a.run("select.all", json!({})).unwrap();
+        a.run("edit.copy", json!({})).unwrap();
+        assert_eq!(last_copied(&ctx).as_deref(), Some(UNSAVED));
+
+        a.run("select.collapse", json!({"end": true})).unwrap();
+        let data = wordcraft_engine::cmd::insert::base64_encode(&png_bytes([200, 30, 30, 255]));
+        a.run("insert.picture", json!({"data": data})).unwrap();
+        assert!(crate::objects::selected(&a).is_some());
+        a.run("edit.copy", json!({})).unwrap();
+        assert_eq!(last_copied(&ctx).as_deref(), Some(""), "the old text is gone from the system clipboard");
+
+        // The system clipboard now holds no text, so Paste finds no text to send: our copy.
+        a.run("select.collapse", json!({"end": true})).unwrap();
+        a.run("edit.paste", json!({})).unwrap();
+        assert_eq!(object_count(&mut a), 2, "Paste duplicated the picture");
+        assert_eq!(body_text(&a).matches(UNSAVED).count(), 1, "and didn't paste the old text");
     }
 
     /// #1265: every user entry point publishes Cut to the one clipboard sink — the ribbon's button
@@ -6126,7 +6277,7 @@ mod tests {
     #[test]
     fn interface_theme_migrates_and_survives_a_restart() {
         use theme::Appearance;
-        for (saved, want) in [(r#"{"dark": false}"#, Appearance::Light), (r#"{"dark": true}"#, Appearance::Dark), ("{}", Appearance::Light)] {
+        for (saved, want) in [(r#"{"dark": false}"#, Appearance::Light), (r#"{"dark": true}"#, Appearance::Dark), ("{}", Appearance::System)] {
             let mut a = app();
             a.apply_prefs(serde_json::from_str(saved).unwrap());
             assert_eq!(a.ui.theme, want, "{saved}");
@@ -6140,7 +6291,31 @@ mod tests {
         assert_eq!(b.ui.theme, Appearance::System);
         // An unknown saved value keeps the rest of the preferences.
         let odd: UiState = serde_json::from_str(r#"{"theme": "sepia", "tab": "Insert"}"#).unwrap();
-        assert_eq!((odd.theme, odd.tab.as_str()), (Appearance::Light, "Insert"));
+        assert_eq!((odd.theme, odd.tab.as_str()), (Appearance::System, "Insert"));
+    }
+
+    /// #1861: the registered Interface Theme command drives the same setting as Options:
+    /// searchable in the registry, settable, toggling without a value, and surviving a restart.
+    #[test]
+    fn interface_theme_command_sets_toggles_and_persists() {
+        use theme::Appearance;
+        let mut a = app();
+        let spec = a.session.registry.get("view.interfaceTheme").expect("registered and searchable");
+        assert_eq!((spec.label, spec.location), ("Interface Theme", "View › Dark Mode"));
+        a.run("view.interfaceTheme", json!({"value": "dark"})).unwrap();
+        assert_eq!(a.ui.theme, Appearance::Dark);
+        a.run("view.interfaceTheme", json!({"value": "system"})).unwrap();
+        assert_eq!(a.ui.theme, Appearance::System);
+        a.run("view.interfaceTheme", json!({"value": "light"})).unwrap();
+        a.run("view.interfaceTheme", json!({})).unwrap();
+        assert_eq!(a.ui.theme, Appearance::Dark, "no value toggles light to dark");
+        a.run("view.interfaceTheme", json!({})).unwrap();
+        assert_eq!(a.ui.theme, Appearance::Light, "and back");
+        assert!(a.run("view.interfaceTheme", json!({"value": "sepia"})).is_err());
+        let saved = serde_json::to_string(&a.prefs()).unwrap();
+        let mut b = app();
+        b.apply_prefs(serde_json::from_str(&saved).unwrap());
+        assert_eq!(b.ui.theme, Appearance::Light);
     }
 
     /// #475, #822: the interface size is kept between runs; junk saved values read as Auto and

@@ -518,6 +518,10 @@
 	More templates →	Altri modelli →
 	Move or Resize	Sposta o ridimensiona
 	Multilevel List	Elenco a più livelli
+	Multilevel List Library	Raccolta elenchi a più livelli
+	Article I.	Articolo I.
+	Chapter 1	Capitolo 1
+	Section 1.01	Sezione 1.01
 	Multiple Pages	Più pagine
 	Name (A–Z)	Nome (A–Z)
 	Name:	Nome:
@@ -1603,6 +1607,8 @@
 	Math AutoCorrect	Correzione automatica formule
 	More >>	Altro >>
 	Moves	Spostamenti
+	Moved from:	Spostato da:
+	Moved to:	Spostato in:
 	New document	Nuovo documento
 	No changes (read only)	Nessuna modifica (sola lettura)
 	Only allow this kind of editing:	Consenti solo questo tipo di modifica:
@@ -2666,3 +2672,5 @@ preview	Title	Esempio
 	The measurement must be between {min} and {max}.	La misura deve essere compresa tra {min} e {max}.
 	Recently Used Fonts	Caratteri usati di recente
 	All Fonts	Tutti i caratteri
+	Spike	Raccoglitore
+	Insert Spike	Inserisci raccoglitore

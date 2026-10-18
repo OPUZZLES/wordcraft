@@ -581,6 +581,10 @@
 	More templates →	Fler mallar →
 	Move or Resize	Flytta eller ändra storlek
 	Multilevel List	Lista med flera nivåer
+	Multilevel List Library	Bibliotek med listor med flera nivåer
+	Article I.	Artikel I.
+	Chapter 1	Kapitel 1
+	Section 1.01	Avsnitt 1.01
 	Multiple Pages	Flera sidor
 	Name (A–Z)	Namn (A–Ö)
 	Name:	Namn:
@@ -2670,3 +2674,7 @@ preview	Title	Titel
 	The measurement must be between {min} and {max}.	Måttet måste vara mellan {min} och {max}.
 	Recently Used Fonts	Senast använda typsnitt
 	All Fonts	Alla typsnitt
+	Moved from:	Flyttat från:
+	Moved to:	Flyttat till:
+	Spike	Samlare
+	Insert Spike	Infoga samlare

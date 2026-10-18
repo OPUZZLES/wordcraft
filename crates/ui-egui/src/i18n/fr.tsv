@@ -532,6 +532,10 @@
 	Modify…	Modifier…
 	Move or Resize	Déplacer ou redimensionner
 	Multilevel List	Liste à plusieurs niveaux
+	Multilevel List Library	Bibliothèque de listes à plusieurs niveaux
+	Article I.	Article I.
+	Chapter 1	Chapitre 1
+	Section 1.01	Section 1.01
 	Multiple Pages	Plusieurs pages
 	Name (A–Z)	Nom (A–Z)
 	Name:	Nom :
@@ -1416,6 +1420,8 @@
 	Math AutoCorrect	Correction automatique mathématique
 	More >>	Plus >>
 	Moves	Déplacements
+	Moved from:	Déplacé depuis :
+	Moved to:	Déplacé vers :
 	New document	Nouveau document
 	No changes (read only)	Aucune modification (lecture seule)
 	Only allow this kind of editing:	Autoriser uniquement ce type de modification :
@@ -2263,3 +2269,5 @@
 	The measurement must be between {min} and {max}.	La mesure doit être comprise entre {min} et {max}.
 	Recently Used Fonts	Polices récemment utilisées
 	All Fonts	Toutes les polices
+	Spike	Pique-notes
+	Insert Spike	Insérer le pique-notes

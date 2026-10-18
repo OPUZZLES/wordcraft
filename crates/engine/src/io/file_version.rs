@@ -144,6 +144,13 @@ impl FileVersion {
         read().map_err(|e| format!("{}: {e}", path.display()))
     }
 
+    /// Track the logical session path without adopting different file content.
+    pub(crate) fn track_path(&mut self, path: &Path) {
+        self.path = absolute(path);
+        self.resolved = fs::canonicalize(&self.path).unwrap_or_else(|_| self.path.clone());
+        self.case_aliases = [observes_case_aliases(&self.path), observes_case_aliases(&self.resolved)];
+    }
+
     /// Path spellings, symlinks and hard links to the open file share its expected content.
     pub(crate) fn owns(&self, path: &Path) -> Result<bool, FileConflict> {
         let absolute = absolute(path);
@@ -155,7 +162,7 @@ impl FileVersion {
             return Ok(true);
         }
         match fs::metadata(path) {
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return self.owns_missing(path),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return self.owns_missing(&absolute),
             Ok(meta) if meta.is_file() => {}
             _ => return Err(FileConflict { path: path.to_path_buf() }),
         }

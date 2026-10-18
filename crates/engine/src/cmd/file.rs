@@ -52,6 +52,9 @@ fn rename(s: &mut Session, v: &Value) -> CmdResult {
             #[cfg(not(target_arch = "wasm32"))]
             {
                 crate::io::rename_file(path, &destination).map_err(CmdError::Failed)?;
+                if let Some(version) = &mut s.file_version {
+                    version.track_path(&destination);
+                }
             }
             s.path = Some(destination);
         }
@@ -349,9 +352,14 @@ fn save(s: &mut Session, v: &Value) -> CmdResult {
     s.password = password;
     let keeps_document = ["docx", "docm", "dotx", "dotm", "odt", "rtf", "json", "xml"].contains(&ext.as_str());
     #[cfg(not(target_arch = "wasm32"))]
-    if keeps_document || s.path.as_deref().is_some_and(|original| version.owns(original).unwrap_or(false)) {
-        // A lossy save back to the open file still advances our own bytes. A separate lossy
-        // copy keeps the original's baseline and path, including after an alias is replaced.
+    if keeps_document {
+        s.file_version = Some(version);
+    } else if let Some(original) = &s.path
+        && version.owns(original).unwrap_or(false)
+    {
+        // Lossy saves retain the open path, so its logical aliases must stay tracked too.
+        let mut version = version;
+        version.track_path(original);
         s.file_version = Some(version);
     }
     if keeps_document {

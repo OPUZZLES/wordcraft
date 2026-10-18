@@ -1081,6 +1081,23 @@ fn home(app: &mut WordApp, ui: &mut Ui) {
                     mi(ui, app, "1. 1.1. 1.1.1.", "para.multilevel", json!({"kind": "legal"}));
                     mi(ui, app, "I. A. 1. a.", "para.multilevel", json!({"kind": "outline"}));
                     ui.separator();
+                    // Lists linked to the heading styles: the headings carry the numbers. Each item
+                    // reads as its first three levels, number then (translated) style name.
+                    for (numbers, k) in [
+                        (["1", "1.1", "1.1.1"], "headings"),
+                        (["Article I.", "Section 1.01", "(a)"], "article"),
+                        (["I.", "A.", "1."], "outlineHeadings"),
+                        (["Chapter 1", "", ""], "chapter"),
+                    ] {
+                        let text = numbers
+                            .iter()
+                            .zip(["Heading 1", "Heading 2", "Heading 3"])
+                            .map(|(n, h)| if n.is_empty() { tl!(h).to_string() } else { format!("{} {}", tl!(n), tl!(h)) })
+                            .collect::<Vec<_>>()
+                            .join(" / ");
+                        mi_text(ui, app, &text, "list.multilevelPreset", json!({"preset": k}));
+                    }
+                    ui.separator();
                     mi(ui, app, "Define New Multilevel List…", "list.define", json!({}));
                     ui.separator();
                     for lv in 0..5u64 {
@@ -2091,7 +2108,7 @@ fn view(app: &mut WordApp, ui: &mut Ui) {
         menu_button(ui, app, "interfaceTheme", Some("Interface\nTheme"), "Interface Theme", true, "", |ui, app| {
             for a in crate::theme::Appearance::ALL {
                 if ui.add(egui::Button::selectable(app.ui.theme == a, tl!(a.label())).min_size(vec2(200.0, 0.0))).clicked() {
-                    let _ = app.run("ui.theme", json!({"value": a.code()}));
+                    let _ = app.run("view.interfaceTheme", json!({"value": a.code()}));
                     ui.close();
                 }
             }

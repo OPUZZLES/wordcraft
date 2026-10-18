@@ -449,6 +449,10 @@
 	Modify Style	Изменить стиль
 	Modify…	Изменить…
 	Multilevel List	Многоуровневый список
+	Multilevel List Library	Библиотека многоуровневых списков
+	Article I.	Статья I.
+	Chapter 1	Глава 1
+	Section 1.01	Раздел 1.01
 	Multiple Pages	Несколько страниц
 	Name (A–Z)	Имя (А–Я)
 	Name:	Имя:
@@ -2093,6 +2097,8 @@ preview	Title	Пример
 	Math AutoCorrect	Автозамена математическими символами
 	More >>	Больше >>
 	Moves	Перемещения
+	Moved from:	Перемещено из:
+	Moved to:	Перемещено в:
 	New document	Новый документ
 	No changes (read only)	Без изменений (только чтение)
 	Only allow this kind of editing:	Разрешить только такой способ редактирования:
@@ -2654,3 +2660,5 @@ preview	Title	Пример
 	The measurement must be between {min} and {max}.	Размер должен быть от {min} до {max}.
 	Recently Used Fonts	Недавно использованные шрифты
 	All Fonts	Все шрифты
+	Spike	Копилка
+	Insert Spike	Вставить из копилки
