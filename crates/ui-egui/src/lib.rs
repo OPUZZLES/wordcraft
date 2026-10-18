@@ -5623,10 +5623,12 @@ mod tests {
         h.step();
         h.event(egui::Event::Text("x".into()));
         h.run_steps(2);
+        assert!(h.query(By::new().role(Role::TextInput).value("x")).is_some(), "the query replaced the font name");
         assert!(h.query_by_label("Recently Used Fonts").is_none(), "a query lists its matches only");
         assert_eq!(h.query_all_by_label("Recent Font Alpha").count(), 0);
         h.event(key(egui::Key::Backspace, egui::Modifiers::NONE));
         h.run_steps(2);
+        assert!(h.query(By::new().role(Role::TextInput).value("")).is_some(), "Backspace cleared the query");
         assert!(h.query_by_label("Recently Used Fonts").is_some(), "the section shows while nothing is typed");
         assert!(h.query_by_label("All Fonts").is_some());
         assert_eq!(h.query_all_by_label("Recent Font Beta").count(), 1);

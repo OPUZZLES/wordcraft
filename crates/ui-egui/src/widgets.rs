@@ -1102,7 +1102,11 @@ fn list_rows<'a>(
     if let (Some(h), Some((offset, view_h))) = (highlight, scroll) {
         let top = h as f32 * (row_h + ui.spacing().item_spacing.y);
         let bottom = top + row_h;
-        let offset = if top < offset || view_h <= 0.0 {
+        let offset = if view_h <= 0.0 {
+            // No list was visible for the previous query. Start at the first row, including
+            // its heading, rather than scrolling to the first selectable entry below it.
+            0.0
+        } else if top < offset {
             top
         } else if bottom > offset + view_h {
             bottom - view_h
@@ -1684,6 +1688,34 @@ mod tests {
             let drawn = out.shapes.iter().any(|c| has_text(&c.shape, row));
             out.drop_without_applying_deltas();
             assert!(drawn, "keystroke {n}: {row} is drawn");
+        }
+    }
+
+    /// Clearing a query with no matches must reveal the recent section, even before the list
+    /// has ever had a visible viewport. A matching query is the control for a measured viewport.
+    #[test]
+    fn clearing_a_font_query_keeps_the_recent_heading_visible() {
+        use egui::accesskit::Role;
+        use egui_kittest::kittest::{By, Queryable};
+        for query in ["a", "x"] {
+            // A short list clamps the bad offset to zero and would hide this regression.
+            let fonts: Vec<String> = (0..24).map(|n| format!("Family {n:02}")).collect();
+            let recent: Vec<String> = ["Georgia", "Courier New"].map(String::from).to_vec();
+            let mut h = egui_kittest::Harness::builder().with_size(vec2(400.0, 600.0)).build_ui(move |ui| {
+                font_combo_with_recent(ui, "recent_ci_reduced", 150.0, "", &fonts, &recent, None);
+            });
+            h.run_steps(2);
+            h.get(By::new().role(Role::TextInput)).focus();
+            h.step();
+            h.event(egui::Event::Text(query.into()));
+            h.run_steps(2);
+            assert!(h.query(By::new().role(Role::TextInput).value(query)).is_some());
+            assert!(h.query_by_label("Recently Used Fonts").is_none());
+            h.key_press(egui::Key::Backspace);
+            h.run_steps(2);
+            assert!(h.query(By::new().role(Role::TextInput).value("")).is_some());
+            assert!(h.query_by_label("Recently Used Fonts").is_some(), "cleared query {query:?}");
+            assert!(h.query_by_label("All Fonts").is_some());
         }
     }
 
