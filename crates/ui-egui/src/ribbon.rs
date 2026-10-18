@@ -673,7 +673,7 @@ fn mi_text(ui: &mut Ui, app: &mut WordApp, text: &str, id: &str, params: Value) 
 }
 
 /// The proofing languages the Language menu offers: tag and English name (translated when drawn).
-pub(crate) const PROOFING_LANGUAGES: [(&str, &str); 10] = [
+pub(crate) const PROOFING_LANGUAGES: [(&str, &str); 11] = [
     ("en-US", "English (United States)"),
     ("en-GB", "English (United Kingdom)"),
     ("pl-PL", "Polish"),
@@ -684,6 +684,7 @@ pub(crate) const PROOFING_LANGUAGES: [(&str, &str); 10] = [
     ("ru-RU", "Russian"),
     ("cs-CZ", "Czech"),
     ("id-ID", "Indonesian"),
+    ("nl-NL", "Dutch"),
 ];
 
 /// The English name of a proofing language tag, as the status bar shows it (no tag: WordCraft's
@@ -724,6 +725,7 @@ pub(crate) fn language_name(tag: Option<&str>) -> String {
             wordcraft_engine::proof::ProofLang::Ru => "Russian".into(),
             wordcraft_engine::proof::ProofLang::Cs => "Czech".into(),
             wordcraft_engine::proof::ProofLang::Id => "Indonesian".into(),
+            wordcraft_engine::proof::ProofLang::Nl => "Dutch".into(),
             wordcraft_engine::proof::ProofLang::En if tag.eq_ignore_ascii_case("en") => "English (United States)".into(),
             _ => tag.to_string(),
         },
@@ -846,6 +848,7 @@ pub(crate) fn language_menu(ui: &mut Ui, app: &mut WordApp) {
             || (tag == "tr-TR" && current.eq_ignore_ascii_case("tr"))
             || (tag == "cs-CZ" && wordcraft_engine::proof::ProofLang::from_tag(Some(&current)) == wordcraft_engine::proof::ProofLang::Cs)
             || (tag == "id-ID" && wordcraft_engine::proof::ProofLang::from_tag(Some(&current)) == wordcraft_engine::proof::ProofLang::Id)
+            || (tag == "nl-NL" && (current.eq_ignore_ascii_case("nl") || current.eq_ignore_ascii_case("nld") || current.eq_ignore_ascii_case("dut")))
             || (tag == "en-US" && current.eq_ignore_ascii_case("en"))
     };
     let checks = language_checks(&current, listed);
@@ -3035,6 +3038,16 @@ mod tests {
         let c = language_checks("PT-br-x-test", |_| false);
         assert_eq!(c.extra, None);
         assert_eq!(c.listed, PROOFING_LANGUAGES.map(|(t, _)| t == "pt-BR"));
+    }
+
+    #[test]
+    fn dutch_has_a_name_in_the_language_menu() {
+        assert!(PROOFING_LANGUAGES.contains(&("nl-NL", "Dutch")));
+        for tag in ["nl", "nl-NL", "NL-nl", "nld", "dut"] {
+            assert_eq!(language_name(Some(tag)), "Dutch", "{tag}");
+        }
+        // Belgian Dutch keeps its region in the name; the same dictionary checks it.
+        assert_eq!(language_name(Some("nl-BE")), "Dutch (Belgium)");
     }
 
     #[test]

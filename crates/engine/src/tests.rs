@@ -6407,6 +6407,7 @@ fn dictionaries_folder_option_is_saved_searched_and_reported() {
         ("pl_PL", POLISH_TEST_AFF, POLISH_TEST_DIC),
         ("pt_BR", PORTUGUESE_TEST_AFF, PORTUGUESE_TEST_DIC),
         ("id_ID", INDONESIAN_TEST_AFF, INDONESIAN_TEST_DIC),
+        ("nl_NL", DUTCH_TEST_AFF, DUTCH_TEST_DIC),
     ] {
         std::fs::write(dir.join(format!("{name}.aff")), aff).unwrap();
         std::fs::write(dir.join(format!("{name}.dic")), dic).unwrap();
@@ -6425,6 +6426,7 @@ fn dictionaries_folder_option_is_saved_searched_and_reported() {
     assert_eq!(file("pl"), Some(json!(dir.join("pl_PL.dic").to_string_lossy())));
     assert_eq!(file("pt"), Some(json!(dir.join("pt_BR.dic").to_string_lossy())));
     assert_eq!(file("id"), Some(json!(dir.join("id_ID.dic").to_string_lossy())));
+    assert_eq!(file("nl"), Some(json!(dir.join("nl_NL.dic").to_string_lossy())));
     // Polish text is checked against the folder's dictionary.
     run(&mut s, "document.setText", json!({"text": "rzeka płynie żeka"}));
     run(&mut s, "select.all", json!({}));
@@ -6514,6 +6516,50 @@ fn indonesian_proofing_through_the_review_commands() {
     assert_eq!(left.len(), 1);
     assert_eq!(left[0]["kind"], "grammar");
     assert_eq!(left[0]["lang"], "id");
+}
+
+fn dutch_test_dictionary() {
+    wordcraft_proof::nl::install_dictionary(DUTCH_TEST_AFF, DUTCH_TEST_DIC).unwrap();
+}
+
+// Hand-written synthetic fixture (no system dictionary data): two-character flags, `ij` stored
+// as `ĳ` and converted on input and output, and compound parts.
+const DUTCH_TEST_AFF: &str = "SET UTF-8\nFLAG long\nTRY eantirodslgvhkmuwbpjzcf\nICONV 2\nICONV ij ĳ\nICONV IJ Ĳ\nOCONV 2\nOCONV ĳ ij\nOCONV Ĳ IJ\nCOMPOUNDMIN 1\nCOMPOUNDBEGIN Ca\nCOMPOUNDEND Cc\nCOMPOUNDPERMITFLAG Cp\nSFX CA Y 1\nSFX CA 0 /CaCp .\n";
+const DUTCH_TEST_DIC: &str = "8\nhet\nzwembad/CACc\nbouwer/Cc\nis\nklaar\nwĳ\nzĳn\nblĳ\n";
+
+/// Dutch proofing (#2505) through the same commands as Review, F7, Change and Add to Dictionary:
+/// compounds the dictionary builds are correct, and suggestions show `ij` as typed.
+#[test]
+fn dutch_proofing_through_the_review_commands() {
+    dutch_test_dictionary();
+    let mut s = s();
+    run(&mut s, "document.setText", json!({"text": "Het zwembadbouwer is klaar. Wij zjin blij blij."}));
+    run(&mut s, "select.all", json!({}));
+    run(&mut s, "review.language", json!({"lang": "nl_nl", "default": true}));
+    assert_eq!(s.doc.styles.default_chr.lang.as_deref(), Some("nl-NL"));
+    assert_eq!(run(&mut s, "format.state", json!({}))["lang"], "nl-NL");
+    let issues = run(&mut s, "review.issues", json!({}));
+    let arr = issues.as_array().unwrap();
+    assert_eq!(arr.len(), 2, "{issues}");
+    assert!(arr.iter().all(|i| i["lang"] == "nl"), "{issues}");
+    assert!(
+        arr.iter().any(|i| i["text"] == "zjin" && i["kind"] == "spelling" && i["suggestions"].as_array().unwrap().iter().any(|s| s == "zijn")),
+        "{issues}"
+    );
+    assert!(arr.iter().any(|i| i["text"] == "blij blij" && i["kind"] == "grammar"), "{issues}");
+    run(&mut s, "caret.docStart", json!({}));
+    assert_eq!(run(&mut s, "review.spelling", json!({}))["text"], "zjin");
+    run(&mut s, "review.applySuggestion", json!({"text": "zijn"}));
+    assert!(text(&s).contains("Wij zijn blij"), "{}", text(&s));
+    run(&mut s, "select.text", json!({"text": "klaar"}));
+    run(&mut s, "text.insert", json!({"text": "zqmijnwoord"}));
+    assert_eq!(run(&mut s, "review.issues", json!({})).as_array().unwrap().len(), 2);
+    run(&mut s, "review.addToDictionary", json!({"word": "zqmijnwoord"}));
+    let left = run(&mut s, "review.issues", json!({}));
+    let left = left.as_array().unwrap();
+    assert_eq!(left.len(), 1);
+    assert_eq!(left[0]["kind"], "grammar");
+    assert_eq!(left[0]["lang"], "nl");
 }
 
 /// Czech proofing through the same commands as Review, F7, Change and Add to Dictionary.
