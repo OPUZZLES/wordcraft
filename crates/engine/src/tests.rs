@@ -6363,6 +6363,7 @@ fn dictionaries_folder_option_is_saved_searched_and_reported() {
         ("pt_BR", PORTUGUESE_TEST_AFF, PORTUGUESE_TEST_DIC),
         ("id_ID", INDONESIAN_TEST_AFF, INDONESIAN_TEST_DIC),
         ("nl_NL", DUTCH_TEST_AFF, DUTCH_TEST_DIC),
+        ("ca_ES", CATALAN_TEST_AFF, CATALAN_TEST_DIC),
     ] {
         std::fs::write(dir.join(format!("{name}.aff")), aff).unwrap();
         std::fs::write(dir.join(format!("{name}.dic")), dic).unwrap();
@@ -6382,6 +6383,7 @@ fn dictionaries_folder_option_is_saved_searched_and_reported() {
     assert_eq!(file("pt"), Some(json!(dir.join("pt_BR.dic").to_string_lossy())));
     assert_eq!(file("id"), Some(json!(dir.join("id_ID.dic").to_string_lossy())));
     assert_eq!(file("nl"), Some(json!(dir.join("nl_NL.dic").to_string_lossy())));
+    assert_eq!(file("ca"), Some(json!(dir.join("ca_ES.dic").to_string_lossy())));
     // Polish text is checked against the folder's dictionary.
     run(&mut s, "document.setText", json!({"text": "rzeka płynie żeka"}));
     run(&mut s, "select.all", json!({}));
@@ -8491,4 +8493,46 @@ fn rtf_list_round_trip_keeps_text() {
         let d = crate::io::open_bytes("x.rtf", &bytes).unwrap();
         assert_eq!(d.plain_text(StoryRef::Body), "first\nsecond", "{cmd}");
     }
+}
+
+// Original miniature Catalan data for command integration; no installed dictionary bytes.
+const CATALAN_TEST_AFF: &str = "SET UTF-8\nFLAG long\nFULLSTRIP\nTRY abcdeghilmnoqrstuxàçéíïóü·-'\nICONV 1\nICONV ’ '\nREP 1\nREP cataln català\n";
+const CATALAN_TEST_DIC: &str = "6\ncatalà\ncol·legi\nil·lusió\nqüestió\nl'home\nprova\n";
+
+/// #2895: the Review commands use Catalan spelling and suggestions, and DOCX keeps the language.
+#[test]
+fn catalan_proofing_review_and_docx_reopen() {
+    wordcraft_proof::ca::install_dictionary(CATALAN_TEST_AFF, CATALAN_TEST_DIC).unwrap();
+    let mut s = s();
+    run(&mut s, "document.setText", json!({"text": "Col·legi il·lusió l’home cataln"}));
+    run(&mut s, "select.all", json!({}));
+    run(&mut s, "review.language", json!({"lang": "ca_es", "default": true}));
+    assert_eq!(run(&mut s, "format.state", json!({}))["lang"], "ca-ES");
+    let issues = run(&mut s, "review.issues", json!({}));
+    let arr = issues.as_array().unwrap();
+    assert_eq!(arr.len(), 1, "{issues}");
+    assert_eq!(arr[0]["lang"], "ca");
+    assert_eq!(arr[0]["text"], "cataln");
+    assert!(arr[0]["suggestions"].as_array().unwrap().iter().any(|s| s == "català"));
+    let bytes = wordcraft_docx::write(&s.doc).unwrap();
+    let doc = wordcraft_docx::read(&bytes).unwrap();
+    assert_eq!(doc.styles.default_chr.lang.as_deref(), Some("ca-ES"));
+    let mut reopened = Session::new(doc);
+    assert_eq!(run(&mut reopened, "review.issues", json!({})), issues);
+    run(&mut reopened, "caret.docStart", json!({}));
+    assert_eq!(run(&mut reopened, "review.spelling", json!({}))["text"], "cataln");
+    run(&mut reopened, "review.applySuggestion", json!({"text": "català"}));
+    assert_eq!(text(&reopened), "Col·legi il·lusió l’home català");
+    assert!(run(&mut reopened, "review.issues", json!({})).as_array().unwrap().is_empty());
+    run(&mut reopened, "select.text", json!({"text": "il·lusió"}));
+    run(&mut reopened, "text.insert", json!({"text": "il·lusio"}));
+    let context = run(&mut reopened, "review.suggestions", json!({}));
+    assert_eq!(context["text"], "il·lusio");
+    assert!(context["suggestions"].as_array().unwrap().iter().any(|s| s == "il·lusió"));
+    run(&mut reopened, "review.applySuggestion", json!({"text": "il·lusió"}));
+    run(&mut reopened, "select.text", json!({"text": "català"}));
+    run(&mut reopened, "text.insert", json!({"text": "zqcaenginecustom"}));
+    assert_eq!(run(&mut reopened, "review.issues", json!({})).as_array().unwrap().len(), 1);
+    run(&mut reopened, "review.addToDictionary", json!({"word": "zqcaenginecustom"}));
+    assert!(run(&mut reopened, "review.issues", json!({})).as_array().unwrap().is_empty());
 }
