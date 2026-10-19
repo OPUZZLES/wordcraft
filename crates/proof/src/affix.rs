@@ -15,7 +15,7 @@
 //! (`FLAG long`), at most 128 distinct that matter (flags only stems carry, with no rule or
 //! directive using them, are dropped), `PFX`/`SFX` with strip, append and condition (`.`,
 //! letters, `[abc]`, `[^abc]`), cross products, continuation classes on suffixes (at most two
-//! suffixes in a row, as in Hunspell), `FORBIDDENWORD`, `NOSUGGEST`, `KEEPCASE`, `ICONV`/`OCONV`,
+//! suffixes in a row, as in Hunspell), `FULLSTRIP`, `FORBIDDENWORD`, `NOSUGGEST`, `KEEPCASE`, `ICONV`/`OCONV`,
 //! the compounding the Dutch dictionary uses ([`compound`]), and the suggestion tables `TRY`,
 //! `KEY`, `MAP` and `REP`. Rejected: numeric flags, `COMPOUNDFLAG`, `NEEDAFFIX` and the other
 //! directives that change which words are correct.
@@ -39,20 +39,8 @@ pub const MAX_WORD_BYTES: usize = 120;
 const EMPTY: u32 = u32::MAX;
 
 /// Directives that change which words are correct in ways this engine doesn't implement.
-const UNSUPPORTED: &[&str] = &[
-    "AF",
-    "AM",
-    "CHECKSHARPS",
-    "CIRCUMFIX",
-    "COMPLEXPREFIXES",
-    "COMPOUNDFLAG",
-    "FULLSTRIP",
-    "IGNORE",
-    "LEMMA_PRESENT",
-    "NEEDAFFIX",
-    "PSEUDOROOT",
-    "SUBSTANDARD",
-];
+const UNSUPPORTED: &[&str] =
+    &["AF", "AM", "CHECKSHARPS", "CIRCUMFIX", "COMPLEXPREFIXES", "COMPOUNDFLAG", "IGNORE", "LEMMA_PRESENT", "NEEDAFFIX", "PSEUDOROOT", "SUBSTANDARD"];
 
 /// Compounding limits this engine doesn't apply. They only matter when the dictionary compounds
 /// (`COMPOUNDRULE`, `COMPOUNDBEGIN`…), so they are an error then and ignored otherwise.
@@ -257,6 +245,8 @@ pub struct AffixDict {
     no_suggest: u128,
     /// `KEEPCASE`: stems correct only in their own case (no capitalized or upper-case variants).
     keep_case: u128,
+    /// Allow an affix to replace the entire stem (`FULLSTRIP`).
+    full_strip: bool,
     /// `ONLYINCOMPOUND`: stems, and forms of suffixes carrying it, valid only inside compounds.
     only_in_compound: u128,
     /// `COMPOUNDBEGIN`, `COMPOUNDMIDDLE`, `COMPOUNDEND`, `COMPOUNDPERMITFLAG` (0: none declared).
@@ -361,6 +351,7 @@ struct Rules {
     forbidden: Option<char>,
     no_suggest: Option<char>,
     keep_case: Option<char>,
+    full_strip: bool,
     only_in_compound: Option<char>,
     cpd_begin: Option<char>,
     cpd_middle: Option<char>,
@@ -519,6 +510,7 @@ fn parse_aff(aff: &str) -> Result<Rules, String> {
                 };
                 *slot = Some(c);
             }
+            "FULLSTRIP" => r.full_strip = true,
             "COMPOUNDMIN" => r.compound_min = at(1).parse().ok(),
             "CHECKCOMPOUNDDUP" => r.check_dup = true,
             "CHECKCOMPOUNDCASE" => r.check_case = true,
@@ -676,6 +668,7 @@ impl AffixDict {
             forbidden,
             no_suggest: bits(rules.no_suggest),
             keep_case: bits(rules.keep_case),
+            full_strip: rules.full_strip,
             only_in_compound: bits(rules.only_in_compound),
             cpd_begin: bits(rules.cpd_begin),
             cpd_middle: bits(rules.cpd_middle),
@@ -859,7 +852,7 @@ impl AffixDict {
             return false;
         }
         let mut root = String::with_capacity(w.len() + 8);
-        let cuts = std::iter::once(w.len()).chain(w.char_indices().rev().map(|(i, _)| i).filter(|&i| i > 0));
+        let cuts = std::iter::once(w.len()).chain(w.char_indices().rev().map(|(i, _)| i).filter(|&i| i > 0 || self.full_strip));
         for b in cuts.take(self.max_sfx_chars + 1) {
             let (Some(base), Some(add)) = (w.get(..b), w.get(b..)) else { continue };
             let Some(groups) = self.sfx_index.get(add) else { continue };
@@ -922,7 +915,7 @@ impl AffixDict {
         let mut root = String::with_capacity(w.len() + 8);
         for r in self.prefixes.iter().filter(|r| self.standalone(r)) {
             let Some(rest) = w.strip_prefix(&*r.add) else { continue };
-            if rest.is_empty() {
+            if rest.is_empty() && !self.full_strip {
                 continue;
             }
             root.clear();
@@ -950,7 +943,7 @@ impl AffixDict {
         let mut root = String::with_capacity(w.len() + 8);
         // Each split point from the end: the appended string is `w[b..]`, at most the longest
         // suffix, and something must stay before it.
-        let cuts = std::iter::once(w.len()).chain(w.char_indices().rev().map(|(i, _)| i).filter(|&i| i > 0));
+        let cuts = std::iter::once(w.len()).chain(w.char_indices().rev().map(|(i, _)| i).filter(|&i| i > 0 || self.full_strip));
         for b in cuts.take(self.max_sfx_chars + 1) {
             let (Some(base), Some(add)) = (w.get(..b), w.get(b..)) else { continue };
             let Some(groups) = self.sfx_index.get(add) else { continue };
@@ -982,6 +975,14 @@ impl AffixDict {
     /// may be in capitals. Lower-case input never matches a capitalized stem (`warszawa`).
     pub fn check(&self, w: &str) -> bool {
         self.check_excluding(&self.iconv(w), self.forbidden, compound::CHECK_BUDGET)
+    }
+
+    /// A forbidden stem or derivation must not become valid through a language's hyphen fallback.
+    pub(crate) fn forbids(&self, w: &str) -> bool {
+        let w = self.iconv(w);
+        self.forbidden != 0
+            && !self.check_excluding(&w, self.forbidden, compound::CHECK_BUDGET)
+            && self.check_excluding(&w, 0, compound::CHECK_BUDGET)
     }
 
     /// Whether a suggestion is correct in its displayed case and has an eligible stem.
@@ -1017,6 +1018,9 @@ impl AffixDict {
                 continue;
             }
             let Some(base) = stem.strip_suffix(&*r.strip) else { continue };
+            if base.is_empty() && !self.full_strip {
+                continue;
+            }
             let form = format!("{base}{}", r.add);
             if r.cross {
                 cross_sfx.push(form.clone());
@@ -1039,6 +1043,9 @@ impl AffixDict {
                         continue;
                     }
                     let Some(base) = form.strip_suffix(&*r.strip) else { continue };
+                    if base.is_empty() && !self.full_strip {
+                        continue;
+                    }
                     let next = format!("{base}{}", r.add);
                     if r.cont != 0 {
                         chain.push((next.clone(), r.cont));
@@ -1052,10 +1059,14 @@ impl AffixDict {
                 continue;
             }
             let Some(rest) = stem.strip_prefix(&*r.strip) else { continue };
-            out.push(format!("{}{rest}", r.add));
+            if !rest.is_empty() || self.full_strip {
+                out.push(format!("{}{rest}", r.add));
+            }
             if r.cross {
                 for s in &cross_sfx {
-                    if let Some(rest) = s.strip_prefix(&*r.strip) {
+                    if let Some(rest) = s.strip_prefix(&*r.strip)
+                        && (!rest.is_empty() || self.full_strip)
+                    {
                         out.push(format!("{}{rest}", r.add));
                     }
                 }
@@ -1132,6 +1143,9 @@ impl AffixDict {
         }
         if self.compounds() {
             out.push_str(&format!("COMPOUNDMIN {}\n", self.compound_min));
+        }
+        if self.full_strip {
+            out.push_str("FULLSTRIP\n");
         }
         if self.check_dup {
             out.push_str("CHECKCOMPOUNDDUP\n");
@@ -1236,6 +1250,7 @@ impl AffixDict {
                     };
                     *slot = Some(c);
                 }
+                "FULLSTRIP" => rules.full_strip = true,
                 "COMPOUNDMIN" => rules.compound_min = at(1).parse().ok(),
                 "CHECKCOMPOUNDDUP" => rules.check_dup = true,
                 "CHECKCOMPOUNDCASE" => rules.check_case = true,
@@ -1304,6 +1319,43 @@ impl AffixDict {
 
 #[cfg(test)]
 pub(crate) mod tests {
+    #[test]
+    fn fullstrip_cross_products_preserve_the_remaining_suffix() {
+        for enabled in [false, true] {
+            for (rules, combined, alone, needs_fullstrip) in [
+                ("PFX A Y 1\nPFX A ab c .\nSFX B Y 1\nSFX B 0 x .\n", "cx", "c", false),
+                ("PFX A Y 1\nPFX A 0 c .\nSFX B Y 1\nSFX B ab y .\n", "cy", "y", true),
+            ] {
+                let aff = format!("SET UTF-8\n{}{rules}", if enabled { "FULLSTRIP\n" } else { "" });
+                let d = super::AffixDict::from_hunspell(&aff, "1\nab/AB\n", &[]).unwrap();
+                for dict in [d.clone(), super::AffixDict::from_bytes(&d.to_bytes()).unwrap()] {
+                    assert_eq!(dict.contains(combined), enabled || !needs_fullstrip, "{combined}, FULLSTRIP={enabled}");
+                    assert_eq!(dict.forms("ab").iter().any(|w| w == combined), enabled || !needs_fullstrip, "{combined}, FULLSTRIP={enabled}");
+                    assert_eq!(dict.contains(alone), enabled, "{alone}, FULLSTRIP={enabled}");
+                    assert_eq!(dict.forms("ab").iter().any(|w| w == alone), enabled, "{alone}, FULLSTRIP={enabled}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn fullstrip_replaces_the_entire_stem_only_when_declared() {
+        let rules = "SET UTF-8\nFLAG long\nPFX AB Y 1\nPFX AB à pq .\nSFX CD Y 1\nSFX CD à xy/EF .\nSFX EF Y 1\nSFX EF xy zz .\n";
+        for enabled in [false, true] {
+            let aff = format!("{}{}", if enabled { "FULLSTRIP\n" } else { "" }, rules);
+            let d = super::AffixDict::from_hunspell(&aff, "1\nà/ABCD\n", &[]).unwrap();
+            for dict in [d.clone(), super::AffixDict::from_bytes(&d.to_bytes()).unwrap()] {
+                for word in ["pq", "xy", "zz"] {
+                    assert_eq!(dict.contains(word), enabled, "{word}, FULLSTRIP={enabled}");
+                    assert_eq!(dict.forms("à").iter().any(|f| f == word), enabled, "{word}, FULLSTRIP={enabled}");
+                }
+                assert!(dict.contains("à"));
+                assert!(!dict.contains(""));
+                assert!(!dict.contains("xyz"));
+            }
+        }
+    }
+
     use super::*;
 
     const AFF: &str = "SET UTF-8\nTRY aeoiułkr\n\nPFX b Y 1\nPFX b   0   nie   .\n\nSFX a Y 3\nSFX a   0   y     [^y]\nSFX a   ek  ka    ek\nSFX a   0   em    .\n\nSFX c N 1\nSFX c   a   ą     a\n\nMAP 2\nMAP aą\nMAP oóu\nREP 2\nREP ż rz\nREP u ó\n";
