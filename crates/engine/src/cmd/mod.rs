@@ -460,9 +460,15 @@ pub fn saved_iso() -> String {
 
 /// [`saved_iso`]'s choice, with the environment and the clock given so a test can show which wins.
 pub(crate) fn pinned_or(get: impl Fn(&str) -> Option<String>, clock: impl Fn() -> u64) -> u64 {
-    let pinned = get("SOURCE_DATE_EPOCH").and_then(|v| v.trim().parse::<u64>().ok());
+    let pinned = get("SOURCE_DATE_EPOCH").and_then(|v| v.trim().parse::<u64>().ok()).filter(|secs| *secs <= LAST_DATE);
     pinned.unwrap_or_else(clock)
 }
+
+/// The last date a document can record, as Unix seconds: 9999-12-31T23:59:59Z. A year runs to
+/// four digits in `xsd:dateTime`, which is what a .docx core property holds, so a value past this
+/// would be written as something no reader accepts -- `292277026596-12-04T15:30:07Z` for
+/// `i64::MAX`. Such a value is left to the clock, as a malformed one is.
+const LAST_DATE: u64 = 253_402_300_799;
 
 /// Days since 1970-01-01 → (year, month, day) (Howard Hinnant's algorithm).
 pub fn civil_from_days(z: i64) -> (i64, u32, u32) {
@@ -534,7 +540,21 @@ mod saved_time_tests {
         assert_eq!(pinned_or(env(Some("1791208980")), clock), 1_791_208_980, "the variable wins");
         assert_eq!(pinned_or(env(Some("0")), clock), 0, "the epoch itself counts");
         assert_eq!(pinned_or(env(Some("  1791208980  ")), clock), 1_791_208_980, "spaces around it are allowed");
-        for ignored in [None, Some(""), Some("   "), Some("-1"), Some("later"), Some("1791208980.5"), Some("99999999999999999999")] {
+        // The last date a document can write is honoured; past it the year would not fit
+        // `xsd:dateTime` and the clock answers instead.
+        assert_eq!(pinned_or(env(Some("253402300799")), clock), 253_402_300_799);
+        assert_eq!(iso_from_unix_secs(253_402_300_799), "9999-12-31T23:59:59Z");
+        for ignored in [
+            None,
+            Some(""),
+            Some("   "),
+            Some("-1"),
+            Some("later"),
+            Some("1791208980.5"),
+            Some("99999999999999999999"),
+            Some("253402300800"),
+            Some("9223372036854775807"),
+        ] {
             assert_eq!(pinned_or(env(ignored), clock), 1_000_000, "{ignored:?} leaves it to the clock");
         }
         // Only that variable is read.
