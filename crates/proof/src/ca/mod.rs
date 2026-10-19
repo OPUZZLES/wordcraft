@@ -60,9 +60,11 @@ pub fn is_correct(word: &str) -> bool {
     is_correct_with(&dictionary(), word)
 }
 
-/// [`is_correct`] with an explicit dictionary; absent dictionaries produce no spelling marks.
+/// [`is_correct`] with an explicit dictionary; absent dictionaries and words without Latin
+/// letters produce no spelling marks, matching the other installed-dictionary languages.
 pub fn is_correct_with(d: &AffixDict, word: &str) -> bool {
-    if d.is_empty() {
+    let has_latin = word.chars().any(|c| c.is_alphabetic() && (c < '\u{0250}' || ('\u{1E00}'..='\u{1EFF}').contains(&c)));
+    if d.is_empty() || !has_latin {
         return true;
     }
     if word.len() > crate::affix::MAX_WORD_BYTES {
@@ -158,6 +160,22 @@ mod tests {
         assert!(is_correct_with(&AffixDict::default(), "qzx"));
         assert!(suggest_with(&AffixDict::default(), "qzx", 8).is_empty());
         assert!(!suggest("zqocultt", 8).iter().any(|s| s == "zqocult"));
+    }
+
+    #[test]
+    fn other_scripts_are_unmarked_but_latin_typos_are_checked() {
+        let d = AffixDict::from_hunspell(test_dict::AFF, test_dict::DIC, &[]).unwrap();
+        for word in ["Москва", "привіт", "Ελλάδα", "日本語"] {
+            assert!(is_correct_with(&d, word), "{word}");
+        }
+        for word in ["cataln", "qzxМосква", "ḍqzx"] {
+            assert!(!is_correct_with(&d, word), "{word}");
+        }
+        assert!(is_correct_with(&d, "català"));
+        test_dict::install();
+        let text = "català Москва Ελλάδα cataln";
+        let issues = crate::check_spelling_in(text, crate::ProofLang::Ca);
+        assert_eq!(issues.iter().map(|issue| &text[issue.start..issue.end]).collect::<Vec<_>>(), ["cataln"]);
     }
 
     #[test]
