@@ -440,9 +440,28 @@ pub fn now_unix() -> u64 {
     }
 }
 
-/// ISO-8601 timestamp (UTC, seconds).
+/// ISO-8601 timestamp (UTC, seconds): the clock, for an event that happened now -- a comment, a
+/// tracked change, a version. Not for what a saved or exported file records: see [`saved_iso`].
 pub fn now_iso() -> String {
     iso_from_unix_secs(now_unix())
+}
+
+/// The timestamp a saved or exported file records (its created and modified properties):
+/// `SOURCE_DATE_EPOCH` when it holds a non-negative whole number of seconds, else the clock. With
+/// it set, saving or exporting one document twice gives the same bytes, which is otherwise
+/// impossible -- the timestamp is the only thing that differs
+/// (<https://reproducible-builds.org/specs/source-date-epoch/>).
+///
+/// The clock stays in [`now_iso`]: an editing event's time is not the file's, and pinning it would
+/// misdate comments and tracked changes.
+pub fn saved_iso() -> String {
+    iso_from_unix_secs(pinned_or(|name| std::env::var(name).ok(), now_unix))
+}
+
+/// [`saved_iso`]'s choice, with the environment and the clock given so a test can show which wins.
+pub(crate) fn pinned_or(get: impl Fn(&str) -> Option<String>, clock: impl Fn() -> u64) -> u64 {
+    let pinned = get("SOURCE_DATE_EPOCH").and_then(|v| v.trim().parse::<u64>().ok());
+    pinned.unwrap_or_else(clock)
 }
 
 /// Days since 1970-01-01 → (year, month, day) (Howard Hinnant's algorithm).
@@ -497,5 +516,30 @@ mod iso_tests {
         assert_eq!(iso_from_unix_secs(1_709_164_800), "2024-02-29T00:00:00Z");
         assert_eq!(iso_from_unix_secs(951_782_400), "2000-02-29T00:00:00Z");
         assert_eq!(iso_from_unix_secs(1_735_689_599), "2024-12-31T23:59:59Z");
+    }
+}
+
+#[cfg(test)]
+mod saved_time_tests {
+    use super::{iso_from_unix_secs, pinned_or};
+
+    /// What a saved or exported file records: `SOURCE_DATE_EPOCH` when it holds a non-negative
+    /// whole number of seconds, the clock whenever it does not. The environment and the clock are
+    /// given here rather than set, so no test changes this process's environment -- that is
+    /// `unsafe` under edition 2024 and would reach every test beside it.
+    #[test]
+    fn a_pinned_epoch_is_preferred_and_the_clock_answers_otherwise() {
+        let env = |v: Option<&'static str>| move |_: &str| v.map(str::to_owned);
+        let clock = || 1_000_000;
+        assert_eq!(pinned_or(env(Some("1791208980")), clock), 1_791_208_980, "the variable wins");
+        assert_eq!(pinned_or(env(Some("0")), clock), 0, "the epoch itself counts");
+        assert_eq!(pinned_or(env(Some("  1791208980  ")), clock), 1_791_208_980, "spaces around it are allowed");
+        for ignored in [None, Some(""), Some("   "), Some("-1"), Some("later"), Some("1791208980.5"), Some("99999999999999999999")] {
+            assert_eq!(pinned_or(env(ignored), clock), 1_000_000, "{ignored:?} leaves it to the clock");
+        }
+        // Only that variable is read.
+        assert_eq!(pinned_or(|name: &str| (name == "TZ").then(|| "1791208980".to_owned()), clock), 1_000_000);
+        // And it reaches the stamp as that instant, not as something near it.
+        assert_eq!(iso_from_unix_secs(pinned_or(env(Some("1791208980")), clock)), "2026-10-05T14:03:00Z");
     }
 }
