@@ -106,10 +106,10 @@ pub fn specs() -> Vec<CommandSpec> {
         .pure(),
         CommandSpec::new("edit.find", "Find", "Home › Editing", find)
             .key("Mod+F")
-            .params(r#"{"text": string, "matchCase"?: bool, "wholeWord"?: bool, "matchPrefix"?: bool, "matchSuffix"?: bool, "ignorePunct"?: bool, "ignoreSpace"?: bool, "wildcards"?: bool, "special"?: bool (^p ^t ^# … codes, default true), "regex"?: bool}"#)
+            .params(r#"{"text"?: string (omit to focus Navigation search), "story"?: "body" | {"part": n} (default: caret story), "matchCase"?: bool, "wholeWord"?: bool, "matchPrefix"?: bool, "matchSuffix"?: bool, "ignorePunct"?: bool, "ignoreSpace"?: bool, "wildcards"?: bool, "special"?: bool (^p ^t ^# … codes, default true), "regex"?: bool}"#)
             .pure(),
         CommandSpec::new("edit.advancedFind", "Advanced Find", "Home › Editing › Find", advanced_find)
-            .params(r#"{"text"?: string, …options of edit.find, "in"?: "main|selection", "highlight"?: bool}"#)
+            .params(r#"{"text"?: string, …options of edit.find except story, "in"?: "main|selection", "highlight"?: bool}"#)
             .pure(),
         CommandSpec::new("edit.findNext", "Find Next", "Home › Editing › Find", |s, v| {
             read_opts(s, v);
@@ -598,6 +598,7 @@ fn read_opts(s: &mut Session, v: &Value) {
 }
 
 fn find(s: &mut Session, v: &Value) -> CmdResult {
+    let story = super::search_story_param(s, v)?;
     read_opts(s, v);
     if p::str(v, "text").is_none() {
         // Word's Ctrl+F: the Navigation pane with its search box ready to type in (#712); the
@@ -606,9 +607,8 @@ fn find(s: &mut Session, v: &Value) -> CmdResult {
         s.ui_requests.push(json!({"focus": "navSearch"}));
         return Ok(json!({"count": s.find.results.len()}));
     }
-    let story = s.sel.focus.story;
     s.find.results = search(s, story)?;
-    // Select the first match after the caret.
+    // Select the first match after the caret, or the first match when switching stories.
     let caret = s.sel.focus.clone();
     let idx = s.find.results.iter().position(|(a, _)| *a >= caret).unwrap_or(0);
     s.find.current = idx;
