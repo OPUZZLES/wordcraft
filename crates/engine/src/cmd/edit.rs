@@ -142,7 +142,7 @@ pub fn specs() -> Vec<CommandSpec> {
         .params(r#"{"tab"?: "find|replace|goto" (default replace)}"#)
         .pure(),
         CommandSpec::new("edit.replaceAll", "Replace All", "Home › Editing › Replace", replace_all)
-            .params(r#"{"text": string, "with": string (^p ^t ^& ^c …; \\1 with wildcards), …options of edit.find}"#),
+            .params(r#"{"text": string, "with": string (^p ^t ^& ^c …; \\1 with wildcards), …options of edit.find except story}"#),
         CommandSpec::new("edit.goto", "Go To", "Home › Editing › Find", goto)
             .key("Mod+Alt+G / F5")
             .params(r#"{"page"?: n, "pageBy"?: int (pages forward, negative back, from the caret's page), "bookmark"?: string (selects its text), "paragraph"?: n}; none opens Find and Replace on its Go To tab"#)
@@ -597,6 +597,7 @@ fn read_opts(s: &mut Session, v: &Value) {
     }
 }
 
+/// Find in the requested story, or focus Navigation search when no query is supplied.
 fn find(s: &mut Session, v: &Value) -> CmdResult {
     let story = super::search_story_param(s, v)?;
     read_opts(s, v);
@@ -670,7 +671,11 @@ fn step(s: &mut Session, dir: i64) -> CmdResult {
     Ok(json!({"index": idx, "count": n}))
 }
 
+/// Replace a selected match in the caret's story, then select the next match.
 fn replace(s: &mut Session, v: &Value) -> CmdResult {
+    if v.get("story").is_some() {
+        return Err(CmdError::Params("`story` is not supported for replacement; select a match in the target story first".into()));
+    }
     read_opts(s, v);
     let story = s.sel.focus.story;
     let results = search_full(s, story, true)?;
@@ -686,6 +691,9 @@ fn replace(s: &mut Session, v: &Value) -> CmdResult {
 /// Every match replaced, last first so earlier positions stay valid (one undo step). A `\r` in
 /// the replacement (`^p`) splits the paragraph.
 fn replace_all(s: &mut Session, v: &Value) -> CmdResult {
+    if v.get("story").is_some() {
+        return Err(CmdError::Params("`story` is not supported for replacement; select a match in the target story first".into()));
+    }
     read_opts(s, v);
     let story = s.sel.focus.story;
     let results = search_full(s, story, true)?;

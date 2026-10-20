@@ -58,6 +58,9 @@ as usual. A no-match search leaves the selection in place; the requested scope a
 that call. `edit.find` without `text` still focuses Navigation search. To list body matches
 without moving the caret, use `edit.advancedFind {"text":"Main","in":"main"}` instead.
 
+`edit.replace` and `edit.replaceAll` operate on the caret's story and reject `story`.
+To replace in another story, first select a match there with `select.text` or `edit.find`.
+
 ## Tracked changes by an agent
 
 Tracked changes and comments are recorded under the session's user name ("WordCraft User" by
