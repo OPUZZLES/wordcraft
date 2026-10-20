@@ -651,6 +651,7 @@ fn advanced_find(s: &mut Session, v: &Value) -> CmdResult {
     Ok(json!({"count": n, "matches": matches, "highlight": s.find.highlight}))
 }
 
+/// Visit the next or previous match in the caret's story, wrapping at either end.
 fn step(s: &mut Session, dir: i64) -> CmdResult {
     let story = s.sel.focus.story;
     s.find.results = search(s, story)?;
