@@ -745,6 +745,7 @@ fn search_story_explicit_body_and_note_preserve_text() {
     }
 }
 
+/// After an explicit search moves the caret, next/previous stay in that story and wrap.
 #[test]
 fn search_story_navigation_follows_the_matching_story() {
     let mut s = s();
