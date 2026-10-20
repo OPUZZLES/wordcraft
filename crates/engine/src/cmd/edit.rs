@@ -675,7 +675,7 @@ fn step(s: &mut Session, dir: i64) -> CmdResult {
 /// Replace a selected match in the caret's story, then select the next match.
 fn replace(s: &mut Session, v: &Value) -> CmdResult {
     if v.get("story").is_some() {
-        return Err(CmdError::Params("`story` is not supported for replacement; select a match in the target story first".into()));
+        return Err(CmdError::Params("`story` is not supported for replacement".into()));
     }
     read_opts(s, v);
     let story = s.sel.focus.story;
@@ -693,7 +693,7 @@ fn replace(s: &mut Session, v: &Value) -> CmdResult {
 /// the replacement (`^p`) splits the paragraph.
 fn replace_all(s: &mut Session, v: &Value) -> CmdResult {
     if v.get("story").is_some() {
-        return Err(CmdError::Params("`story` is not supported for replacement; select a match in the target story first".into()));
+        return Err(CmdError::Params("`story` is not supported for replacement".into()));
     }
     read_opts(s, v);
     let story = s.sel.focus.story;
