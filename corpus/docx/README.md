@@ -35,6 +35,7 @@ manifest and the harness report, not the documents.
 cargo xtask docx-corpus --dir corpus/docx
 cargo xtask docx-corpus --dir corpus/docx --out target/docx-corpus/report.json
 cargo xtask docx-corpus --dir corpus/docx --all-pages
+cargo xtask docx-corpus --dir corpus/docx --check-preservation
 cargo xtask docx-corpus --dir corpus/docx --timeout 120 --cli target/debug/wordcraft-cli
 ```
 
@@ -45,6 +46,7 @@ Options:
 | `--dir <path>` | corpus directory (required) |
 | `--out <path>` | JSON report path (default `target/docx-corpus/report.json`); the Markdown summary is written beside it with an `.md` extension |
 | `--all-pages` | render every page instead of only page 1 (capped at 2,000 pages per file) |
+| `--check-preservation` | compare selected package data before import and after save (see below) |
 | `--timeout <secs>` | per-child-process timeout, default 60, maximum 3,600 |
 | `--cli <path>` | use a specific `wordcraft-cli` binary |
 | `-h`, `--help` | usage |
@@ -77,10 +79,47 @@ round-trip time, rendered images, and every failure. Failures are classified as:
 | `reopen` | the saved copy could not be opened or its text read |
 | `text_mismatch` | reopened plain text differs from the original |
 | `page_count_delta` | reopened page count differs from the original |
+| `preservation` | selected package data changed or could not be checked |
 
 The JSON report is deterministic for the same corpus and arguments apart from the
 timing fields: files are sorted by relative path, failure counts are always present,
 and there is no timestamp. The Markdown summary is a short human-readable table.
+
+## Optional preservation checks
+
+`--check-preservation` reads selected OOXML package data directly, before import and
+from the saved copy. This catches losses that plain body text and page counts can
+miss, including data the importer never models. It compares:
+
+- an inventory of simple/complex field instructions in the body, headers, footers
+  and note parts (split instruction runs are concatenated);
+- normal footnote/endnote text and the number of references to each note's content;
+- the mail-merge settings subtree, with relationship IDs replaced by cached SHA-256
+  fingerprints of their type/mode/external target or directly referenced internal data. External sources
+  are never opened or fetched.
+
+The JSON adds `preservation_match`: `true` or `false` when both packages were checked,
+`null` when disabled, saving failed, or a package could not be checked. A check error
+is a `preservation` failure, never a successful match. Mismatch failures identify the changed
+category without including document text or connection strings. Existing writer
+losses are reported, not fixed or accepted as preserved.
+
+These are focused inventories, not full document equivalence: formatting, field
+nesting, cached results outside the body, note-anchor positions, separator notes,
+and dependencies of internal mail-merge parts are not compared. Equal counts/text
+can miss moving a field or swapping two note anchors. IDs and XML namespace aliases
+may change without a mismatch; other XML structural changes in mail-merge settings
+can still produce a mismatch. XML must be UTF-8; ZIP64, multi-disk or ambiguous ZIP end records, unsupported targets/encodings,
+malformed XML/fields, missing relationships and limits produce check failures.
+The check follows OPC relationships rather than assuming standard part names.
+
+Preservation reads are capped at 20,000 raw ZIP entries, 8 MiB of central-directory metadata,
+8 MiB per part and 64 MiB total for both compressed input and decoded output,
+100,000 XML elements per part and 64 nesting levels. XML local names and namespace
+URIs are limited to 1,024 bytes, with an 8 MiB expanded-name budget per part. A larger valid document can
+still use the basic runner without this option. As with other corpus failures,
+results are recorded and processing continues; inspect the report rather than
+assuming a zero exit means that every document passed.
 
 ## Limits
 

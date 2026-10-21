@@ -10,6 +10,8 @@
 //! The corpus itself is local only (see `corpus/docx/README.md`): `/corpus` is git-ignored and no
 //! Word-produced or proprietary document may be committed.
 
+mod preservation;
+
 use std::ffi::OsString;
 use std::fs;
 use std::io::{self, Read};
@@ -47,6 +49,7 @@ options:
   --out <path>       JSON report path (default: target/docx-corpus/report.json);
                      the Markdown summary is written beside it with an .md extension
   --all-pages        render every page, not only page 1 (capped at 2000 pages)
+  --check-preservation compare package field instructions, notes and mail-merge data
   --timeout <secs>   timeout for each child process (default: 60, max: 3600)
   --cli <path>       wordcraft-cli binary (default: build it and use the one beside this xtask binary)
   -h, --help         this help
@@ -67,6 +70,7 @@ pub fn run(args: &[&str]) -> Result<(), String> {
 }
 
 struct Options {
+    preservation: bool,
     dir: PathBuf,
     out: PathBuf,
     all_pages: bool,
@@ -79,6 +83,7 @@ impl Options {
         let mut dir = None;
         let mut out = None;
         let mut all_pages = false;
+        let mut preservation = false;
         let mut timeout_secs = DEFAULT_TIMEOUT_SECS;
         let mut cli = None;
         let mut it = args.iter().copied();
@@ -87,6 +92,7 @@ impl Options {
                 "--dir" => dir = Some(PathBuf::from(it.next().ok_or("--dir requires a path")?)),
                 "--out" => out = Some(PathBuf::from(it.next().ok_or("--out requires a path")?)),
                 "--all-pages" => all_pages = true,
+                "--check-preservation" => preservation = true,
                 "--timeout" => {
                     let value = it.next().ok_or("--timeout requires seconds")?;
                     timeout_secs = value.parse::<u64>().map_err(|_| format!("--timeout `{value}` is not a whole number of seconds"))?;
@@ -100,7 +106,7 @@ impl Options {
         }
         let dir = dir.ok_or_else(|| format!("--dir is required\n\n{USAGE}"))?;
         let out = out.unwrap_or_else(|| crate::root().join("target/docx-corpus/report.json"));
-        Ok(Self { dir, out, all_pages, timeout: Duration::from_secs(timeout_secs), cli })
+        Ok(Self { dir, out, all_pages, timeout: Duration::from_secs(timeout_secs), cli, preservation })
     }
 }
 
@@ -375,6 +381,7 @@ enum FailureKind {
     Reopen,
     TextMismatch,
     PageCountDelta,
+    Preservation,
 }
 
 impl FailureKind {
@@ -386,6 +393,7 @@ impl FailureKind {
             Self::Reopen => "reopen",
             Self::TextMismatch => "text_mismatch",
             Self::PageCountDelta => "page_count_delta",
+            Self::Preservation => "preservation",
         }
     }
 }
@@ -409,6 +417,7 @@ struct FileReport {
     round_trip_pages: Option<u64>,
     page_delta: Option<i64>,
     text_match: Option<bool>,
+    preservation_match: Option<bool>,
     rendered: Vec<String>,
     failures: Vec<Failure>,
     error: Option<String>,
@@ -428,6 +437,7 @@ impl FileReport {
             round_trip_pages: None,
             page_delta: None,
             text_match: None,
+            preservation_match: None,
             rendered: Vec::new(),
             failures: Vec::new(),
             error: None,
@@ -467,6 +477,7 @@ struct FailureCounts {
     reopen: u64,
     text_mismatch: u64,
     page_count_delta: u64,
+    preservation: u64,
 }
 
 impl FailureCounts {
@@ -478,6 +489,7 @@ impl FailureCounts {
             "reopen" => self.reopen = self.reopen.saturating_add(1),
             "text_mismatch" => self.text_mismatch = self.text_mismatch.saturating_add(1),
             "page_count_delta" => self.page_count_delta = self.page_count_delta.saturating_add(1),
+            "preservation" => self.preservation = self.preservation.saturating_add(1),
             _ => {}
         }
     }
@@ -526,6 +538,18 @@ fn run_file(cli: &dyn Cli, opts: &Options, temp: &TempDir, paths: ArtifactPaths<
         report.fail(FailureKind::Open, format!("file is {bytes} bytes, above the {} MiB cap", MAX_FILE_BYTES / (1024 * 1024)));
         return report.finish();
     }
+
+    let original_preservation = if opts.preservation {
+        match preservation::read(path) {
+            Ok(snapshot) => Some(snapshot),
+            Err(e) => {
+                report.fail(FailureKind::Preservation, format!("original package: {e}"));
+                None
+            }
+        }
+    } else {
+        None
+    };
 
     let open_start = Instant::now();
     let info = match read_info(cli, path, opts.timeout) {
@@ -590,6 +614,18 @@ fn run_file(cli: &dyn Cli, opts: &Options, temp: &TempDir, paths: ArtifactPaths<
         }
     };
     if saved {
+        if let Some(original) = &original_preservation {
+            match preservation::read(&copy) {
+                Ok(reopened) => {
+                    let changed = original.differences(&reopened);
+                    report.preservation_match = Some(changed.is_empty());
+                    if !changed.is_empty() {
+                        report.fail(FailureKind::Preservation, format!("changed: {}", changed.join(", ")));
+                    }
+                }
+                Err(e) => report.fail(FailureKind::Preservation, scrub_temp(&format!("saved package: {e}"), &temp.path)),
+            }
+        }
         match read_info(cli, &copy, opts.timeout) {
             Ok(info) => {
                 report.round_trip_pages = Some(info.pages);
@@ -717,13 +753,14 @@ fn summary_markdown(report: &Report) -> String {
     out.push_str(&format!("- Files: {} ({} ok, {} failed)\n", report.totals.files, report.totals.ok, report.totals.failed));
     out.push_str(&format!("- Pages: {} · Words: {} · Bytes: {}\n", report.totals.pages, report.totals.words, report.totals.bytes));
     out.push_str(&format!(
-        "- Failures: open {} · render {} · save {} · reopen {} · text mismatch {} · page-count delta {}\n\n",
+        "- Failures: open {} · render {} · save {} · reopen {} · text mismatch {} · page-count delta {} · preservation {}\n\n",
         report.failures.open,
         report.failures.render,
         report.failures.save,
         report.failures.reopen,
         report.failures.text_mismatch,
-        report.failures.page_count_delta
+        report.failures.page_count_delta,
+        report.failures.preservation
     ));
     if report.files.is_empty() {
         out.push_str("No `.docx` files were found.\n");
@@ -837,7 +874,7 @@ mod tests {
     }
 
     fn opts(dir: PathBuf, out: PathBuf) -> Options {
-        Options { dir, out, all_pages: false, timeout: Duration::from_secs(5), cli: None }
+        Options { dir, out, all_pages: false, timeout: Duration::from_secs(5), cli: None, preservation: false }
     }
 
     #[test]
@@ -864,6 +901,7 @@ mod tests {
             "round_trip_pages",
             "page_delta",
             "text_match",
+            "preservation_match",
             "rendered",
             "failures",
             "error",
@@ -1013,5 +1051,54 @@ mod tests {
         assert_eq!(report.failures.text_mismatch, 1);
         assert_eq!(report.failures.page_count_delta, 1);
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn preservation_reports_loss_that_text_and_page_checks_miss() {
+        use preservation::tests::fixture;
+        struct SavingCli {
+            saved: Vec<u8>,
+        }
+        impl Cli for SavingCli {
+            fn call(&self, args: &[OsString], timeout: Duration) -> Result<CliOutput, String> {
+                if args.first().is_some_and(|a| a == "convert") {
+                    let path = args.get(2).ok_or("missing destination")?;
+                    fs::write(path, &self.saved).map_err(|e| e.to_string())?;
+                    return Ok(ok(String::new()));
+                }
+                FakeCli::new().call(args, timeout)
+            }
+        }
+        let dir = TempDir::new().unwrap();
+        let original = fixture(true, "Note", Some(("External", "file:///synthetic.csv", b"")), false);
+        fs::write(dir.path.join("case.docx"), original).unwrap();
+        let cli = SavingCli { saved: fixture(false, "Changed note", None, false) };
+        let mut options = opts(dir.path.clone(), dir.path.join("report.json"));
+        let basic = execute(&options, &cli).unwrap().unwrap();
+        assert_eq!(basic.totals.ok, 1);
+        assert_eq!(basic.files[0].preservation_match, None);
+        options.preservation = true;
+        let checked = execute(&options, &cli).unwrap().unwrap();
+        let file = &checked.files[0];
+        assert_eq!(file.text_match, Some(true));
+        assert_eq!(file.page_delta, Some(0));
+        assert_eq!(file.preservation_match, Some(false));
+        assert_eq!(checked.failures.preservation, 1);
+        assert_eq!(checked.totals.failed, 1);
+        let message = file.error.as_deref().unwrap();
+        for expected in ["field instructions", "note text or references", "mail-merge settings or referenced data"] {
+            assert!(message.contains(expected), "{message}");
+        }
+        assert!(!message.contains("synthetic.csv") && !message.contains("Changed note"));
+        assert!(summary_markdown(&checked).contains("preservation 1"));
+        let malformed = SavingCli { saved: b"not a zip".to_vec() };
+        let checked = execute(&options, &malformed).unwrap().unwrap();
+        assert_eq!(checked.files[0].preservation_match, None);
+        assert_eq!(checked.totals.failed, 1);
+        assert_eq!(checked.failures.preservation, 1);
+        let valid = SavingCli { saved: fixture(true, "Note", Some(("External", "file:///synthetic.csv", b"")), true) };
+        let checked = execute(&options, &valid).unwrap().unwrap();
+        assert_eq!(checked.files[0].preservation_match, Some(true));
+        assert_eq!(checked.totals.ok, 1);
     }
 }
