@@ -448,8 +448,8 @@ pub fn now_iso() -> String {
 
 /// The timestamp a saved or exported file records (its created and modified properties):
 /// `SOURCE_DATE_EPOCH` when it holds a non-negative whole number of seconds, else the clock. With
-/// it set, saving or exporting one document twice gives the same bytes, which is otherwise
-/// impossible -- the timestamp is the only thing that differs
+/// it set, separate conversions of unchanged input can produce the same bytes. Repeated saves
+/// of one session still advance the document revision
 /// (<https://reproducible-builds.org/specs/source-date-epoch/>).
 ///
 /// The clock stays in [`now_iso`]: an editing event's time is not the file's, and pinning it would
