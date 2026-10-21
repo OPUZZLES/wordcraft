@@ -932,9 +932,9 @@ fn has_switch(instr: &str, sw: char) -> bool {
     })
 }
 
-/// Update fields of the story being edited, as Word's F9 does: dates, REF/PAGEREF, TITLE, AUTHOR
-/// and NUMWORDS in the body, or in the header, footer, note or text box the caret is in (the body's
-/// fields stay as they are then). SEQ numbering, citations and TOC are body-only, so they run only
+/// Update fields of the story being edited, as Word's F9 does: dates, REF/PAGEREF, TITLE, AUTHOR,
+/// FILENAME and NUMWORDS in the body, or the header, footer, note or text box the caret is in
+/// (the body's fields stay as they are then). SEQ numbering, citations and TOC are body-only, so they run only
 /// when the caret is in the body.
 pub fn update_fields(s: &mut Session) -> Result<(), CmdError> {
     update_fields_in(s, false)
@@ -1013,6 +1013,13 @@ pub fn update_fields_in(s: &mut Session, all: bool) -> Result<(), CmdError> {
                 "TITLE" => updates.push((k, s.doc.core.title.clone())),
                 "AUTHOR" => updates.push((k, s.doc.core.creator.clone())),
                 "NUMWORDS" => updates.push((k, s.doc.word_count().to_string())),
+                // Insertion calls this same update path. Keep the result in the document so
+                // layout, exports and a fresh reopen agree; a path switch remains unsupported.
+                "FILENAME" if !has_switch(instr, 'p') => {
+                    if let Some(name) = s.path.as_ref().and_then(|path| path.file_name()) {
+                        updates.push((k, name.to_string_lossy().into_owned()));
+                    }
+                }
                 _ => {}
             }
         }
@@ -1419,5 +1426,62 @@ mod tests {
         s.run("references.caption", &json!({})).unwrap();
         let texts: Vec<String> = s.doc.body.iter().filter_map(|b| b.as_para()).map(|p| p.plain_text()).collect();
         assert_eq!(texts.get(1).map(String::as_str), Some("Figure 1"), "{texts:?}");
+    }
+
+    /// #3449: inserting an ordinary FILENAME in a saved document populates its result;
+    /// an explicit update after Save As takes the current name, including its extension.
+    #[test]
+    fn filename_insertion_and_update_use_the_current_saved_name() {
+        let mut s = Session::new(wordcraft_doc::Document::new());
+        s.path = Some(std::path::PathBuf::from("reports/Report Δ.docx"));
+        s.run("insert.field", &json!({"instr":"FILENAME"})).unwrap();
+        assert_eq!(story_fields(&s, StoryRef::Body), vec![("FILENAME".into(), "Report Δ.docx".into())]);
+        s.path = Some(std::path::PathBuf::from("renamed/Final report.docx"));
+        s.run("references.updateFields", &json!({})).unwrap();
+        assert_eq!(story_fields(&s, StoryRef::Body)[0].1, "Final report.docx");
+        s.run("edit.undo", &json!({})).unwrap();
+        assert_eq!(story_fields(&s, StoryRef::Body)[0].1, "Report Δ.docx");
+    }
+
+    /// The existing current-story/all-stories and field-lock rules also apply to FILENAME.
+    #[test]
+    fn filename_updates_keep_story_scope_and_locked_caches() {
+        let mut doc = wordcraft_doc::Document::new();
+        let make = |locked| InlineObject::Field {
+            instr: "FILENAME".into(),
+            result: "cached.docx".into(),
+            locked,
+            dirty: true,
+            code: false,
+            form: String::new(),
+        };
+        doc.para_mut(StoryRef::Body, &Path::top(0)).unwrap().insert_object(0, make(false), &CharProps::default()).unwrap();
+        let mut header = Paragraph::new();
+        header.insert_object(0, make(false), &CharProps::default()).unwrap();
+        header.insert_object(header.len(), make(true), &CharProps::default()).unwrap();
+        let hdr = doc.add_part(PartKind::Header, vec![std::sync::Arc::new(wordcraft_doc::Block::Para(header))]);
+        let mut footer = Paragraph::new();
+        footer.insert_object(0, make(false), &CharProps::default()).unwrap();
+        let ftr = doc.add_part(PartKind::Footer, vec![std::sync::Arc::new(wordcraft_doc::Block::Para(footer))]);
+        let mut s = Session::new(doc);
+        s.path = Some(std::path::PathBuf::from("Report.docx"));
+        s.run("references.updateFields", &json!({})).unwrap();
+        assert_eq!(story_fields(&s, StoryRef::Body)[0].1, "Report.docx");
+        assert_eq!(story_fields(&s, StoryRef::Part(hdr))[0].1, "cached.docx");
+        s.run("references.updateFields", &json!({"all":true})).unwrap();
+        assert_eq!(story_fields(&s, StoryRef::Part(hdr)), vec![("FILENAME".into(), "Report.docx".into()), ("FILENAME".into(), "cached.docx".into())]);
+        assert_eq!(story_fields(&s, StoryRef::Part(ftr))[0].1, "Report.docx");
+    }
+
+    /// No saved path, or an unsupported path switch: keep the existing cache.
+    #[test]
+    fn filename_without_a_saved_path_or_with_path_switch_keeps_its_cache() {
+        let mut s = Session::new(wordcraft_doc::Document::new());
+        s.run("insert.field", &json!({"instr":"FILENAME", "result":"cached.docx"})).unwrap();
+        assert_eq!(story_fields(&s, StoryRef::Body)[0].1, "cached.docx");
+        s.path = Some(std::path::PathBuf::from("Report.docx"));
+        s.run("insert.field", &json!({"instr":r"FILENAME \p", "result":"original/full/path.docx"})).unwrap();
+        s.run("references.updateFields", &json!({})).unwrap();
+        assert_eq!(story_fields(&s, StoryRef::Body)[1].1, "original/full/path.docx");
     }
 }
