@@ -1256,6 +1256,73 @@ mod tests {
     }
 
     #[test]
+    fn picture_soft_edges_preserve_opaque_paper_and_shapes_behind_them() {
+        use wordcraft_geom::Rect;
+        let mut d = Document::new();
+        let mut png = Vec::new();
+        image::RgbaImage::from_pixel(2, 2, image::Rgba([180, 30, 20, 255]))
+            .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+            .unwrap();
+        let media = d.add_media(png, "png");
+        for shape_behind in [false, true] {
+            let mut backdrop = vec![Draw::Fill { rect: Rect::new(0.0, 0.0, 176.0, 128.0), color: Rgb::WHITE, alpha: 1.0, text_bg: false }];
+            if shape_behind {
+                backdrop.push(Draw::Shape {
+                    rect: Rect::new(0.0, 0.0, 100.0, 128.0),
+                    kind: ShapeKind::Ellipse,
+                    fill: Some(Rgb(20, 100, 220)),
+                    stroke: None,
+                    stroke_width: 0.0,
+                    effects: Default::default(),
+                    corner: None,
+                    dash: Vec::new(),
+                });
+            }
+            for scale in [1.0, 2.0] {
+                let render = |items: &[Draw]| render_items(&d, items, 0.0, 0.0, 176.0, 128.0, scale, &RenderOptions::default());
+                let background = render(&backdrop);
+                for radius in [None, Some(0.0), Some(6.0), Some(25.0)] {
+                    for alpha in [1.0, 0.5] {
+                        let picture = Draw::Image {
+                            rect: Rect::new(16.0, 16.0, 144.0, 96.0),
+                            media: media.clone(),
+                            crop: [0.0; 4],
+                            soft_edge: radius,
+                            alpha,
+                            alt: String::new(),
+                        };
+                        let isolated = render(std::slice::from_ref(&picture));
+                        let mut scene = backdrop.clone();
+                        scene.push(picture);
+                        let composed = render(&scene);
+                        assert!(
+                            composed.pixels.as_chunks::<4>().0.iter().all(|p| p[3] == 255),
+                            "opaque backdrop lost: shape={shape_behind}, scale={scale}, radius={radius:?}, alpha={alpha}"
+                        );
+                        // Source-over must preserve both the paper and the shape under the
+                        // feather, including the picture's own opacity. Sample both side edges
+                        // and the centre, away from the ellipse's antialiased boundary.
+                        for x in [17.0, 22.0, 41.0, 88.0, 153.0, 158.0] {
+                            let (x, y) = ((x * scale) as u32, (64.0 * scale) as u32);
+                            let foreground = isolated.pixel(x, y);
+                            let behind = background.pixel(x, y);
+                            let actual = composed.pixel(x, y);
+                            let a = u32::from(foreground[3]);
+                            for channel in 0..3 {
+                                let expected = (u32::from(foreground[channel]) * a + u32::from(behind[channel]) * (255 - a) + 127) / 255;
+                                assert!(
+                                    (i32::from(actual[channel]) - expected as i32).abs() <= 3,
+                                    "backdrop colour changed: shape={shape_behind}, scale={scale}, radius={radius:?}, alpha={alpha}, at=({x},{y}), actual={actual:?}, foreground={foreground:?}, behind={behind:?}"
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     fn picture_feather_matches_observed_reference_alpha_with_bounded_tolerance() {
         use wordcraft_geom::Rect;
         let mut d = Document::new();
