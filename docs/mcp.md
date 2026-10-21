@@ -58,8 +58,10 @@ as usual. A no-match search leaves the selection in place; the requested scope a
 that call. `edit.find` without `text` still focuses Navigation search. To list body matches
 without moving the caret, use `edit.advancedFind {"text":"Main","in":"main"}` instead.
 
-`edit.replace` and `edit.replaceAll` operate on the caret's story and reject `story`.
-To replace in another story, first select a match there with `select.text` or `edit.find`.
+`edit.replace` operates on the caret's story. To replace one match in another story,
+first select it there with `select.text` or `edit.find`. `edit.replaceAll` covers the body,
+headers, footers, footnotes, endnotes, and text boxes, excluding comments. Both replacement
+commands reject `story` before changing the document or search state.
 
 ## Tracked changes by an agent
 
