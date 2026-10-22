@@ -672,11 +672,21 @@ fn step(s: &mut Session, dir: i64) -> CmdResult {
     Ok(json!({"index": idx, "count": n}))
 }
 
+/// Replace needs something to look for: the `text` given, or the last search's (Find then Replace
+/// with just a `with`). Neither is a call that would silently replace nothing (a misspelt `text`).
+fn need_query(s: &Session, v: &Value) -> Result<(), CmdError> {
+    if p::str(v, "text").is_none() && s.find.query.is_empty() {
+        return Err(CmdError::Params("`text` (string) is required".into()));
+    }
+    Ok(())
+}
+
 /// Replace a selected match in the caret's story, then select the next match.
 fn replace(s: &mut Session, v: &Value) -> CmdResult {
     if v.get("story").is_some() {
         return Err(CmdError::Params("`story` is not supported for replacement".into()));
     }
+    need_query(s, v)?;
     read_opts(s, v);
     let story = s.sel.focus.story;
     let results = search_full(s, story, true)?;
@@ -695,6 +705,7 @@ fn replace_all(s: &mut Session, v: &Value) -> CmdResult {
     if v.get("story").is_some() {
         return Err(CmdError::Params("`story` is not supported for replacement".into()));
     }
+    need_query(s, v)?;
     read_opts(s, v);
     let story = s.sel.focus.story;
     let results = search_full(s, story, true)?;
