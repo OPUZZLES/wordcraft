@@ -161,8 +161,8 @@ markers, paragraph breaks or control characters other than tabs.
 A stale token, missing or ambiguous match, tracked-deleted target, control placeholder, active
 equation editing or rectangular selection refuses the edit. Document protection, protected-range
 exceptions, locked controls and Track Changes still apply. A refusal preserves document,
-selection and undo history. Read again and reconsider the target after a conflict; do not
-blindly retry with changed tokens.
+selection, undo history, pending Undo joining, macro recording, Repeat and a tracked cut.
+Read again and reconsider the target after a conflict; do not blindly retry with changed tokens.
 
 This is one paragraph operation, not a batch transaction or a general comment-anchor mapper.
 It is available through the normal headless command API and authenticated desktop control

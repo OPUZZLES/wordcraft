@@ -207,3 +207,45 @@ fn pending_formatting_and_failed_forced_tracking_do_not_leak() {
     let v = args(&s, "target", "replacement");
     refuses(&mut s, v);
 }
+
+#[test]
+fn protected_refusal_keeps_the_pending_undo_join() {
+    let mut s = Session::new(Document::from_text("A"));
+    s.run("format.bold", &json!({})).unwrap();
+    let depth = s.undo_depth();
+    s.doc.settings.protection = Some("readOnly".into());
+    let request = args(&s, "A", "replacement");
+    s.join_next_undo();
+    refuses(&mut s, request);
+    s.doc.settings.protection = None;
+    s.run("text.insert", &json!({"text":"C", "raw":true})).unwrap();
+    assert_eq!(s.undo_depth(), depth, "the refusal must not consume the pending undo join");
+    s.run("edit.undo", &json!({})).unwrap();
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "A");
+}
+
+#[test]
+fn protected_refusal_keeps_macro_repeat_and_tracked_move_state() {
+    let mut s = Session::new(Document::from_text("Move this sentence. Locked and Editable."));
+    s.run("select.text", &json!({"text":"Editable"})).unwrap();
+    s.run("review.restrict", &json!({"exception":"add"})).unwrap();
+    s.run("review.trackChanges", &json!({"value":true})).unwrap();
+    s.run("select.text", &json!({"text":"Move this sentence."})).unwrap();
+    s.run("edit.cut", &json!({})).unwrap();
+    assert!(s.pending_move.is_some());
+    s.doc.settings.protection = Some("readOnly".into());
+    s.run("tools.recordMacro", &json!({"name":"Refusal control"})).unwrap();
+    let recording = s.recording.clone();
+    let repeat = s.last_command.clone();
+    let tracked_move = format!("{:?}", s.pending_move);
+    let request = args(&s, "Locked", "Changed");
+    refuses(&mut s, request);
+    assert_eq!(s.recording, recording);
+    assert_eq!(s.last_command, repeat);
+    assert_eq!(format!("{:?}", s.pending_move), tracked_move);
+    let request = args(&s, "Editable", "Allowed");
+    s.run("edit.replaceText", &request).unwrap();
+    assert_eq!(s.recording.as_ref().unwrap().1.len(), 1);
+    assert_eq!(s.last_command.as_ref().unwrap().0, "edit.replaceText");
+    assert!(s.pending_move.is_none());
+}
