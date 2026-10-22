@@ -45,8 +45,16 @@ fn rename(s: &mut Session, v: &Value) -> CmdResult {
     if let Some(path) = &s.path {
         let mut destination = path.with_file_name(name);
         // The field edits the stem; retain the original format, including macro/template files.
+        // A name that already ends in that extension is taken as the whole file name, since a
+        // script or an agent passes one ("renamed.docx" became "renamed.docx.docx", #2983). The
+        // extension alone (".docx") is a stem, not a file name, so it still gets one.
         if let Some(ext) = path.extension() {
-            destination.set_file_name(format!("{name}.{}", ext.to_string_lossy()));
+            let ext = ext.to_string_lossy();
+            // Split at the name's own last dot rather than counting bytes back from its end: a
+            // name whose characters are more than one byte each ("résumé.docm") would be cut
+            // inside one of them, and slicing there panics (#3128 review).
+            let given = name.rsplit_once('.').is_some_and(|(stem, suffix)| !stem.is_empty() && suffix.eq_ignore_ascii_case(ext.as_ref()));
+            destination.set_file_name(if given { name.to_string() } else { format!("{name}.{ext}") });
         }
         if destination != *path {
             #[cfg(not(target_arch = "wasm32"))]
@@ -57,16 +65,18 @@ fn rename(s: &mut Session, v: &Value) -> CmdResult {
                 }
             }
             s.path = Some(destination);
+            s.relayout();
         }
     } else {
         s.file_name = Some(name.to_string());
+        s.relayout();
     }
     Ok(json!({"name": name, "path": s.path}))
 }
 
 pub fn specs() -> Vec<CommandSpec> {
     vec![
-        CommandSpec::new("file.rename", "Rename Document", "File › Info", rename).params(r#"{"name": string (document name without its extension)}"#).pure(),
+        CommandSpec::new("file.rename", "Rename Document", "File › Info", rename).params(r#"{"name": string (document name; its extension is kept, so the name may be given with or without it)}"#).pure(),
         CommandSpec::new("file.new", "New", "File", new).key("Mod+N").params(r#"{"template"?: "blank|sample|letter|resume|report"}"#).pure(),
         CommandSpec::new("file.open", "Open", "File", open)
             .key("Mod+O / Mod+F12 / Mod+Alt+F2")
@@ -108,7 +118,7 @@ pub fn specs() -> Vec<CommandSpec> {
         .pure(),
         CommandSpec::new("file.printPdf", "Print to PDF", "File › Print", crate::print::print_pdf_to_file)
             .params(
-                r#"{"path": string, "range"?: "all" | "current" | "selection" (the pages the selection touches) | "custom", "pages"?: "1-3,5" (implies custom), "parity"?: "all" | "odd" | "even", "copies"?: 1-999, "collate"?: bool (default true)}"#,
+                r#"{"path": string, "range"?: "all" | "current" | "selection" (the pages the selection touches) | "custom", "pages"?: "1-3,5" (implies custom), "parity"?: "all" | "odd" | "even", "copies"?: 1-999, "collate"?: bool (default true), "paper"?: "none" | "Letter" | "Legal" | "A4" | … (a Layout › Size name: scale every page to this paper, centred; the document keeps its size)}"#,
             )
             .pure(),
         CommandSpec::new("file.print", "Print", "File", |s, _| {
@@ -185,6 +195,7 @@ fn privacy(s: &Session) -> Value {
     json!({"removePersonalInfo": s.doc.settings.remove_personal_info, "removeDateTime": s.doc.settings.remove_date_time})
 }
 
+/// Create a blank document in the saved proofing language, or use the requested template.
 fn new(s: &mut Session, v: &Value) -> CmdResult {
     let doc = match p::str(v, "template").unwrap_or("blank") {
         "sample" => crate::sample::sample_document(),
@@ -202,13 +213,21 @@ fn new(s: &mut Session, v: &Value) -> CmdResult {
 /// language (the templates' text is English).
 fn normal_document(s: &Session) -> Document {
     let mut d = s.blank_document();
-    if let Some(lang) = &s.editing_lang {
+    if let Some(lang) = s.prefs.default_language.as_ref().or(s.editing_lang.as_ref()) {
         d.styles.default_chr.lang = Some(lang.clone());
     }
     d
 }
 
+/// Open a document, using the saved proofing default only for plain text and Markdown.
 fn open(s: &mut Session, v: &Value) -> CmdResult {
+    if v.get("nativeRead").is_some() {
+        if p::str(v, "path").is_none() || p::str(v, "data").is_none() {
+            return Err(CmdError::Params("nativeRead requires its prepared path and data".into()));
+        }
+        #[cfg(target_arch = "wasm32")]
+        return Err(CmdError::Params("nativeRead is only available to a native host".into()));
+    }
     let Some(path) = p::str(v, "path") else {
         s.ui_requests.push(json!({"open": "openFile"}));
         return sel_result(s);
@@ -217,12 +236,34 @@ fn open(s: &mut Session, v: &Value) -> CmdResult {
     let native_path = std::path::Path::new(path);
     let encrypted = if let Some(data) = p::str(v, "data") {
         let bytes = super::insert::base64_decode(data).ok_or_else(|| CmdError::Params("bad base64".into()))?;
+        #[cfg(not(target_arch = "wasm32"))]
+        let native = if let Some(id) = v.get("nativeRead") {
+            let read = id
+                .as_u64()
+                .and_then(|id| s.native_opens.get(&id))
+                .and_then(std::sync::Weak::upgrade)
+                .ok_or_else(|| CmdError::Failed("the native open request has expired".into()))?;
+            if read.path.to_string_lossy() != path || !read.version.matches_bytes(&bytes) {
+                return Err(CmdError::Failed("the native open request does not match these bytes".into()));
+            }
+            Some(read)
+        } else {
+            None
+        };
         let (doc, encrypted) = if bytes.is_empty() {
             (normal_document(s), false)
         } else {
             crate::io::open_bytes_in(path, &bytes, password, &s.region()).map_err(CmdError::Failed)?
         };
-        finish_open(s, doc, native_path, password, encrypted);
+        #[cfg(not(target_arch = "wasm32"))]
+        let opened_path = native.as_ref().map_or(native_path, |read| read.path.as_path());
+        #[cfg(target_arch = "wasm32")]
+        let opened_path = native_path;
+        finish_open(s, doc, opened_path, password, encrypted);
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(read) = native {
+            s.file_version = Some(read.version.clone());
+        }
         encrypted
     } else {
         #[cfg(not(target_arch = "wasm32"))]
@@ -239,7 +280,44 @@ fn open(s: &mut Session, v: &Value) -> CmdResult {
     Ok(json!({"path": path, "paragraphs": s.doc.paragraph_count(), "words": s.doc.word_count(), "encrypted": encrypted}))
 }
 
+/// A native Open request's lifetime. Keep it while its returned command is deferred;
+/// dropping it releases the read handle and makes that command refuse a later retry.
+#[cfg(not(target_arch = "wasm32"))]
+pub struct NativeOpen {
+    id: u64,
+    _read: std::sync::Arc<NativeRead>,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl NativeOpen {
+    /// Session-local request identity used by the native host's pending command.
+    pub fn id(&self) -> u64 {
+        self.id
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) struct NativeRead {
+    path: std::path::PathBuf,
+    version: crate::io::FileVersion,
+}
+
 impl Session {
+    /// Prepare a native byte-backed Open, including filenames JSON cannot represent losslessly.
+    /// The host owns the returned guard through Save Changes/password retries and drops it
+    /// when that request finishes or is abandoned. Neither a name nor equal bytes identify it.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn prepare_native_open(&mut self, path: &std::path::Path) -> Result<(Value, NativeOpen), String> {
+        let (bytes, version) = crate::io::read_native_file_versioned(path)?;
+        let id = self.native_open_sequence.checked_add(1).ok_or("native open request identities exhausted")?;
+        self.native_open_sequence = id;
+        let read = std::sync::Arc::new(NativeRead { path: path.to_path_buf(), version });
+        self.native_opens.retain(|_, read| read.strong_count() != 0);
+        self.native_opens.insert(id, std::sync::Arc::downgrade(&read));
+        let params = json!({"path":path.to_string_lossy(),"data":super::insert::base64_encode(&bytes),"nativeRead":id});
+        Ok((params, NativeOpen { id, _read: read }))
+    }
+
     /// Native hosts and CLI open through the same session path as `file.open`, including
     /// filenames that are not Unicode. The expected save version is the exact content read.
     /// Returns whether the file was encrypted; a failed open leaves the session unchanged.
@@ -256,7 +334,7 @@ impl Session {
 fn finish_open(s: &mut Session, mut doc: Document, path: &std::path::Path, password: Option<&str>, encrypted: bool) {
     // Plain text and Markdown carry no language: they are in the editing language.
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
-    if let Some(lang) = &s.editing_lang
+    if let Some(lang) = s.prefs.default_language.as_ref().or(s.editing_lang.as_ref())
         && matches!(ext.as_str(), "txt" | "text" | "md" | "markdown")
     {
         doc.styles.default_chr.lang = Some(lang.clone());
@@ -328,9 +406,11 @@ fn save(s: &mut Session, v: &Value) -> CmdResult {
         s.clear_recovery_before_password()?;
         password = Some(crate::io::Password::new(pw));
     }
-    // Stamp in place and put the old properties back if the save fails, so a refused save
-    // leaves the live document's metadata as it was (cheaper than cloning the document).
-    let before = s.doc.core.clone();
+    // Undone below if the write fails: a failed save (no permission, disk full, a bad path)
+    // must not leave the document's own save stamps — zoom, modified/created, author, revision —
+    // changed, or a later save would persist them for a write that never actually happened.
+    let before_stamp =
+        (s.doc.settings.zoom, s.doc.core.last_modified_by.clone(), s.doc.core.created.clone(), s.doc.core.modified.clone(), s.doc.core.revision);
     s.stamp_save();
     let pw = password.as_ref().map(crate::io::Password::as_str);
     // Retain main's omission of a newly created empty header/footer (#1144).
@@ -344,13 +424,15 @@ fn save(s: &mut Session, v: &Value) -> CmdResult {
     let version = match saved {
         Ok(version) => version,
         Err(e) => {
-            s.doc.core = before;
+            (s.doc.settings.zoom, s.doc.core.last_modified_by, s.doc.core.created, s.doc.core.modified, s.doc.core.revision) = before_stamp;
             return Err(e);
         }
     };
     let encrypted = pw.is_some() && crate::io::can_encrypt(&path.to_string_lossy());
     s.password = password;
-    let keeps_document = ["docx", "docm", "dotx", "dotm", "odt", "rtf", "json", "xml"].contains(&ext.as_str());
+    // Saving an open text file over itself completes the save; another lossy target is a copy.
+    let own_file = s.path.as_deref() == Some(path.as_path());
+    let keeps_document = own_file || ["docx", "docm", "dotx", "dotm", "odt", "rtf", "json", "xml"].contains(&ext.as_str());
     #[cfg(not(target_arch = "wasm32"))]
     if keeps_document {
         s.file_version = Some(version);
@@ -365,6 +447,7 @@ fn save(s: &mut Session, v: &Value) -> CmdResult {
     if keeps_document {
         s.path = Some(path.clone());
         s.dirty = false;
+        s.relayout();
     }
     Ok(json!({"saved": true, "path": path.to_string_lossy(), "encrypted": encrypted}))
 }

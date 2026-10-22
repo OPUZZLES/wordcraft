@@ -1,6 +1,6 @@
 //! Synthetic external-writer cases; originals are frozen and only working copies are saved.
 #![cfg(not(target_arch = "wasm32"))]
-use serde_json::json;
+use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use wordcraft_doc::{Document, StoryRef};
@@ -234,15 +234,17 @@ fn native_non_unicode_path_retains_region_and_conflict_protection() {
 }
 
 #[test]
-fn lossy_saves_advance_our_own_bytes_but_a_copy_keeps_the_original_identity() {
+fn same_path_text_saves_advance_our_bytes_but_a_copy_keeps_the_original_identity() {
     let d = Scratch::new();
     let path = d.path("working.txt");
     std::fs::write(&path, "Original text").unwrap();
     let mut s = open(&path);
     for _ in 0..2 {
+        s.run("text.insert", &json!({"text": " Continued"})).unwrap();
         s.run("file.save", &json!({})).unwrap();
         assert_eq!(s.path.as_ref(), Some(&path));
-        assert!(s.dirty, "a lossy save still leaves the full document unsaved");
+        assert!(!s.dirty, "saving the open text file completes the save");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), s.doc.plain_text(StoryRef::Body));
     }
     std::fs::write(&path, "External text").unwrap();
     assert!(matches!(s.run("file.save", &json!({})), Err(wordcraft_engine::CmdError::FileConflict(_))));
@@ -270,6 +272,7 @@ fn versioned_open_keeps_the_automation_read_boundary() {
     let roots = AutomationRoots::new(Some(&input), None).unwrap().unwrap();
     let mut s = Session::new(Document::from_text("Unsaved draft"));
     confine(Some(&roots), || {
+        assert!(s.prepare_native_open(&path).is_err_and(|e| e.contains("outside the read root")));
         let result = s.run("file.open", &json!({"path": path}));
         assert!(result.is_err_and(|e| e.to_string().contains("outside the read root")));
         assert_eq!(s.doc.plain_text(StoryRef::Body), "Unsaved draft");
@@ -847,4 +850,107 @@ fn lossy_save_through_alias_retains_the_sessions_logical_path() {
     s.run("file.saveAs", &json!({"path": copy})).unwrap();
     assert_eq!(io::open_path(&copy).unwrap().plain_text(StoryRef::Body), "Local edit");
     assert_eq!(std::fs::read(&external).unwrap(), frozen);
+}
+
+#[test]
+fn native_byte_open_keeps_the_read_baseline_through_password_retry() {
+    for password in [None, Some("synthetic-password")] {
+        let d = Scratch::new();
+        let path = d.path("native.docx");
+        let a = io::save_bytes_with("native.docx", &Document::from_text("Original A"), password, &io::ExportOptions::default()).unwrap();
+        std::fs::write(&path, &a).unwrap();
+        let mut s = Session::new(Document::from_text("Unsaved draft"));
+        s.dirty = true;
+        let document = s.document_id();
+        let (mut params, _guard) = s.prepare_native_open(&path).unwrap();
+        assert_eq!(s.document_id(), document);
+        assert!(s.dirty && s.path.is_none());
+        assert_eq!(s.doc.plain_text(StoryRef::Body), "Unsaved draft");
+        let b = io::save_bytes("external.docx", &Document::from_text("External B")).unwrap();
+        std::fs::write(&path, &b).unwrap();
+        if password.is_some() {
+            assert!(s.run("file.open", &params).is_err());
+            assert_eq!(s.document_id(), document);
+            assert!(s.dirty && s.path.is_none());
+            let malformed = d.path("malformed.docx");
+            std::fs::write(&malformed, b"Not a document package").unwrap();
+            let (other, guard) = s.prepare_native_open(&malformed).unwrap();
+            assert!(s.run("file.open", &other).is_err());
+            drop(guard);
+        }
+        params["password"] = json!(password);
+        s.run("file.open", &params).unwrap();
+        s.run("text.insert", &json!({"text":"Local edits"})).unwrap();
+        assert!(matches!(s.run("file.save", &json!({})), Err(wordcraft_engine::CmdError::FileConflict(_))));
+        assert_eq!(std::fs::read(&path).unwrap(), b);
+        assert!(s.dirty);
+        assert!(s.doc.plain_text(StoryRef::Body).contains("Local edits"));
+        let copy = d.path("copy.docx");
+        s.run("file.saveAs", &json!({"path":copy})).unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b);
+        assert!(io::open_path_with(&copy, password).unwrap().0.plain_text(StoryRef::Body).contains("Local edits"));
+    }
+}
+
+#[test]
+fn canceled_native_request_cannot_reopen_without_its_baseline() {
+    let d = Scratch::new();
+    let path = original(&d);
+    let mut s = Session::new(Document::from_text("Unsaved draft"));
+    s.dirty = true;
+    let document = s.document_id();
+    let (params, guard) = s.prepare_native_open(&path).unwrap();
+    for field in ["path", "data"] {
+        for value in [None, Some(Value::Null), Some(json!(true)), Some(json!(123)), Some(json!([])), Some(json!({}))] {
+            let mut invalid = params.clone();
+            if let Some(value) = value {
+                invalid[field] = value;
+            } else {
+                invalid.as_object_mut().unwrap().remove(field);
+            }
+            assert!(s.run("file.open", &invalid).is_err(), "native requests never fall through to ordinary Open: {invalid}");
+            assert_eq!(s.document_id(), document);
+            assert!(s.dirty && s.path.is_none());
+        }
+    }
+    drop(guard);
+    assert!(s.run("file.open", &params).is_err_and(|e| e.to_string().contains("expired")));
+    assert_eq!(s.document_id(), document);
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "Unsaved draft");
+    assert!(s.dirty && s.path.is_none());
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+#[test]
+fn native_requests_distinguish_identical_bytes_and_lossy_names() {
+    use std::ffi::OsString;
+    use std::os::unix::ffi::OsStringExt;
+    for password in [None, Some("synthetic-password")] {
+        let d = Scratch::new();
+        let a = d.0.join(OsString::from_vec(b"caf\xff.docx".to_vec()));
+        let b = d.0.join(OsString::from_vec(b"caf\xfe.docx".to_vec()));
+        let bytes = io::save_bytes_with("original.docx", &Document::from_text("Original"), password, &io::ExportOptions::default()).unwrap();
+        std::fs::write(&a, &bytes).unwrap();
+        std::fs::write(&b, &bytes).unwrap();
+        assert_eq!(a.to_string_lossy(), b.to_string_lossy());
+        let mut s = Session::new(Document::new());
+        let (first, _first_guard) = s.prepare_native_open(&a).unwrap();
+        if password.is_some() {
+            assert!(s.run("file.open", &first).is_err());
+        }
+        let (mut second, _second_guard) = s.prepare_native_open(&b).unwrap();
+        second["password"] = json!(password);
+        s.run("file.open", &second).unwrap();
+        assert_eq!(s.path.as_ref(), Some(&b));
+        s.run("text.insert", &json!({"text":"Local edit"})).unwrap();
+        s.run("file.save", &json!({})).unwrap();
+        assert_eq!(std::fs::read(&a).unwrap(), bytes, "the other native original never changes");
+        assert!(io::open_path_with(&b, password).unwrap().0.plain_text(StoryRef::Body).contains("Local edit"));
+        s.run("text.insert", &json!({"text":"Later edit"})).unwrap();
+        std::fs::write(&b, &bytes).unwrap();
+        assert!(matches!(s.run("file.save", &json!({})), Err(wordcraft_engine::CmdError::FileConflict(_))));
+        assert_eq!(std::fs::read(&b).unwrap(), bytes);
+        assert!(s.dirty);
+        assert!(s.run("file.open", &first).is_err_and(|e| e.to_string().contains("expired")));
+    }
 }

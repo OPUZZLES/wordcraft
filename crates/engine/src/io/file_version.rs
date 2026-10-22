@@ -72,13 +72,19 @@ fn entry_handle(path: &Path, kind: EntryKind) -> std::io::Result<same_file::Hand
 
 fn regular(path: &Path) -> std::io::Result<File> {
     let meta = fs::metadata(path)?;
-    if !meta.is_file() || meta.len() > MAX_BYTES {
-        return Err(std::io::Error::other("expected a regular file no larger than 2 GB"));
+    if !meta.is_file() {
+        return Err(std::io::Error::other("not a file (expected a regular file)"));
+    }
+    if meta.len() > MAX_BYTES {
+        return Err(std::io::Error::other("file larger than 2 GB"));
     }
     let file = open_read(path)?;
     let meta = file.metadata()?;
-    if !meta.is_file() || meta.len() > MAX_BYTES {
-        return Err(std::io::Error::other("expected a regular file no larger than 2 GB"));
+    if !meta.is_file() {
+        return Err(std::io::Error::other("not a file (expected a regular file)"));
+    }
+    if meta.len() > MAX_BYTES {
+        return Err(std::io::Error::other("file larger than 2 GB"));
     }
     Ok(file)
 }
@@ -121,6 +127,8 @@ fn equivalent_missing_name(a: &OsStr, b: &OsStr, folds_case: bool) -> bool {
 }
 
 impl FileVersion {
+    /// Native opens require a regular file so subsequent saves have a stable content baseline.
+    /// Stream import needs separate semantics rather than bypassing identity verification.
     pub(super) fn read(path: &Path) -> Result<(Vec<u8>, Self), String> {
         let read = || -> std::io::Result<_> {
             let mut file = regular(path)?;
@@ -142,6 +150,11 @@ impl FileVersion {
             Ok((bytes, version))
         };
         read().map_err(|e| format!("{}: {e}", path.display()))
+    }
+
+    /// Match a host's byte-backed open to its original read, without adopting a later disk version.
+    pub(crate) fn matches_bytes(&self, bytes: &[u8]) -> bool {
+        <[u8; 32]>::from(Sha256::digest(bytes)) == self.digest
     }
 
     /// Track the logical session path without adopting different file content.

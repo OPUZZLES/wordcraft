@@ -1,5 +1,11 @@
 //! Sibling temporary files owned by one save. The destination changes only after preparation
 //! succeeds; concurrent saves have separate files and the last successful replacement wins.
+//!
+//! When the folder refuses the temporary file (macOS privacy protection, #2138, or a read-only
+//! folder), an existing destination is never written in place: it is left exactly as it was and
+//! the error says to use Save As to another folder or to give WordCraft access to this one. Only
+//! a destination that doesn't exist yet, so has no previous version to lose, is created directly;
+//! a failed direct write leaves the path alone and reports that an incomplete new file may remain.
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -9,36 +15,159 @@ pub(super) fn write(path: &Path, bytes: &[u8]) -> io::Result<()> {
     prepare(path, bytes)?.commit(path)
 }
 
-/// A completed sibling replacement, still owned until its destination is checked and committed.
-pub(super) fn prepare(path: &Path, bytes: &[u8]) -> io::Result<Temporary> {
+/// A replacement is complete before the version check; a direct new-file fallback has no
+/// filesystem effect until commit, so a missing owned destination can still be refused.
+pub(super) enum Prepared<'a> {
+    Replacement(Temporary),
+    NewFile { bytes: &'a [u8], refused: io::Error },
+}
+
+impl Prepared<'_> {
+    pub(super) fn commit(self, path: &Path) -> io::Result<()> {
+        match self {
+            Self::Replacement(temp) => temp.commit(path),
+            Self::NewFile { bytes, refused } => create_directly(path, refused, |file| {
+                file.write_all(bytes)?;
+                file.sync_all()
+            }),
+        }
+        .map_err(explain)
+    }
+}
+
+pub(super) fn prepare<'a>(path: &Path, bytes: &'a [u8]) -> io::Result<Prepared<'a>> {
+    prepare_with(path, bytes, Temporary::create).map_err(explain)
+}
+
+fn prepare_with<'a>(path: &Path, bytes: &'a [u8], create: impl FnOnce(&Path, bool) -> io::Result<Temporary>) -> io::Result<Prepared<'a>> {
     let permissions = match fs::metadata(path) {
         Ok(meta) if meta.is_file() => Some(meta.permissions()),
         Ok(_) => None,
         Err(e) if e.kind() == io::ErrorKind::NotFound => None,
         Err(e) => return Err(e),
     };
-    // A new document gets the usual mode (0666 less the umask); a replaced one keeps its own,
-    // and its temporary file stays private until that mode is applied.
-    let private = permissions.is_some();
-    let mut temp = Temporary::create(path, private)?;
+    let mut temp = match create(path, permissions.is_some()) {
+        Ok(temp) => temp,
+        Err(refused) if refused.kind() == io::ErrorKind::PermissionDenied => return Ok(Prepared::NewFile { bytes, refused }),
+        Err(e) => return Err(e),
+    };
     {
         let file = temp.file()?;
         file.write_all(bytes)?;
         if let Some(permissions) = permissions {
-            file.set_permissions(permissions)?;
+            keep_permissions(file.set_permissions(permissions))?;
         }
-        // Synchronize the prepared file before replacing the destination. Directory durability
-        // and network-filesystem/power-loss guarantees are outside this operation's contract.
         file.sync_all()?;
     }
-    Ok(temp)
+    Ok(Prepared::Replacement(temp))
+}
+
+/// A folder that keeps no Unix modes refuses to set one with "Operation not supported": a NAS
+/// share mounted by GVFS (`smb://` in the Linux file manager) refuses every mode change (#3003).
+/// There is no mode to keep there, so the save goes on; any other failure still stops it.
+fn keep_permissions(set: io::Result<()>) -> io::Result<()> {
+    match set {
+        Err(e) if not_supported(&e) => Ok(()),
+        set => set,
+    }
+}
+
+/// ENOTSUP and EOPNOTSUPP, which std doesn't count as `Unsupported` (only ENOSYS), plus that kind.
+fn not_supported(e: &io::Error) -> bool {
+    const CODES: &[i32] = if cfg!(any(target_os = "linux", target_os = "android")) {
+        &[95]
+    } else if cfg!(any(target_os = "macos", target_os = "ios")) {
+        &[45, 102]
+    } else if cfg!(target_os = "openbsd") {
+        &[45, 91]
+    } else if cfg!(target_os = "netbsd") {
+        &[45, 86]
+    } else if cfg!(any(target_os = "freebsd", target_os = "dragonfly")) {
+        &[45]
+    } else {
+        &[]
+    };
+    e.kind() == io::ErrorKind::Unsupported || e.raw_os_error().is_some_and(|code| CODES.contains(&code))
 }
 
 #[cfg(test)]
 fn replace_with(path: &Path, private: bool, prepare: impl FnOnce(&mut File) -> io::Result<()>) -> io::Result<()> {
-    let mut temp = Temporary::create(path, private)?;
+    let mut temp = match Temporary::create(path, private) {
+        Ok(temp) => temp,
+        // macOS only lets an app write the file picked in the Save panel inside a protected
+        // folder (Desktop, Documents, Downloads, iCloud Drive), not a sibling temporary file
+        // (#2138); a read-only folder refuses it too.
+        Err(e) if e.kind() == io::ErrorKind::PermissionDenied => return create_directly(path, e, prepare),
+        Err(e) => return Err(e),
+    };
     prepare(temp.file()?)?;
     temp.commit(path)
+}
+
+/// No temporary file may be created beside `path` (`refused` says why). A file that doesn't exist
+/// yet is created directly (there is no previous version to lose). After a write failure, leave
+/// the path alone: another writer may have replaced it. Report that an incomplete file may remain.
+/// Anything already at `path` is left untouched: overwriting it in place could destroy the only
+/// copy, so the error says how to save safely instead.
+fn create_directly(path: &Path, refused: io::Error, prepare: impl FnOnce(&mut File) -> io::Result<()>) -> io::Result<()> {
+    // `create_new` never opens an existing file or follows a link, so it can't touch one.
+    let mut file = match OpenOptions::new().write(true).create_new(true).open(path) {
+        Ok(file) => file,
+        Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {
+            return Err(guided(
+                refused,
+                "This folder doesn't let WordCraft create the temporary file a safe save needs, so the existing file was left unchanged.",
+            ));
+        }
+        Err(e) if e.kind() == io::ErrorKind::PermissionDenied => return Err(guided(e, "WordCraft can't create files in this folder.")),
+        Err(e) => return Err(e),
+    };
+    let Err(failed) = prepare(&mut file) else {
+        return Ok(());
+    };
+    drop(file);
+    // Checking the file's identity before unlinking would still race with replacement.
+    Err(io::Error::new(
+        failed.kind(),
+        format!("{failed}. An incomplete new file may remain at {}. Use Save As with a different file name to retry.", path.display()),
+    ))
+}
+
+/// A save refused for want of folder access, already worded with what to do about it.
+#[derive(Debug)]
+struct Guided(String);
+
+impl std::fmt::Display for Guided {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for Guided {}
+
+/// `e`, then `why`, then how to save anyway: Save As to another folder, or access to this one.
+fn guided(e: io::Error, why: &str) -> io::Error {
+    let access = if cfg!(target_os = "macos") {
+        "allow WordCraft to use this folder in System Settings › Privacy & Security › Files and Folders"
+    } else {
+        "get write access to this folder"
+    };
+    io::Error::new(e.kind(), Guided(format!("{e}. {why} Use Save As to save the document in another folder, or {access}, then save again.")))
+}
+
+/// A permission error on macOS usually means its privacy protection keeps WordCraft out of the
+/// folder; say where to allow it (errors from [`guided`] already do).
+fn explain(e: io::Error) -> io::Error {
+    let worded = e.get_ref().is_some_and(|inner| inner.is::<Guided>());
+    if cfg!(target_os = "macos") && e.kind() == io::ErrorKind::PermissionDenied && !worded {
+        return io::Error::new(
+            e.kind(),
+            format!(
+                "{e}. macOS may be blocking WordCraft from this folder: allow it in System Settings › Privacy & Security › Files and Folders, or save somewhere else"
+            ),
+        );
+    }
+    e
 }
 
 pub(super) struct Temporary {
@@ -176,6 +305,187 @@ mod tests {
         assert_eq!(fs::read_dir(&d.0).unwrap().count(), 2);
     }
 
+    /// #3003: a folder that refuses mode changes (a GVFS-mounted NAS share) still takes the
+    /// save; a refused mode change for any other reason still stops it and keeps the original.
+    #[test]
+    fn a_folder_without_unix_modes_still_takes_the_save() {
+        let d = Scratch::new();
+        let path = d.target();
+        fs::write(&path, b"Original bytes.").unwrap();
+        replace_with(&path, true, |file| {
+            file.write_all(b"Saved on the share.")?;
+            keep_permissions(Err(io::Error::from(io::ErrorKind::Unsupported)))?;
+            file.sync_all()
+        })
+        .unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"Saved on the share.");
+        assert_eq!(fs::read_dir(&d.0).unwrap().count(), 1);
+
+        let err = replace_with(&path, true, |file| {
+            file.write_all(b"Refused.")?;
+            keep_permissions(Err(io::Error::from(io::ErrorKind::PermissionDenied)))
+        })
+        .unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::PermissionDenied);
+        assert_eq!(fs::read(&path).unwrap(), b"Saved on the share.");
+        assert_eq!(fs::read_dir(&d.0).unwrap().count(), 1);
+    }
+
+    /// GVFS reports a refused mode change as ENOTSUP, which std leaves uncategorized; other OS
+    /// errors still stop the save.
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn enotsup_from_the_os_is_an_unsupported_mode_change() {
+        let enotsup = if cfg!(target_os = "linux") { 95 } else { 45 };
+        assert!(keep_permissions(Err(io::Error::from_raw_os_error(enotsup))).is_ok());
+        let eacces = 13;
+        assert!(keep_permissions(Err(io::Error::from_raw_os_error(eacces))).is_err());
+    }
+
+    /// Makes `dir` read-only while `f` runs. `None` when running as root, where the folder isn't
+    /// read-only to us.
+    #[cfg(unix)]
+    fn in_read_only<T>(dir: &Path, f: impl FnOnce() -> T) -> Option<T> {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(dir, fs::Permissions::from_mode(0o555)).unwrap();
+        let probe = fs::write(dir.join("probe"), b"");
+        let out = f();
+        fs::set_permissions(dir, fs::Permissions::from_mode(0o755)).unwrap();
+        probe.is_err().then_some(out)
+    }
+
+    /// #2138 review: where no sibling temporary file may be created (macOS privacy protection,
+    /// or a read-only folder), an existing document is left byte for byte as it was, and the
+    /// error says to use Save As or get access to the folder.
+    #[cfg(unix)]
+    #[test]
+    fn an_existing_file_in_a_folder_refusing_the_temporary_file_is_left_untouched() {
+        let d = Scratch::new();
+        let path = d.target();
+        fs::write(&path, b"Original bytes.").unwrap();
+        let Some(saved) = in_read_only(&d.0, || write(&path, b"Saved bytes.")) else { return };
+        let err = saved.unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::PermissionDenied);
+        let message = err.to_string();
+        assert!(message.contains("left unchanged") && message.contains("Save As") && message.contains("this folder"), "{message}");
+        assert_eq!(message.matches("Privacy & Security").count(), usize::from(cfg!(target_os = "macos")), "{message}");
+        assert_eq!(fs::read(&path).unwrap(), b"Original bytes.");
+        assert_eq!(fs::read_dir(&d.0).unwrap().count(), 1);
+    }
+
+    /// FredApps' #2138 regression: a save that would fail partway through still leaves the
+    /// previous document byte-identical when the folder refuses the temporary file.
+    #[cfg(unix)]
+    #[test]
+    fn a_failed_save_in_a_folder_refusing_the_temporary_file_keeps_the_original() {
+        let d = Scratch::new();
+        let path = d.target();
+        fs::write(&path, b"Original bytes.").unwrap();
+        let Some(result) = in_read_only(&d.0, || {
+            replace_with(&path, true, |file| {
+                file.write_all(b"Partial")?;
+                Err(io::Error::other("injected partial write failure"))
+            })
+        }) else {
+            return;
+        };
+        assert!(result.is_err());
+        assert_eq!(fs::read(&path).unwrap(), b"Original bytes.", "failed save must preserve the previous document");
+        assert_eq!(fs::read_dir(&d.0).unwrap().count(), 1);
+    }
+
+    /// A folder that refuses new files altogether refuses a new document too, with the same
+    /// guidance, and leaves nothing behind.
+    #[cfg(unix)]
+    #[test]
+    fn a_new_file_in_a_read_only_folder_is_refused_with_guidance() {
+        let d = Scratch::new();
+        let path = d.target();
+        let Some(saved) = in_read_only(&d.0, || write(&path, b"New document.")) else { return };
+        let message = saved.unwrap_err().to_string();
+        assert!(message.contains("Save As"), "{message}");
+        assert!(!path.exists());
+    }
+
+    /// When only the temporary file is refused (macOS lets the app write the file picked in the
+    /// Save panel), a file that doesn't exist yet is created directly; nothing is replaced.
+    #[test]
+    fn a_new_file_is_created_directly_when_only_the_temporary_file_is_refused() {
+        let d = Scratch::new();
+        let path = d.target();
+        let refused = io::Error::from(io::ErrorKind::PermissionDenied);
+        create_directly(&path, refused, |file| file.write_all(b"New document.")).unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"New document.");
+        assert_eq!(fs::read_dir(&d.0).unwrap().count(), 1);
+    }
+
+    /// A failed direct create must not unlink a different file moved to the destination.
+    #[cfg(unix)]
+    #[test]
+    fn failed_direct_save_preserves_an_external_replacement() {
+        for complete in [false, true] {
+            let d = Scratch::new();
+            let path = d.target();
+            let replacement = d.0.join("external.docx");
+            let refused = io::Error::from(io::ErrorKind::PermissionDenied);
+            let err = create_directly(&path, refused, |file| {
+                file.write_all(if complete { b"Complete local save." } else { b"Partial" })?;
+                if complete {
+                    file.sync_all()?;
+                }
+                fs::write(&replacement, b"External version.")?;
+                fs::rename(&replacement, &path)?;
+                assert_eq!(fs::read(&path)?, b"External version.");
+                Err(io::Error::new(io::ErrorKind::WriteZero, "injected direct-save failure"))
+            })
+            .unwrap_err();
+            assert_eq!(err.kind(), io::ErrorKind::WriteZero);
+            assert_eq!(fs::read(&path).unwrap(), b"External version.", "a refused save must retain the external replacement");
+            assert!(err.to_string().contains("injected direct-save failure"));
+            assert!(err.to_string().contains("incomplete new file may remain") && err.to_string().contains("Save As"), "{err}");
+            assert_eq!(fs::read_dir(&d.0).unwrap().count(), 1);
+        }
+    }
+
+    #[test]
+    fn a_failed_direct_save_retains_the_new_file_and_reports_how_to_retry() {
+        let d = Scratch::new();
+        let path = d.target();
+        let refused = io::Error::from(io::ErrorKind::PermissionDenied);
+        let err = create_directly(&path, refused, |file| {
+            file.write_all(b"Partial")?;
+            Err(io::Error::other("injected"))
+        })
+        .unwrap_err();
+        assert!(err.to_string().contains("injected"));
+        assert!(err.to_string().contains("incomplete new file may remain") && err.to_string().contains("Save As"), "{err}");
+        assert_eq!(fs::read(&path).unwrap(), b"Partial");
+        let retry = d.0.join("retry.docx");
+        create_directly(&retry, io::Error::from(io::ErrorKind::PermissionDenied), |file| file.write_all(b"Complete retry.")).unwrap();
+        assert_eq!(fs::read(&retry).unwrap(), b"Complete retry.");
+        assert_eq!(fs::read(&path).unwrap(), b"Partial");
+    }
+
+    /// The direct path never opens an existing file and never runs the save: the original is
+    /// untouched and the error carries the Save As guidance.
+    #[test]
+    fn an_existing_file_is_never_written_directly() {
+        let d = Scratch::new();
+        let path = d.target();
+        fs::write(&path, b"Original bytes.").unwrap();
+        let refused = io::Error::from(io::ErrorKind::PermissionDenied);
+        let mut ran = false;
+        let err = create_directly(&path, refused, |file| {
+            ran = true;
+            file.write_all(b"New")
+        })
+        .unwrap_err();
+        assert!(!ran);
+        assert_eq!(err.kind(), io::ErrorKind::PermissionDenied);
+        assert!(err.to_string().contains("Save As") && err.to_string().contains("left unchanged"), "{err}");
+        assert_eq!(fs::read(&path).unwrap(), b"Original bytes.");
+    }
+
     #[cfg(unix)]
     #[test]
     fn new_temporary_files_are_private_until_prepared() {
@@ -202,5 +512,25 @@ mod tests {
         write(&path, b"Saved again.").unwrap();
         assert_eq!(fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o640);
         assert_eq!(fs::read(&path).unwrap(), b"Saved again.");
+    }
+
+    #[test]
+    fn direct_fallback_is_deferred_until_commit() {
+        let d = Scratch::new();
+        let path = d.target();
+        let prepared = prepare_with(&path, b"New document.", |_, _| Err(io::Error::from(io::ErrorKind::PermissionDenied))).unwrap();
+        assert!(!path.exists());
+        prepared.commit(&path).unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"New document.");
+    }
+    #[test]
+    fn deferred_fallback_preserves_a_destination_created_before_commit() {
+        let d = Scratch::new();
+        let path = d.target();
+        let prepared = prepare_with(&path, b"Local edit.", |_, _| Err(io::Error::from(io::ErrorKind::PermissionDenied))).unwrap();
+        fs::write(&path, b"External document.").unwrap();
+        let err = prepared.commit(&path).unwrap_err();
+        assert!(err.to_string().contains("left unchanged"));
+        assert_eq!(fs::read(&path).unwrap(), b"External document.");
     }
 }
