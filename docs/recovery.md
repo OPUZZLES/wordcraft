@@ -25,6 +25,8 @@ If an explicit password Save fails after removing recovery, the document keeps i
 password state. A still-unprotected dirty document gets a new durable recovery copy before
 the failure returns, without waiting for a later timer or close action. If this copy cannot
 be written either, the save error tells you to keep the document open and save a separate copy.
+Transient failures of this forced copy retry at the normal recovery interval without another
+edit. Failures caused by the snapshot itself still wait for the document to change.
 Successful password saves still leave no plaintext recovery generations. This is not an atomic
 transaction against process termination or power loss between the two filesystem operations.
 

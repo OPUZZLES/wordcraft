@@ -618,10 +618,16 @@ impl Recovery {
             self.documents = e.documents;
             self.busy = false;
             self.ready = true;
+            let event_permanent = e.permanent;
             // An in-flight job failing (e.g. a stray autosave) doesn't mean the document itself
             // wasn't saved cleanly by an explicit Save — still try the discard below, so one
             // doesn't keep the other from doing its job; log it once there's nothing further to do.
             if let Err(e) = e.outcome {
+                // A forced write can return to an open document: use the normal idle retry policy.
+                if !event_permanent {
+                    self.revision = None;
+                }
+                self.due = Instant::now() + INTERVAL;
                 error = Some(e);
             }
         }
@@ -1191,7 +1197,7 @@ mod tests {
     }
 
     #[test]
-    fn late_password_save_reports_when_recovery_cannot_be_restored() {
+    fn late_password_save_retries_transient_recovery_without_an_edit() {
         let t = Temp::new();
         let original = t.0.join("late-external-change.docx");
         let root = t.0.join("profile");
@@ -1217,7 +1223,54 @@ mod tests {
         assert!(s.recovery_error().is_some());
         assert!(s.password.is_none() && s.dirty);
         assert_eq!(s.doc.plain_text(StoryRef::Body), text);
+        assert_eq!(fs::read(&original).unwrap(), external);
+        // Restore the profile without editing the document: idle recovery must retry this revision.
+        fs::remove_file(&root).unwrap();
+        fs::rename(root.with_extension("retained"), &root).unwrap();
+        assert!(s.recovery_wait().is_some(), "the transient forced-write failure disabled idle recovery");
+        let revision = s.rev();
+        let mut recovery = s.recovery.take().unwrap();
+        let due = recovery.due;
+        recovery.tick(&s, due - Duration::from_millis(1)).unwrap();
+        assert!(!recovery.busy, "retry must wait for its interval");
+        recovery.tick(&s, due).unwrap();
+        s.recovery = Some(recovery);
+        settle(&mut s);
+        assert_eq!(s.rev(), revision);
+        assert!(s.recovery_error().is_none());
+        assert_eq!(s.recovery_documents().len(), 1, "the unchanged dirty document still has no recovery copy");
+        let id = s.recovery_documents()[0].id.clone();
+        drop(s);
+        let mut store = Store::new(root).unwrap();
+        for _ in 0..50 {
+            store.scan().unwrap();
+            if store.entries.contains_key(&id) {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert_eq!(load_retrying(&mut store, &id).document.plain_text(StoryRef::Body), text);
         assert_eq!(fs::read(original).unwrap(), external);
+    }
+
+    /// The forced-write path keeps the same permanent-failure barrier as regular polling.
+    #[test]
+    fn forced_permanent_recovery_failure_waits_for_an_edit() {
+        let t = Temp::new();
+        let mut s = session(&t.0);
+        s.run("document.setText", &json!({"text": "Synthetic draft"})).unwrap();
+        s.doc.last_section.page_w = f32::NAN;
+        let mut recovery = s.recovery.take().unwrap();
+        assert!(recovery.restore_after_failed_password_save(&s).is_err());
+        assert!(recovery.wait(s.document_id(), s.rev()).is_none());
+        recovery.tick(&s, Instant::now() + INTERVAL + INTERVAL).unwrap();
+        assert!(!recovery.busy, "a permanent forced-write failure retried the unchanged snapshot");
+        s.doc.last_section.page_w = 612.0;
+        s.run("text.insert", &json!({"text": "!"})).unwrap();
+        recovery.tick(&s, Instant::now() + INTERVAL + INTERVAL).unwrap();
+        assert!(recovery.busy, "an edit should make the snapshot eligible again");
+        recovery.finish(&s).unwrap();
+        assert_eq!(recovery.documents.len(), 1);
     }
 
     #[test]
