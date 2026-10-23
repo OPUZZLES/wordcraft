@@ -569,8 +569,8 @@ impl Recovery {
     pub fn refresh(&mut self) -> Result<(), String> {
         self.queue(Job::Scan)
     }
-    pub fn purge(&mut self) -> Result<(), String> {
-        let Some(id) = self.id.clone() else { return Ok(()) };
+    pub fn purge(&mut self) -> Result<bool, String> {
+        let Some(id) = self.id.clone() else { return Ok(false) };
         if self.busy {
             let e = self.rx.recv().map_err(|e| e.to_string())?;
             self.documents = e.documents;
@@ -587,7 +587,22 @@ impl Recovery {
         e.outcome?;
         self.id = None;
         self.revision = None;
-        Ok(())
+        Ok(true)
+    }
+    /// Re-establish durable recovery before a refused explicit password save returns.
+    /// The password was not committed, so the still-unprotected dirty document needs its copy.
+    pub fn restore_after_failed_password_save(&mut self, s: &Session) -> Result<(), String> {
+        if !s.dirty || s.password.is_some() {
+            return Ok(());
+        }
+        if !self.document_is(s.document_id()) || !self.ready || !self.alive {
+            return Err("recovery is not available for this document".into());
+        }
+        self.revision = None;
+        let now = Instant::now();
+        self.due = now;
+        self.tick(s, now)?;
+        self.finish(s)
     }
     /// Waits out any job already in flight (an autosave queued just before shutdown, say), then,
     /// if the document turns out to need no recovery copy kept (not dirty, or password-protected
@@ -1132,6 +1147,77 @@ mod tests {
         assert!(fs::read_dir(&root).unwrap().next().is_none());
         assert_eq!(fs::read(original).unwrap(), external);
         assert_eq!(crate::io::open_path_with(&copy, Some("synthetic-password")).unwrap().0.plain_text(StoryRef::Body), text);
+    }
+
+    /// A writer arriving after the preliminary check must not consume durable local recovery.
+    #[test]
+    fn late_password_save_conflict_restores_recovery_before_returning() {
+        let t = Temp::new();
+        let original = t.0.join("late-external-change.docx");
+        let root = t.0.join("profile");
+        crate::io::save_path(&original, &Document::from_text("Original synthetic note")).unwrap();
+        let mut s = session(&root);
+        s.run("file.open", &json!({"path": original})).unwrap();
+        s.run("text.insert", &json!({"text": "Unsaved local edit. "})).unwrap();
+        save_now(&mut s);
+        assert!(!s.recovery_documents().is_empty());
+        let external = crate::io::save_bytes("external.docx", &Document::from_text("Late external writer")).unwrap();
+        let destination = original.clone();
+        let changed = external.clone();
+        crate::io::BEFORE_SAVE_VERSION_CHECK.with(|hook| {
+            *hook.borrow_mut() = Some(Box::new(move || fs::write(destination, changed).unwrap()));
+        });
+        let text = s.doc.plain_text(StoryRef::Body);
+        let core = s.doc.core.clone();
+        let error = s.run("file.save", &json!({"path": original, "password": "synthetic-password"})).unwrap_err();
+        assert!(matches!(error, crate::CmdError::FileConflict(_)));
+        assert!(s.password.is_none() && s.dirty);
+        assert_eq!(s.doc.core, core);
+        assert_eq!(s.doc.plain_text(StoryRef::Body), text);
+        assert_eq!(fs::read(original).unwrap(), external);
+        // No recovery tick, finish call or close action may be required after the refusal.
+        assert!(!s.recovery_documents().is_empty(), "the refusal returned without durable recovery");
+        let id = s.recovery_documents()[0].id.clone();
+        drop(s);
+        let mut store = Store::new(root).unwrap();
+        for _ in 0..50 {
+            store.scan().unwrap();
+            if store.entries.contains_key(&id) {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert_eq!(load_retrying(&mut store, &id).document.plain_text(StoryRef::Body), text);
+    }
+
+    #[test]
+    fn late_password_save_reports_when_recovery_cannot_be_restored() {
+        let t = Temp::new();
+        let original = t.0.join("late-external-change.docx");
+        let root = t.0.join("profile");
+        crate::io::save_path(&original, &Document::from_text("Original synthetic note")).unwrap();
+        let mut s = session(&root);
+        s.run("file.open", &json!({"path": original})).unwrap();
+        s.run("text.insert", &json!({"text": "Unsaved local edit. "})).unwrap();
+        save_now(&mut s);
+        let external = crate::io::save_bytes("external.docx", &Document::from_text("Late external writer")).unwrap();
+        let destination = original.clone();
+        let changed = external.clone();
+        let blocked = root.clone();
+        crate::io::BEFORE_SAVE_VERSION_CHECK.with(|hook| {
+            *hook.borrow_mut() = Some(Box::new(move || {
+                fs::write(destination, changed).unwrap();
+                fs::rename(&blocked, blocked.with_extension("retained")).unwrap();
+                fs::write(blocked, b"synthetic blocked profile path").unwrap();
+            }));
+        });
+        let text = s.doc.plain_text(StoryRef::Body);
+        let error = s.run("file.save", &json!({"path": original, "password": "synthetic-password"})).unwrap_err();
+        assert!(error.to_string().contains("recovery copy could not be restored"), "{error}");
+        assert!(s.recovery_error().is_some());
+        assert!(s.password.is_none() && s.dirty);
+        assert_eq!(s.doc.plain_text(StoryRef::Body), text);
+        assert_eq!(fs::read(original).unwrap(), external);
     }
 
     #[test]

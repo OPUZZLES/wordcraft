@@ -5,6 +5,7 @@ use std::ffi::OsStr;
 use std::fs::{self, File};
 use std::io::{BufReader, Read};
 use std::path::{Path, PathBuf};
+#[cfg(not(windows))]
 use std::sync::Arc;
 use unicode_normalization::UnicodeNormalization;
 
@@ -14,9 +15,32 @@ const MAX_BYTES: u64 = 2 << 30;
 pub(crate) struct FileVersion {
     path: PathBuf,
     resolved: PathBuf,
-    handle: Option<Arc<same_file::Handle>>,
+    identity: Option<OriginalIdentity>,
     digest: [u8; 32],
     case_aliases: [bool; 2],
+}
+
+// Windows replacement on filesystems without POSIX rename support cannot keep the
+// destination open. Capture its identity while reading, then close the handle.
+#[cfg(windows)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct OriginalIdentity {
+    volume: u64,
+    file: u64,
+}
+#[cfg(not(windows))]
+type OriginalIdentity = Arc<same_file::Handle>;
+
+fn original_identity(handle: same_file::Handle) -> std::io::Result<OriginalIdentity> {
+    #[cfg(windows)]
+    {
+        let info = winapi_util::file::information(handle.as_file())?;
+        Ok(OriginalIdentity { volume: info.volume_serial_number(), file: info.file_index() })
+    }
+    #[cfg(not(windows))]
+    {
+        Ok(Arc::new(handle))
+    }
 }
 
 /// Keep the logical spelling: a retargeted parent symlink still names the session's file.
@@ -137,14 +161,14 @@ impl FileVersion {
             if bytes.len() as u64 > MAX_BYTES {
                 return Err(std::io::Error::other("file grew beyond 2 GB"));
             }
-            let handle = same_file::Handle::from_file(file)?;
+            let identity = original_identity(same_file::Handle::from_file(file)?)?;
             let path = absolute(path);
             let resolved = fs::canonicalize(&path)?;
             let version = Self {
                 case_aliases: [observes_case_aliases(&path), observes_case_aliases(&resolved)],
                 path,
                 resolved,
-                handle: Some(Arc::new(handle)),
+                identity: Some(identity),
                 digest: Sha256::digest(&bytes).into(),
             };
             Ok((bytes, version))
@@ -191,16 +215,16 @@ impl FileVersion {
                 Err(_) => return Err(conflict()),
             }
         }
-        let Some(original) = &self.handle else { return Err(FileConflict { path: path.to_path_buf() }) };
-        // same-file's Windows comparison includes size: refresh the retained file handle's
-        // metadata so a changed-size hard link cannot bypass ownership. An unreadable alias
-        // cannot safely be treated as an unrelated Save As destination.
-        original
-            .as_file()
-            .try_clone()
-            .and_then(same_file::Handle::from_file)
-            .map(|original| original == current)
-            .map_err(|_| FileConflict { path: path.to_path_buf() })
+        let Some(original) = &self.identity else { return Err(FileConflict { path: path.to_path_buf() }) };
+        #[cfg(windows)]
+        {
+            // Length is mutable: a changed-size hard link still belongs to the original file.
+            original_identity(current).map(|identity| identity == *original).map_err(|_| conflict())
+        }
+        #[cfg(not(windows))]
+        {
+            original.as_file().try_clone().and_then(same_file::Handle::from_file).map(|original| original == current).map_err(|_| conflict())
+        }
     }
 
     fn owns_missing(&self, path: &Path) -> Result<bool, FileConflict> {
@@ -249,12 +273,12 @@ impl FileVersion {
     pub(super) fn saved(path: &Path, bytes: &[u8]) -> Self {
         let path = absolute(path);
         let resolved = fs::canonicalize(&path).unwrap_or_else(|_| path.clone());
-        let handle = entry_handle(&path, EntryKind::File).ok().map(Arc::new);
+        let identity = entry_handle(&path, EntryKind::File).and_then(original_identity).ok();
         Self {
             case_aliases: [observes_case_aliases(&path), observes_case_aliases(&resolved)],
             path,
             resolved,
-            handle,
+            identity,
             digest: Sha256::digest(bytes).into(),
         }
     }

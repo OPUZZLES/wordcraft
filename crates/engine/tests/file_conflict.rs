@@ -954,3 +954,34 @@ fn native_requests_distinguish_identical_bytes_and_lossy_names() {
         assert!(s.run("file.open", &first).is_err_and(|e| e.to_string().contains("expired")));
     }
 }
+
+/// Rejected document replacements must keep the original external-writer baseline.
+#[test]
+fn rejected_document_replacements_keep_external_save_protection() {
+    use wordcraft_doc::{CharProps, InlineObject};
+    for (command, params) in
+        [("review.compare", json!({"text": "Different document.", "showIn": "new"})), ("mailings.envelopes", json!({"delivery": "Recipient"}))]
+    {
+        let d = Scratch::new();
+        let path = original(&d);
+        let mut s = open(&path);
+        let end = s.doc.end_of(StoryRef::Body);
+        s.doc.insert_object(&end, InlineObject::PermEnd { id: 1 }, &CharProps::default()).unwrap();
+        let start = s.doc.start_of(StoryRef::Body);
+        s.doc
+            .insert_object(&start, InlineObject::PermStart { id: 1, group: String::new(), editor: s.author.clone() }, &CharProps::default())
+            .unwrap();
+        s.run("review.restrict", &json!({"mode": "readOnly"})).unwrap();
+        let before = s.doc.clone();
+        assert!(s.run(command, &params).is_err(), "{command}");
+        assert_eq!(s.doc, before, "{command}");
+        assert_eq!(s.path.as_deref(), Some(path.as_path()), "{command}");
+        io::save_path(&path, &Document::from_text("External writer after refusal")).unwrap();
+        let external = std::fs::read(&path).unwrap();
+        let result = s.run("file.save", &json!({}));
+        assert!(matches!(result, Err(wordcraft_engine::CmdError::FileConflict(_))), "{command}: {result:?}");
+        assert_eq!(std::fs::read(&path).unwrap(), external, "{command}");
+        assert!(s.dirty);
+        assert_eq!(s.doc, before, "{command}");
+    }
+}

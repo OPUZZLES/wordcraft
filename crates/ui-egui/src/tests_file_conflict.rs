@@ -321,3 +321,28 @@ fn native_open_baseline_survives_the_save_changes_save_as_continuation() {
     assert_eq!(std::fs::read(path).unwrap(), external);
     assert!(h.state().session.dirty);
 }
+
+/// Native Windows CI runs this through the existing app/UI test gate.
+#[cfg(windows)]
+#[test]
+fn native_file_versions_leave_windows_destinations_closed_between_commands() {
+    use std::fs::OpenOptions;
+    use std::os::windows::fs::OpenOptionsExt;
+    let d = Scratch::new();
+    let mut a = app(&d);
+    let path = d.file("original.docx");
+    for text in ["First safe save", "Second safe save"] {
+        // A non-sharing open independently detects any retained destination handle.
+        let file = OpenOptions::new().read(true).share_mode(0).open(&path).unwrap();
+        drop(file);
+        a.execute("document.setText", json!({"text": text})).unwrap();
+        a.execute("file.save", json!({})).unwrap();
+        assert_eq!(io::open_path(&path).unwrap().plain_text(wordcraft_doc::StoryRef::Body), text);
+    }
+    let file = OpenOptions::new().read(true).share_mode(0).open(&path).unwrap();
+    drop(file);
+    a.execute("document.setText", json!({"text": "Local edit"})).unwrap();
+    let external = external(&d);
+    assert!(a.execute("file.save", json!({})).is_err());
+    assert_local(&a, &d, &external);
+}

@@ -755,6 +755,12 @@ pub(crate) fn check_save_destination(path: &std::path::Path, expected: Option<&F
     Ok(())
 }
 
+#[cfg(all(test, not(target_arch = "wasm32")))]
+std::thread_local! {
+    // A deterministic external writer at the final verification boundary.
+    pub(crate) static BEFORE_SAVE_VERSION_CHECK: std::cell::RefCell<Option<Box<dyn FnOnce()>>> = const { std::cell::RefCell::new(None) };
+}
+
 /// Session-owned native save: compare content after serialization, before replacement. This
 /// detects pre-existing changes; it is not an atomic conditional write against other writers.
 #[cfg(not(target_arch = "wasm32"))]
@@ -781,6 +787,12 @@ pub(crate) fn save_path_versioned(
             return Err(crate::CmdError::Failed(format!("{}: {e}", path.display())));
         }
     };
+    #[cfg(test)]
+    BEFORE_SAVE_VERSION_CHECK.with(|hook| {
+        if let Some(write) = hook.borrow_mut().take() {
+            write();
+        }
+    });
     if let Some(expected) = expected {
         expected.verify(path).map_err(crate::CmdError::FileConflict)?;
     }

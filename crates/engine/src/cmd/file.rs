@@ -14,16 +14,24 @@ pub const FORMAT_FLAT_OPC: &str = "flatopc";
 
 pub const MAX_AUTHOR_CHARS: usize = 255;
 
-/// Sets the user name that new tracked changes and comments are recorded under. The name is
-/// trimmed, stripped of control characters (they can't go into the saved XML) and cut to
-/// [`MAX_AUTHOR_CHARS`]; a blank name is refused so revisions always carry an author.
-pub(crate) fn set_author(s: &mut Session, v: &Value) -> CmdResult {
-    let name: String = p::req_str(v, "name")?.trim().chars().filter(|c| !c.is_control()).take(MAX_AUTHOR_CHARS).collect();
+/// The user name as it is stored: trimmed, stripped of control characters (they can't go into
+/// the saved XML) and cut to [`MAX_AUTHOR_CHARS`]; a blank name is refused so revisions always
+/// carry an author.
+pub fn normalize_author(name: &str) -> Result<String, CmdError> {
+    let name: String = name.trim().chars().filter(|c| !c.is_control()).take(MAX_AUTHOR_CHARS).collect();
     let name = name.trim_end();
     if name.is_empty() {
         return Err(CmdError::Params("`name` must not be blank".into()));
     }
-    s.author = name.to_string();
+    Ok(name.to_string())
+}
+
+/// Sets the user name that new tracked changes and comments are recorded under. The name is
+/// normalised by [`normalize_author`].
+/// A protected document refuses it: the name is the identity its exceptions are checked against.
+pub(crate) fn set_author(s: &mut Session, v: &Value) -> CmdResult {
+    super::protect::check_user_name(s)?;
+    s.author = normalize_author(p::req_str(v, "name")?)?;
     let mut r = sel_result(s)?;
     if let Some(o) = r.as_object_mut() {
         o.insert("name".into(), json!(s.author));
@@ -392,6 +400,7 @@ fn save(s: &mut Session, v: &Value) -> CmdResult {
         }
     }
     let mut password = s.password.clone();
+    let mut recovery_purged = false;
     if let Some(pw) = v.get("password").filter(|pw| !pw.is_null()) {
         let Some(pw) = pw.as_str().filter(|pw| !pw.is_empty()) else {
             return Err(CmdError::Params("`password` must be a non-empty string (file.encrypt removes a password)".into()));
@@ -403,7 +412,7 @@ fn save(s: &mut Session, v: &Value) -> CmdResult {
         // Refuse external changes before purging the current recovery copy.
         #[cfg(not(target_arch = "wasm32"))]
         crate::io::check_save_destination(&path, s.file_version.as_ref())?;
-        s.clear_recovery_before_password()?;
+        recovery_purged = s.clear_recovery_before_password()?;
         password = Some(crate::io::Password::new(pw));
     }
     // Undone below if the write fails: a failed save (no permission, disk full, a bad path)
@@ -425,6 +434,11 @@ fn save(s: &mut Session, v: &Value) -> CmdResult {
         Ok(version) => version,
         Err(e) => {
             (s.doc.settings.zoom, s.doc.core.last_modified_by, s.doc.core.created, s.doc.core.modified, s.doc.core.revision) = before_stamp;
+            if recovery_purged && let Err(recovery) = s.restore_recovery_after_failed_password_save() {
+                return Err(CmdError::Failed(format!(
+                    "{e}; recovery copy could not be restored: {recovery}. Keep this document open and save a copy to another location."
+                )));
+            }
             return Err(e);
         }
     };
