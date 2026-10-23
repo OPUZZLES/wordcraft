@@ -315,6 +315,9 @@ pub enum Dialog {
         offset: f32,
         /// The selection already has a phonetic guide (Remove is offered).
         existing: bool,
+        /// Give Ruby text the keyboard once per opening.
+        #[serde(skip)]
+        focus: bool,
     },
     NewStyle {
         name: String,
@@ -1197,6 +1200,7 @@ impl Dialog {
                     size: f("size"),
                     offset: f("offset"),
                     existing: v.get("existing").and_then(Value::as_bool).unwrap_or(false),
+                    focus: true,
                 }
             }
             "newStyle" => Dialog::NewStyle { name: "Style1".into(), based_on: "Normal".into(), back: false },
@@ -2466,7 +2470,7 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
             }
             ok || cancel
         }
-        Dialog::Phonetic { base, ruby, align, size, offset, existing } => {
+        Dialog::Phonetic { base, ruby, align, size, offset, existing, focus } => {
             // Base and ruby text are usually Chinese or Japanese: fonts for them load from the next frame.
             app.want_system_cjk = true;
             const ALIGNS: [(&str, &str); 6] = [
@@ -2482,7 +2486,11 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
                 ui.label(egui::RichText::new(base.as_str()).strong());
                 ui.end_row();
                 ui.label(tl!("Ruby text:"));
-                ui.text_edit_singleline(ruby);
+                let response = ui.text_edit_singleline(ruby);
+                if *focus {
+                    response.request_focus();
+                    *focus = false;
+                }
                 ui.end_row();
                 ui.label(tl!("Alignment:"));
                 let shown = ALIGNS.iter().find(|(k, _)| k == align).map_or("Center", |(_, l)| l);
