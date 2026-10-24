@@ -732,7 +732,7 @@ fn special_entries_fail_without_blocking_alias_checks() {
     const CHILD: &str = "WORDCRAFT_FIFO_ALIAS_TEST_CHILD";
     if std::env::var_os(CHILD).is_none() {
         let mut child = std::process::Command::new(std::env::current_exe().unwrap())
-            .args(["--exact", "special_entries_fail_without_blocking_alias_checks", "--nocapture"])
+            .args(["--exact", "file_conflict::special_entries_fail_without_blocking_alias_checks", "--nocapture"])
             .env(CHILD, "1")
             .stdout(std::process::Stdio::null())
             .spawn()
@@ -789,7 +789,7 @@ fn relative_deleted_unicode_alias_retains_conflict_protection() {
     if std::env::var_os(CHILD).is_none() {
         let d = Scratch::new();
         let status = std::process::Command::new(std::env::current_exe().unwrap())
-            .args(["--exact", "relative_deleted_unicode_alias_retains_conflict_protection", "--nocapture"])
+            .args(["--exact", "file_conflict::relative_deleted_unicode_alias_retains_conflict_protection", "--nocapture"])
             .current_dir(&d.0)
             .env(CHILD, "1")
             .stdout(std::process::Stdio::null())
