@@ -36,6 +36,9 @@
 //!   messages. Hyphenation uses the existing English fallback.
 //! - **German** ([`ProofLang::De`]): hyphenation by `hyph-utf8`'s German patterns (reformed
 //!   spelling, MIT); no spelling or grammar marks yet.
+//! - **Dutch** ([`ProofLang::Nl`], module [`nl`]): the installed Hunspell `nl_NL` dictionary
+//!   (OpenTaal's, not bundled) with its compounding, dictionary-driven suggestions and generic
+//!   checks with Dutch messages. Hyphenation uses the existing English fallback.
 //! - **Other languages** ([`ProofLang::Other`]): no spelling or grammar marks, like Word without
 //!   the language's proofing tools.
 //! - **Hyphenation** ([`hyphen`]): dictionary, Liang patterns (English, Polish, Portuguese,
@@ -46,6 +49,7 @@
 
 pub mod affix;
 pub mod bg;
+pub mod ca;
 pub mod cs;
 pub mod dict;
 pub mod en_variants;
@@ -55,6 +59,7 @@ pub mod hyphen;
 pub mod id;
 pub mod it;
 pub mod lang;
+pub mod nl;
 pub mod patterns;
 pub mod pl;
 pub mod pt;
@@ -156,6 +161,8 @@ pub fn set_dictionaries_folder(dir: Option<std::path::PathBuf>) {
     ru::reload_dictionary();
     cs::reload_dictionary();
     id::reload_dictionary();
+    nl::reload_dictionary();
+    ca::reload_dictionary();
     DICTIONARY_GENERATION.fetch_add(1, Ordering::Relaxed);
 }
 
@@ -171,6 +178,8 @@ pub fn installed_dictionaries() -> Vec<(ProofLang, Option<std::path::PathBuf>)> 
         (ProofLang::Ru, ru::installed_path()),
         (ProofLang::Cs, cs::installed_path()),
         (ProofLang::Id, id::installed_path()),
+        (ProofLang::Nl, nl::installed_path()),
+        (ProofLang::Ca, ca::installed_path()),
     ]
 }
 
@@ -185,6 +194,8 @@ pub fn dictionary_load_error(lang: ProofLang) -> Option<String> {
         ProofLang::Hr => "hr_HR",
         ProofLang::Tr => "tr_TR",
         ProofLang::Id => "id_ID",
+        ProofLang::Nl => "nl_NL",
+        ProofLang::Ca => "ca_ES",
         _ => return None,
     };
     hunspell::load_error(key).map(|(_, reason)| reason)
@@ -427,6 +438,8 @@ fn dictionary_loaded(lang: ProofLang) -> Option<bool> {
         ProofLang::Ru => ru::has_dictionary(),
         ProofLang::Cs => cs::has_dictionary(),
         ProofLang::Id => id::has_dictionary(),
+        ProofLang::Nl => nl::has_dictionary(),
+        ProofLang::Ca => ca::has_dictionary(),
         _ => return None,
     })
 }
@@ -443,6 +456,8 @@ fn dictionary_needed(lang: ProofLang, installed: bool) -> Option<&'static str> {
         ProofLang::Ru => Some("ru_RU"),
         ProofLang::Cs => Some("cs_CZ"),
         ProofLang::Id => Some("id_ID"),
+        ProofLang::Nl => Some("nl_NL"),
+        ProofLang::Ca => Some("ca_ES"),
         _ => None,
     }
 }
@@ -625,11 +640,20 @@ fn damerau(a: &[char], b: &str) -> usize {
 
 /// Words in `text`: (byte start, byte end).
 pub fn words(text: &str) -> Vec<(usize, usize)> {
+    words_for(text, |_| ProofLang::Other)
+}
+
+/// Catalan middle dots join the two letters of `l·l`; other languages retain their tokenization.
+fn words_for(text: &str, lang: impl Fn(usize) -> ProofLang) -> Vec<(usize, usize)> {
     let mut out = Vec::new();
     let mut start: Option<usize> = None;
     let is_w = |c: char| c.is_alphanumeric() || c == '\'' || c == '’' || c == '-';
     for (i, c) in text.char_indices() {
-        match (start, is_w(c)) {
+        let middle_dot = c == '·'
+            && lang(start.unwrap_or(i)) == ProofLang::Ca
+            && text.get(..i).and_then(|t| t.chars().next_back()).is_some_and(|c| c == 'l' || c == 'L')
+            && text.get(i + c.len_utf8()..).and_then(|t| t.chars().next()).is_some_and(|c| c == 'l' || c == 'L');
+        match (start, is_w(c) || middle_dot) {
             (None, true) => start = Some(i),
             (Some(s), false) => {
                 out.push((s, i));
@@ -679,7 +703,7 @@ pub fn check_spelling_in(text: &str, lang: ProofLang) -> Vec<Issue> {
 /// cost quadratic scanning (#1335).
 fn spelling_issues(text: &str, lang: impl Fn(usize) -> ProofLang, opts: &Options) -> Vec<Issue> {
     let mut token = (0, 0, false);
-    words(text)
+    words_for(text, &lang)
         .into_iter()
         .filter_map(|(a, b)| {
             if a < token.0 || a >= token.1 {
@@ -717,6 +741,7 @@ fn spelling_issue(text: &str, a: usize, b: usize, lang: ProofLang, opts: &Option
         ProofLang::Ru => "Возможна орфографическая ошибка",
         ProofLang::Cs => "Možná pravopisná chyba",
         ProofLang::Id => "Kemungkinan salah eja",
+        ProofLang::Nl => "Mogelijke spelfout",
         _ => "Possible spelling mistake",
     };
     Some(Issue { start: a, end: b, kind: IssueKind::Spelling, message: message.into(), suggestions: Vec::new(), lang })
@@ -739,6 +764,8 @@ pub fn is_correct_in_with(word: &str, lang: ProofLang, opts: &Options) -> bool {
         ProofLang::Ru => accepted_by_options(word, opts) || ru::is_correct(word),
         ProofLang::Cs => accepted_by_options(word, opts) || cs::is_correct_with_options(word, opts),
         ProofLang::Id => accepted_by_options(word, opts) || id::is_correct_with_options(word, opts),
+        ProofLang::Nl => accepted_by_options(word, opts) || nl::is_correct(word),
+        ProofLang::Ca => accepted_by_options(word, opts) || ca::is_correct(word),
         ProofLang::Bg | ProofLang::De | ProofLang::Other => true,
     }
 }
@@ -755,13 +782,15 @@ pub fn suggest_in(word: &str, max: usize, lang: ProofLang) -> Vec<String> {
         ProofLang::Ru => ru::suggest(word, max),
         ProofLang::Cs => cs::suggest(word, max),
         ProofLang::Id => id::suggest(word, max),
+        ProofLang::Nl => nl::suggest(word, max),
+        ProofLang::Ca => ca::suggest(word, max),
         ProofLang::Bg | ProofLang::De | ProofLang::Other => Vec::new(),
     }
 }
 
 /// Grammar issues in a paragraph of text in `lang`: the English rules, the Polish ones
 /// ([`pl::grammar`]), the Portuguese ones ([`pt::grammar`]), the Italian ones ([`it::grammar`]),
-/// the Turkish ones ([`tr::grammar`]), Czech and Indonesian generic checks ([`cs::grammar`], [`id::grammar`]), or none for a language WordCraft doesn't proof.
+/// the Turkish ones ([`tr::grammar`]), Czech, Indonesian and Dutch generic checks ([`cs::grammar`], [`id::grammar`], [`nl::grammar`]), or none for a language WordCraft doesn't proof.
 pub fn check_grammar_in(text: &str, lang: ProofLang) -> Vec<Issue> {
     grammar_in(text, lang, true)
 }
@@ -781,7 +810,8 @@ fn grammar_in(text: &str, lang: ProofLang, capital_first: bool) -> Vec<Issue> {
         // Czech has no sentence-capital rule, so a list item needs no exception.
         ProofLang::Cs => cs::grammar::check(text),
         ProofLang::Id => id::grammar::check(text),
-        ProofLang::Bg | ProofLang::De | ProofLang::Other => Vec::new(),
+        ProofLang::Nl => nl::grammar::check(text),
+        ProofLang::Ca | ProofLang::De | ProofLang::Bg | ProofLang::Other => Vec::new(),
     }
 }
 
@@ -966,6 +996,8 @@ fn starts_consonant_sound(w: &str) -> bool {
 mod tests {
     #[test]
     fn missing_dictionary_is_named_only_for_hunspell_languages_without_one() {
+        assert_eq!(dictionary_needed(ProofLang::Ca, false), Some("ca_ES"));
+        assert_eq!(dictionary_needed(ProofLang::Ca, true), None);
         assert_eq!(dictionary_needed(ProofLang::Pl, false), Some("pl_PL"));
         assert_eq!(dictionary_needed(ProofLang::Pt, false), Some("pt_BR"));
         assert_eq!(dictionary_needed(ProofLang::Pl, true), None);
@@ -1016,6 +1048,8 @@ mod tests {
             ("ru_RU", ru::test_dict::AFF, ru::test_dict::DIC),
             ("cs_CZ", cs::test_dict::AFF, cs::test_dict::DIC),
             ("id_ID", id::test_dict::AFF, id::test_dict::DIC),
+            ("nl_NL", nl::test_dict::AFF, nl::test_dict::DIC),
+            ("ca_ES", ca::test_dict::AFF, ca::test_dict::DIC),
         ] {
             std::fs::write(dir.join(format!("{name}.aff")), aff).unwrap();
             std::fs::write(dir.join(format!("{name}.dic")), dic).unwrap();
@@ -1028,10 +1062,12 @@ mod tests {
         let before = dictionary_generation();
         set_dictionaries_folder(Some(dir.clone()));
         assert!(dictionary_generation() > before, "cached checks are dropped");
-        // Turkish has no test dictionary to put in the folder; Indonesian is listed after it.
+        // Turkish has no test dictionary to put in the folder; Indonesian and Dutch follow it.
         let found = installed_dictionaries();
         assert_eq!(found.get(4).map(|(lang, _)| *lang), Some(ProofLang::Tr));
-        assert_eq!(found.last(), Some(&(ProofLang::Id, Some(dir.join("id_ID.dic")))));
+        assert_eq!(found.get(7), Some(&(ProofLang::Id, Some(dir.join("id_ID.dic")))));
+        assert_eq!(found.get(8), Some(&(ProofLang::Nl, Some(dir.join("nl_NL.dic")))));
+        assert_eq!(found.last(), Some(&(ProofLang::Ca, Some(dir.join("ca_ES.dic")))));
         assert_eq!(
             found[..4],
             [
@@ -1714,7 +1750,7 @@ mod tests {
             let _ = has_dictionary(Some(&s));
             let _ = is_correct_for(&s, Some(&s));
             let _ = hyphen::hyphen_points(&s, &hyphen::Limits::default());
-            for lang in [ProofLang::En, ProofLang::EnGb, ProofLang::EnCa, ProofLang::Pl, ProofLang::Pt, ProofLang::It, ProofLang::Hr, ProofLang::Tr, ProofLang::Ru, ProofLang::Cs, ProofLang::Id, ProofLang::De, ProofLang::Other] {
+            for lang in [ProofLang::En, ProofLang::EnGb, ProofLang::EnCa, ProofLang::Pl, ProofLang::Pt, ProofLang::It, ProofLang::Hr, ProofLang::Tr, ProofLang::Ru, ProofLang::Cs, ProofLang::Id, ProofLang::Nl, ProofLang::Ca, ProofLang::De, ProofLang::Other] {
                 let _ = check_spelling_in(&s, lang);
                 let _ = check_grammar_in(&s, lang);
                 let _ = is_correct_in(&s, lang);
@@ -1758,8 +1794,15 @@ mod tests {
         }
 
         #[test]
-        fn mixed_spans_never_panic(s in "\\PC{0,60}", cuts in proptest::collection::vec((0usize..80, 0usize..80, 0u8..11), 0..6)) {
-            let langs = [ProofLang::En, ProofLang::EnGb, ProofLang::EnCa, ProofLang::Pl, ProofLang::Pt, ProofLang::It, ProofLang::Tr, ProofLang::Ru, ProofLang::Cs, ProofLang::Id, ProofLang::Other];
+        fn dutch_suggestions_never_panic(s in "[a-zA-ZéëïĳĲ'’ -]{0,14}") {
+            nl::test_dict::install();
+            let _ = suggest_in(&s, 4, ProofLang::Nl);
+            let _ = is_correct_in(&s, ProofLang::Nl);
+        }
+
+        #[test]
+        fn mixed_spans_never_panic(s in "\\PC{0,60}", cuts in proptest::collection::vec((0usize..80, 0usize..80, 0u8..14), 0..6)) {
+            let langs = [ProofLang::En, ProofLang::EnGb, ProofLang::EnCa, ProofLang::Pl, ProofLang::Pt, ProofLang::It, ProofLang::Tr, ProofLang::Ru, ProofLang::Cs, ProofLang::Id, ProofLang::Nl, ProofLang::Ca, ProofLang::De, ProofLang::Other];
             let spans: Vec<(Range<usize>, ProofLang)> = cuts.iter().map(|&(a, b, l)| (a.min(b)..a.max(b), langs[l as usize % langs.len()])).collect();
             for i in check_text(&s, &spans) {
                 proptest::prop_assert!(i.start <= i.end && i.end <= s.len());

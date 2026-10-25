@@ -53,6 +53,14 @@ pub enum ProofLang {
     /// spelling). There is no German dictionary or grammar yet, so, as for [`ProofLang::Other`],
     /// no spelling or grammar marks.
     De,
+    /// Dutch (`nl`, `nl-NL`, `nl-BE`; also ISO 639-2 `nld` and `dut`): the installed Hunspell
+    /// `nl_NL` dictionary (OpenTaal's, which covers Belgium too) with its compounding,
+    /// dictionary-driven suggestions and generic checks with Dutch messages. Hyphenation keeps
+    /// the fallback English patterns.
+    Nl,
+    /// Catalan (`ca`, `ca-ES`, `cat`): installed Hunspell spelling and suggestions only.
+    /// Grammar is unavailable; hyphenation keeps the existing English fallback.
+    Ca,
     /// A language without proofing tools here (`fr-FR`, `ja-JP`, `x-none`…). Like Word without
     /// the language's proofing tools: no spelling or grammar marks, so its words are never
     /// flagged as English misspellings. Hyphenation keeps using the English patterns, as before
@@ -62,7 +70,7 @@ pub enum ProofLang {
 
 impl ProofLang {
     /// Every language with a spelling dictionary, in display order.
-    pub const PROOFED: [ProofLang; 11] = [
+    pub const PROOFED: [ProofLang; 13] = [
         ProofLang::En,
         ProofLang::EnGb,
         ProofLang::EnCa,
@@ -74,6 +82,8 @@ impl ProofLang {
         ProofLang::Ru,
         ProofLang::Cs,
         ProofLang::Id,
+        ProofLang::Nl,
+        ProofLang::Ca,
     ];
 
     /// The proofing language of a BCP 47 tag (`pl-PL`, `en_GB`, `PL`…). The primary subtag
@@ -104,6 +114,10 @@ impl ProofLang {
             ProofLang::Id
         } else if ["de", "deu", "ger"].iter().any(|c| primary.eq_ignore_ascii_case(c)) {
             ProofLang::De
+        } else if primary.eq_ignore_ascii_case("nl") || primary.eq_ignore_ascii_case("nld") || primary.eq_ignore_ascii_case("dut") {
+            ProofLang::Nl
+        } else if primary.eq_ignore_ascii_case("ca") || primary.eq_ignore_ascii_case("cat") {
+            ProofLang::Ca
         } else {
             ProofLang::Other
         }
@@ -133,7 +147,7 @@ impl ProofLang {
         matches!(self, ProofLang::En | ProofLang::EnGb | ProofLang::EnCa)
     }
 
-    /// The primary language subtag (`en`, `pl`, `bg`, `tr`, `ru`, `cs`, `id`, `de`); empty for [`ProofLang::Other`].
+    /// The primary language subtag (`en`, `pl`, `bg`, `tr`, `ru`, `cs`, `id`, `de`, `nl`, `ca`); empty for [`ProofLang::Other`].
     pub fn code(self) -> &'static str {
         match self {
             ProofLang::En | ProofLang::EnGb | ProofLang::EnCa => "en",
@@ -147,6 +161,8 @@ impl ProofLang {
             ProofLang::Cs => "cs",
             ProofLang::Id => "id",
             ProofLang::De => "de",
+            ProofLang::Nl => "nl",
+            ProofLang::Ca => "ca",
             ProofLang::Other => "",
         }
     }
@@ -244,6 +260,16 @@ mod tests {
         }
         assert_eq!(ProofLang::Id.code(), "id");
         assert!(ProofLang::Id.is_proofed() && ProofLang::PROOFED.contains(&ProofLang::Id));
+        for t in ["nl", "nl-NL", "nl-BE", "NL_nl", "nl_BE.UTF-8", " nl-NL ", "nld", "dut", "nl-SR"] {
+            assert_eq!(ProofLang::from_tag(Some(t)), ProofLang::Nl, "{t}");
+        }
+        assert_eq!(ProofLang::Nl.code(), "nl");
+        assert!(ProofLang::Nl.is_proofed() && ProofLang::PROOFED.contains(&ProofLang::Nl));
+        for t in ["ca", "ca-ES", "CA_es", "cat"] {
+            assert_eq!(ProofLang::from_tag(Some(t)), ProofLang::Ca, "{t}");
+        }
+        assert_eq!(ProofLang::Ca.code(), "ca");
+        assert!(ProofLang::Ca.is_proofed());
         for t in ["en", "en-US", "EN_us", "en-Latn-US", "en-PH", "en-001", "eng", "en_US.UTF-8", "en-x-gb"] {
             assert_eq!(ProofLang::from_tag(Some(t)), ProofLang::En, "{t}");
         }
@@ -286,7 +312,7 @@ mod tests {
             assert_eq!(ProofLang::from_tag(Some(t)), ProofLang::De, "{t}");
         }
         assert!(!ProofLang::De.is_proofed());
-        for t in ["fr-FR", "dex", "x-none", "ja-JP", "plx", "bgx", "trx", "csx", "idx", "inx", "e", "-"] {
+        for t in ["fr-FR", "dex", "x-none", "ja-JP", "plx", "bgx", "trx", "csx", "idx", "inx", "nlx", "dutch", "cax", "e", "-"] {
             assert_eq!(ProofLang::from_tag(Some(t)), ProofLang::Other, "{t}");
         }
         assert_eq!(ProofLang::from_tag(None), ProofLang::En);
