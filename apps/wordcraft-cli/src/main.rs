@@ -858,8 +858,7 @@ mod tests {
 
     #[test]
     fn cli_open_retains_native_file_identity_for_saves() {
-        let dir = std::env::temp_dir().join(format!("wordcraft-cli-conflict-{}", std::process::id()));
-        std::fs::create_dir(&dir).unwrap();
+        let dir = script_dir("conflict");
         let path = dir.join("input.docx");
         wordcraft_engine::io::save_path(&path, &wordcraft_doc::Document::from_text("Original A")).unwrap();
         let mut s = open(&path, None).unwrap();
@@ -869,7 +868,6 @@ mod tests {
         assert!(matches!(s.run("file.save", &json!({})), Err(wordcraft_engine::CmdError::FileConflict(_))));
         assert!(s.dirty);
         assert_eq!(std::fs::read(&path).unwrap(), external);
-        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
