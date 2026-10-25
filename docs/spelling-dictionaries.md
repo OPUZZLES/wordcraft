@@ -1,9 +1,9 @@
 # Installing spelling dictionaries
 
-> **Last reviewed:** 2026-10-16 · **Last updated:** 2026-10-23 · **Change:** minor (Spanish: `es_ES`, `es_MX`, `es_419` and `es_UY` with their fallbacks, #3360, #3553; previously trivial: every Hunspell language shows (no dictionary), not only Polish and Portuguese, and Indonesian is listed, #3150; previously trivial: ISO 8859-1 dictionaries are read, #2824)
+> **Last reviewed:** 2026-10-16 · **Last updated:** 2026-10-25 · **Change:** minor (Dutch/Catalan proofing retains Spanish varieties and compound constraints; readiness estimates unchanged; previously Spanish: `es_ES`, `es_MX`, `es_419` and `es_UY` with their fallbacks, #3360, #3553; previously trivial: every Hunspell language shows (no dictionary), not only Polish and Portuguese, and Indonesian is listed, #3150; previously trivial: ISO 8859-1 dictionaries are read, #2824)
 
 English spelling works out of the box. Polish, Russian, Portuguese, Czech, Italian, Croatian,
-Turkish, Indonesian and Spanish spelling use a standard **Hunspell** dictionary (an `.aff` and a `.dic` file) that
+Turkish, Indonesian, Spanish, Dutch and Catalan spelling use a standard **Hunspell** dictionary (an `.aff` and a `.dic` file) that
 WordCraft reads at runtime. These dictionaries are not bundled: they are large, and several are
 GPL or LGPL licensed. Without one, the language isn't checked. The status bar then shows the
 language with **(no dictionary)**, for example *Português (Brasil) (no dictionary)*.
@@ -30,13 +30,16 @@ WordCraft looks for the first of these file names (each name means a `<name>.aff
 | Croatian | `hr_HR`, `hr-HR`, `hr` | LibreOffice `dict-hr` |
 | Turkish | `tr_TR`, `tr-TR`, `tr` | LibreOffice `dict-tr` |
 | Indonesian | `id_ID`, `id-ID`, `id`, `in_ID` | LibreOffice `dict-id` |
+| Dutch (Netherlands and Belgium) | `nl_NL`, `nl-NL`, `nl`, `nl_BE`, `nl-BE` | OpenTaal (LibreOffice `dict-nl`, Debian/Ubuntu `hunspell-nl`) |
+| Catalan | `ca_ES`, `ca-ES`, `ca` | Softcatalà (LibreOffice `ca/dictionaries`, Debian/Ubuntu `hunspell-ca`) |
 | Spanish (Spain) | `es_ES`, `es-ES`, `es_ANY`, `es` | LibreOffice `dict-es` (RLA-ES) |
 | Spanish (Mexico) | `es_MX`, `es-MX`, `es_419`, `es-419`, `es_ANY`, `es` | LibreOffice `dict-es` (RLA-ES) |
 | Spanish (Latin America, and the other Spanish regions of the Americas) | `es_419`, `es-419`, `es_ANY`, `es`, `es_US`, `es_MX`, `es_AR`, `es-AR` | LibreOffice `dict-es` (RLA-ES) |
 | Spanish (Uruguay) | `es_UY`, `es-UY`, `es_AR`, `es-AR`, `es_419`, `es-419`, `es_ANY`, `es` | LibreOffice `dict-es` (RLA-ES) |
 
 Every Portuguese region uses the same `pt_BR` dictionary, so text marked *Português (Portugal)*
-is checked with it too.
+is checked with it too. Likewise OpenTaal's `nl_NL` covers Belgian Dutch, so text marked
+*Dutch (Belgium)* is checked with it.
 
 Spanish has a dictionary per variety: text marked *Español (España)* uses `es_ES`, *Español
 (México)* `es_MX`, *Español (Uruguay)* `es_UY`, and *Español (Latinoamérica)* and the other
@@ -46,6 +49,17 @@ American one found. LibreOffice's `dict-es` has them all. Uruguayan Spanish also
 
 The files may be UTF-8 or the encoding named on the `.aff`'s `SET` line (ISO 8859-1, ISO 8859-2, KOI8-R
 and Windows-1251 are read as well; the original VERO `pt_BR` is ISO 8859-1).
+
+Catalan text tagged `ca`, `ca-ES` or `cat` uses the same installed dictionary. The
+Softcatalà dictionary in LibreOffice's `ca/dictionaries` folder is named `ca.aff` and `ca.dic`;
+keep both together in the dictionaries folder. It is read without modifying its rules,
+including `FLAG long`, `FULLSTRIP`, apostrophe input conversion and forbidden words.
+Catalan spelling checks complete apostrophized and `l·l` words. Hyphens also allow known
+components, as Hunspell’s default break rules do, without bypassing forbidden-word rules. Boundary hyphens are stripped before checking a
+forbidden core; this is stricter than some Hunspell trailing-hyphen segmentations. Suggestions use
+the shared dictionary-driven ranker, which expands single-character MAP groups and REP
+replacements; it does not expand Hunspell's multi-character MAP alternatives. Catalan grammar
+and Catalan hyphenation patterns are not provided by this spelling contribution.
 
 ## Where WordCraft looks
 
@@ -141,6 +155,8 @@ Never commit dictionary files to this repository: they stay on the user's system
 |---|---|---|
 | 2026-10-22 | minor | Spanish (#3360, #3553): the file names for Spain, Mexico, Latin America and Uruguay and their fallbacks |
 | 2026-10-22 | trivial | Italian, Croatian, Turkish, Russian, Czech and Indonesian without a dictionary now show **(no dictionary)** (or **(dictionary unreadable)**) too, as this page already said; before, only Polish and Portuguese did. Indonesian is listed with its file names (#3150) |
+| 2026-10-19 | minor | Catalan installed-dictionary spelling and suggestions (#2895); grammar, hyphenation and full UI translation remain open |
+| 2026-10-18 | minor | Dutch: OpenTaal's `nl_NL` (also for `nl-BE`), its file names and sources |
 | 2026-10-18 | trivial | ISO 8859-1 (`SET ISO8859-1`) dictionaries are read, so the original VERO `pt_BR` works without converting it to UTF-8 (#2824) |
 | 2026-10-18 | minor | An installed dictionary that can't be read shows **(dictionary unreadable)** in the status bar, with the file and reason in its tooltip and in File › Options › Proofing (#2830) |
 | 2026-10-16 | major | First version: the file names per language, the search order and folders on Windows, macOS and Linux, installing `pt_BR` on each, and how to check it works |
