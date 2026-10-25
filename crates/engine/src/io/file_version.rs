@@ -4,6 +4,8 @@ use sha2::{Digest, Sha256};
 use std::ffi::OsStr;
 use std::fs::{self, File};
 use std::io::{BufReader, Read};
+#[cfg(unix)]
+use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 #[cfg(not(windows))]
 use std::sync::Arc;
@@ -28,6 +30,7 @@ struct OriginalIdentity {
     volume: u64,
     file: u64,
 }
+// Hold the original inode alive on Unix so an unlinked identity cannot be recycled.
 #[cfg(not(windows))]
 type OriginalIdentity = Arc<same_file::Handle>;
 
@@ -75,6 +78,36 @@ enum EntryKind {
     Directory,
 }
 
+#[cfg(unix)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct EntryIdentity {
+    device: u64,
+    inode: u64,
+}
+#[cfg(not(unix))]
+type EntryIdentity = same_file::Handle;
+
+/// Unix identity lookup needs metadata, not read permission on an unrelated Save As target.
+/// Owned destinations still undergo the separate content check immediately before replacement.
+fn entry_identity(path: &Path, kind: EntryKind) -> std::io::Result<EntryIdentity> {
+    #[cfg(unix)]
+    {
+        let meta = fs::metadata(path)?;
+        let accepts = match kind {
+            EntryKind::File => meta.is_file(),
+            EntryKind::Directory => meta.is_dir(),
+        };
+        if !accepts {
+            return Err(std::io::Error::other("unexpected entry type during file identity check"));
+        }
+        Ok(EntryIdentity { device: meta.dev(), inode: meta.ino() })
+    }
+    #[cfg(not(unix))]
+    {
+        entry_handle(path, kind)
+    }
+}
+
 /// Identity checks accept only the expected entry type, before and after opening it.
 fn entry_handle(path: &Path, kind: EntryKind) -> std::io::Result<same_file::Handle> {
     let accepts = |meta: &fs::Metadata| match kind {
@@ -92,6 +125,29 @@ fn entry_handle(path: &Path, kind: EntryKind) -> std::io::Result<same_file::Hand
         return Err(std::io::Error::other("entry type changed during file identity check"));
     }
     Ok(handle)
+}
+
+/// A completed save may be write-only. Keep its inode alive without reading or changing bytes.
+fn saved_handle(path: &Path) -> std::io::Result<same_file::Handle> {
+    let error = match entry_handle(path, EntryKind::File) {
+        Ok(handle) => return Ok(handle),
+        Err(error) => error,
+    };
+    #[cfg(unix)]
+    if error.kind() == std::io::ErrorKind::PermissionDenied {
+        use rustix::fs::{Mode, OFlags};
+        if !fs::metadata(path)?.is_file() {
+            return Err(std::io::Error::other("not a regular file after save"));
+        }
+        // No CREATE or TRUNC: this handle only preserves identity. NONBLOCK also
+        // prevents waiting if the checked entry changes to a FIFO before open.
+        let file = File::from(rustix::fs::open(path, OFlags::WRONLY | OFlags::NONBLOCK | OFlags::CLOEXEC, Mode::empty())?);
+        if !file.metadata()?.is_file() {
+            return Err(std::io::Error::other("entry type changed after save"));
+        }
+        return same_file::Handle::from_file(file);
+    }
+    Err(error)
 }
 
 fn regular(path: &Path) -> std::io::Result<File> {
@@ -132,8 +188,8 @@ fn observes_case_aliases(path: &Path) -> bool {
     if other == name {
         return false;
     }
-    entry_handle(path, EntryKind::File)
-        .and_then(|a| entry_handle(&path.with_file_name(other), EntryKind::File).map(|b| a == b))
+    entry_identity(path, EntryKind::File)
+        .and_then(|a| entry_identity(&path.with_file_name(other), EntryKind::File).map(|b| a == b))
         .unwrap_or_else(|e| e.kind() != std::io::ErrorKind::NotFound || !path.exists())
 }
 
@@ -198,17 +254,16 @@ impl FileVersion {
         if resolved_spelling(path).is_some_and(|p| p == self.resolved) || fs::canonicalize(path).is_ok_and(|p| p == self.resolved) {
             return Ok(true);
         }
-        match fs::metadata(path) {
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return self.owns_missing(&absolute),
-            Ok(meta) if meta.is_file() => {}
-            _ => return Err(FileConflict { path: path.to_path_buf() }),
-        }
         let conflict = || FileConflict { path: path.to_path_buf() };
-        let current = entry_handle(path, EntryKind::File).map_err(|_| conflict())?;
+        let current = match entry_identity(path, EntryKind::File) {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return self.owns_missing(&absolute),
+            Ok(identity) => identity,
+            Err(_) => return Err(conflict()),
+        };
         // The original handle can name an old inode after replacement. Compare the current
         // tracked entries too, including case aliases on filesystems that preserve spelling.
         for owned in [&self.path, &self.resolved] {
-            match entry_handle(owned, EntryKind::File) {
+            match entry_identity(owned, EntryKind::File) {
                 Ok(handle) if handle == current => return Ok(true),
                 Ok(_) => {}
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
@@ -221,7 +276,11 @@ impl FileVersion {
             // Length is mutable: a changed-size hard link still belongs to the original file.
             original_identity(current).map(|identity| identity == *original).map_err(|_| conflict())
         }
-        #[cfg(not(windows))]
+        #[cfg(unix)]
+        {
+            original.as_file().metadata().map(|meta| EntryIdentity { device: meta.dev(), inode: meta.ino() } == current).map_err(|_| conflict())
+        }
+        #[cfg(not(any(unix, windows)))]
         {
             original.as_file().try_clone().and_then(same_file::Handle::from_file).map(|original| original == current).map_err(|_| conflict())
         }
@@ -234,7 +293,7 @@ impl FileVersion {
             if !equivalent_missing_name(name, original, folds_case) {
                 continue;
             }
-            match entry_handle(parent, EntryKind::Directory).and_then(|a| entry_handle(original_parent, EntryKind::Directory).map(|b| a == b)) {
+            match entry_identity(parent, EntryKind::Directory).and_then(|a| entry_identity(original_parent, EntryKind::Directory).map(|b| a == b)) {
                 Ok(true) => return Ok(true),
                 Ok(false) => {}
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
@@ -273,7 +332,7 @@ impl FileVersion {
     pub(super) fn saved(path: &Path, bytes: &[u8]) -> Self {
         let path = absolute(path);
         let resolved = fs::canonicalize(&path).unwrap_or_else(|_| path.clone());
-        let identity = entry_handle(&path, EntryKind::File).and_then(original_identity).ok();
+        let identity = saved_handle(&path).and_then(original_identity).ok();
         Self {
             case_aliases: [observes_case_aliases(&path), observes_case_aliases(&resolved)],
             path,

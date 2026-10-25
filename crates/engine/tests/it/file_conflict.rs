@@ -465,10 +465,11 @@ fn protected_open_and_save_compare_ciphertext_without_plaintext_files() {
     io::save_path_with(&p, &Document::from_text("Protected A"), Some("synthetic-password"), &io::ExportOptions::default()).unwrap();
     let mut s = Session::new(Document::new());
     s.run("file.open", &json!({"path": p, "password": "synthetic-password"})).unwrap();
-    s.run("document.setText", &json!({"text": "Local edit"})).unwrap();
+    s.run("document.setText", &json!({"text": "Saved intermediate version"})).unwrap();
     s.run("file.save", &json!({})).unwrap();
     assert!(wordcraft_docx::is_encrypted(&std::fs::read(&p).unwrap()));
     s.run("document.setText", &json!({"text": "Local edit"})).unwrap();
+    assert!(s.dirty, "the conflict must follow a real unsaved edit");
     let b =
         io::save_bytes_with("external.docx", &Document::from_text("Protected B"), Some("synthetic-password"), &io::ExportOptions::default()).unwrap();
     std::fs::write(&p, &b).unwrap();
@@ -984,4 +985,127 @@ fn rejected_document_replacements_keep_external_save_protection() {
         assert!(s.dirty);
         assert_eq!(s.doc, before, "{command}");
     }
+}
+
+#[cfg(unix)]
+#[test]
+fn save_as_to_unrelated_write_only_files_does_not_require_read_access() {
+    use std::os::unix::fs::PermissionsExt;
+    let d = Scratch::new();
+    let path = original(&d);
+    let frozen = std::fs::read(&path).unwrap();
+    let mut s = open(&path);
+    let target = d.path("write-only.docx");
+    io::save_path(&target, &Document::from_text("Unrelated destination")).unwrap();
+    std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o200)).unwrap();
+    let result = s.run("file.saveAs", &json!({"path": target}));
+    std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o600)).unwrap();
+    result.unwrap();
+    assert!(!s.dirty);
+    assert_eq!(std::fs::read(&path).unwrap(), frozen);
+    assert_eq!(io::open_path(&target).unwrap().plain_text(StoryRef::Body), "Local edit");
+    // A successful write-only save also records enough identity for another unrelated Save As.
+    std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o200)).unwrap();
+    let next = d.path("next.docx");
+    io::save_path(&next, &Document::from_text("Another destination")).unwrap();
+    s.run("document.setText", &json!({"text": "Later local edit"})).unwrap();
+    let result = s.run("file.saveAs", &json!({"path": next}));
+    std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o600)).unwrap();
+    result.unwrap();
+    assert_eq!(io::open_path(&next).unwrap().plain_text(StoryRef::Body), "Later local edit");
+    assert_eq!(io::open_path(&target).unwrap().plain_text(StoryRef::Body), "Local edit");
+}
+
+#[cfg(unix)]
+#[test]
+fn unreadable_owned_hard_links_still_refuse_external_changes() {
+    use std::os::unix::fs::PermissionsExt;
+    for replacement in [false, true] {
+        let d = Scratch::new();
+        let path = original(&d);
+        let mut s = open(&path);
+        let external = io::save_bytes("external.docx", &Document::from_text("External version")).unwrap();
+        if replacement {
+            let next = d.path("replacement.docx");
+            std::fs::write(&next, &external).unwrap();
+            std::fs::rename(next, &path).unwrap();
+        } else {
+            std::fs::write(&path, &external).unwrap();
+        }
+        let alias = d.path("hard-link.docx");
+        std::fs::hard_link(&path, &alias).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o200)).unwrap();
+        let result = s.run("file.saveAs", &json!({"path": alias}));
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        assert!(matches!(result, Err(wordcraft_engine::CmdError::FileConflict(_))));
+        assert_eq!(std::fs::read(&path).unwrap(), external);
+        assert_eq!(std::fs::read(&alias).unwrap(), external);
+        assert!(s.dirty);
+        assert_eq!(s.path.as_ref(), Some(&path));
+        assert_eq!(s.doc.plain_text(StoryRef::Body), "Local edit");
+        let copy = d.path("copy.docx");
+        s.run("file.saveAs", &json!({"path": copy})).unwrap();
+        assert_eq!(io::open_path(&copy).unwrap().plain_text(StoryRef::Body), "Local edit");
+        assert_eq!(std::fs::read(path).unwrap(), external);
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn write_only_save_preserves_distinct_case_destinations() {
+    use std::os::unix::fs::PermissionsExt;
+    let d = Scratch::new();
+    let path = original(&d);
+    let frozen = std::fs::read(&path).unwrap();
+    let mut s = open(&path);
+    let target = d.path("report.docx");
+    io::save_path(&target, &Document::from_text("Unrelated destination")).unwrap();
+    let variant = d.path("REPORT.DOCX");
+    let aliases = variant.exists();
+    std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o200)).unwrap();
+    let saved = s.run("file.saveAs", &json!({"path": target}));
+    std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o600)).unwrap();
+    saved.unwrap();
+    s.run("document.setText", &json!({"text": "Later local edit"})).unwrap();
+    if aliases {
+        std::fs::remove_file(&target).unwrap();
+        let result = s.run("file.saveAs", &json!({"path": variant}));
+        assert!(matches!(result, Err(wordcraft_engine::CmdError::FileConflict(_))));
+        assert!(!variant.exists());
+        assert!(s.dirty);
+    } else {
+        s.run("file.saveAs", &json!({"path": variant})).unwrap();
+        assert_eq!(io::open_path(&variant).unwrap().plain_text(StoryRef::Body), "Later local edit");
+        assert_eq!(io::open_path(&target).unwrap().plain_text(StoryRef::Body), "Local edit");
+    }
+    assert_eq!(std::fs::read(&path).unwrap(), frozen);
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn write_only_save_keeps_inode_alive_until_document_replacement() {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    let d = Scratch::new();
+    let path = original(&d);
+    let mut s = open(&path);
+    let target = d.path("write-only.docx");
+    io::save_path(&target, &Document::from_text("Unrelated destination")).unwrap();
+    std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o200)).unwrap();
+    let result = s.run("file.saveAs", &json!({"path": target}));
+    std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o600)).unwrap();
+    result.unwrap();
+    let saved = std::fs::metadata(&target).unwrap();
+    assert_eq!(io::open_path(&target).unwrap().plain_text(StoryRef::Body), "Local edit");
+    std::fs::remove_file(&target).unwrap();
+    let retained = || {
+        std::fs::read_dir("/proc/self/fd")
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter_map(|fd| std::fs::metadata(fd.path()).ok())
+            .filter(|meta| meta.dev() == saved.dev() && meta.ino() == saved.ino())
+            .count()
+    };
+    assert!(retained() > 0, "the original inode must not be recycled while its identity is tracked");
+    s.run("file.new", &json!({})).unwrap();
+    assert_eq!(retained(), 0, "document replacement releases the identity guard");
 }

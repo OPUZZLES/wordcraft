@@ -109,8 +109,10 @@ fn save_copy_picker_success_cancel_and_changed_document_are_bound_to_the_conflic
 fn autosave_pauses_after_conflict_and_pending_close_does_not_discard_edits() {
     let d = Scratch::new();
     let mut a = app(&d);
+    a.execute("document.setText", json!({"text": "Saved intermediate version"})).unwrap();
     a.execute("file.save", json!({})).unwrap();
     a.execute("document.setText", json!({"text": "Local edit"})).unwrap();
+    assert!(a.session.dirty, "the conflict must follow a real unsaved edit");
     let b = external(&d);
     a.autosave_tick(now_ms() + 10_000.0);
     assert!(!a.autosaves());
@@ -210,8 +212,10 @@ fn busy_copy_picker_retains_conflict_and_can_be_retried() {
 fn autosave_conflict_retains_open_save_changes_and_its_close_command() {
     let d = Scratch::new();
     let mut a = app(&d);
+    a.execute("document.setText", json!({"text": "Saved intermediate version"})).unwrap();
     a.execute("file.save", json!({})).unwrap();
     a.execute("document.setText", json!({"text":"Local edit"})).unwrap();
+    assert!(a.session.dirty, "the conflict must follow a real unsaved edit");
     a.execute("file.autosave", json!({"value":true})).unwrap();
     let b = external(&d);
     assert_eq!(a.run("file.close", json!({})).unwrap()["pending"], "saveChanges");
