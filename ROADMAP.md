@@ -140,7 +140,7 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 
 ## Progress log
 
-- 2026-10-26: Dutch/Catalan proofing retains bounded affix checks and shares form-generation limits across independent homonyms. Dutch compounds retain KEEPCASE components, listed hyphenated components, explicit forbidden spellings and boundary cores; uppercase mixed-case stems, affixes and acronym exemptions retain case restrictions; optional compound-rule transitions use bounded iterative search; numeric table headers accept trailing comments.
+- 2026-10-26: Dutch/Catalan proofing retains bounded affix checks and shares form-generation limits across independent homonyms. Dutch compounds retain KEEPCASE components, listed hyphenated components, explicit forbidden spellings and boundary cores; uppercase mixed-case stems, affixes and acronym exemptions retain case restrictions; optional compound-rule transitions use bounded iterative search; Dutch spelling honors disabled uppercase/number ignore options, including hyphen components; numeric table headers accept trailing comments.
 - 2026-10-25: Dutch compound checks retain forbidden hyphens, required capitalization and suffixes on the final rule component.
 
 - 2026-10-22: View › Window › New Window opens a second window on the document (desktop). The windows are titled `Name:1` and `Name:2` and each keeps its own caret, scroll position, zoom and view; edits and Undo are the document's and show in both. Closing one of them asks nothing; the last one asks about unsaved changes, and quitting asks once per document.
@@ -647,7 +647,7 @@ Footer page-table height and body wrapping are corrected. Other pagination gaps 
 
 | Date | Change | Summary |
 |---|---|---|
-| 2026-10-26 | trivial | Dutch/Catalan parser integration retains bounded affix checks and shares form-generation limits across independent homonyms; Dutch compounds retain KEEPCASE components, listed hyphenated components, explicit forbidden spellings and boundary cores; uppercase mixed-case stems, affixes and acronym exemptions retain case restrictions; optional compound-rule transitions use bounded iterative search; numeric table headers accept trailing comments; readiness estimates unchanged |
+| 2026-10-26 | trivial | Dutch/Catalan parser integration retains bounded affix checks and shares form-generation limits across independent homonyms; Dutch compounds retain KEEPCASE components, listed hyphenated components, explicit forbidden spellings and boundary cores; uppercase mixed-case stems, affixes and acronym exemptions retain case restrictions; optional compound-rule transitions use bounded iterative search; Dutch spelling honors disabled uppercase/number ignore options, including hyphen components; numeric table headers accept trailing comments; readiness estimates unchanged |
 | 2026-10-25 | trivial | Dutch compound checks retain forbidden hyphens, required capitalization and final rule suffixes; readiness estimates unchanged |
 | 2026-10-22 | trivial | Progress log: one native window per open document |
 | 2026-10-22 | trivial | Progress log: every open document keeps its own recovery copy |

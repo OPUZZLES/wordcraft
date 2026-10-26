@@ -89,11 +89,20 @@ fn is_latin_letter(c: char) -> bool {
 /// hyphenated word is correct whole (`e-mail`, `Noord-Holland`) or when each part is
 /// (`zwembad-renovatie`).
 pub fn is_correct(word: &str) -> bool {
-    is_correct_with(&dictionary(), word)
+    is_correct_with_options(word, &crate::Options::default())
+}
+
+/// [`is_correct`] with the File > Options > Proofing choices.
+pub fn is_correct_with_options(word: &str, opts: &crate::Options) -> bool {
+    check(&dictionary(), word, opts)
 }
 
 /// [`is_correct`] against a given dictionary (an empty one accepts everything).
 pub fn is_correct_with(d: &AffixDict, word: &str) -> bool {
+    check(d, word, &crate::Options::default())
+}
+
+fn check(d: &AffixDict, word: &str, opts: &crate::Options) -> bool {
     if d.is_empty() {
         return true; // no Dutch dictionary installed: no spelling marks
     }
@@ -101,9 +110,9 @@ pub fn is_correct_with(d: &AffixDict, word: &str) -> bool {
     let w = w.trim_matches(['\'', '’']);
     let n = w.chars().count();
     if n <= 1
-        || w.chars().any(|c| c.is_ascii_digit())
+        || (opts.ignore_numbers && w.chars().any(|c| c.is_ascii_digit()))
         || !w.chars().any(char::is_alphabetic)
-        || (w.chars().all(|c| !c.is_lowercase()) && n <= 6)
+        || (opts.ignore_uppercase && w.chars().all(|c| !c.is_lowercase()) && n <= 6)
         || !w.chars().any(is_latin_letter)
     {
         return known(d, w) || exemption_permitted(d, w);
@@ -112,18 +121,23 @@ pub fn is_correct_with(d: &AffixDict, word: &str) -> bool {
         return true;
     }
     let mut remaining = 128;
-    check_parts(d, w, &mut remaining)
+    check_parts(d, w, &mut remaining, opts)
 }
 
 /// Default breaks can retain a listed hyphenated component. Bound failed splits too, and
 /// check a boundary-trimmed core before subdividing so forbidden spellings cannot escape.
-fn check_parts(d: &AffixDict, word: &str, remaining: &mut usize) -> bool {
+fn check_parts(d: &AffixDict, word: &str, remaining: &mut usize, opts: &crate::Options) -> bool {
     if *remaining == 0 {
         return false;
     }
     *remaining -= 1;
     let n = word.chars().count();
-    if ((n <= 1 || (word.chars().all(|c| !c.is_lowercase()) && n <= 6)) && exemption_permitted(d, word)) || known(d, word) {
+    if ((n <= 1
+        || (opts.ignore_uppercase && word.chars().all(|c| !c.is_lowercase()) && n <= 6)
+        || (opts.ignore_numbers && word.chars().any(|c| c.is_ascii_digit())))
+        && exemption_permitted(d, word))
+        || known(d, word)
+    {
         return true;
     }
     if !d.permits_hyphen_breaks() || !word.contains('-') || d.forbids(word) {
@@ -131,14 +145,14 @@ fn check_parts(d: &AffixDict, word: &str, remaining: &mut usize) -> bool {
     }
     let core = word.trim_matches('-');
     if core != word {
-        return check_parts(d, core, remaining);
+        return check_parts(d, core, remaining, opts);
     }
     for (i, _) in word.match_indices('-') {
         if *remaining == 0 {
             return false;
         }
         let (Some(left), Some(right)) = (word.get(..i), word.get(i + 1..)) else { continue };
-        if check_parts(d, left, remaining) && check_parts(d, right, remaining) {
+        if check_parts(d, left, remaining, opts) && check_parts(d, right, remaining, opts) {
             return true;
         }
     }
@@ -160,6 +174,26 @@ fn known(d: &AffixDict, w: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn proofing_options_reach_the_dutch_check() {
+        test_dict::install();
+        let lang = crate::ProofLang::Nl;
+        let defaults = crate::Options::default();
+        let check_caps = crate::Options { ignore_uppercase: false, ..defaults };
+        let check_digits = crate::Options { ignore_numbers: false, ..defaults };
+        for word in ["QZX", "zwembad-QZX"] {
+            assert!(crate::is_correct_in_with(word, lang, &defaults));
+            assert!(!crate::is_correct_in_with(word, lang, &check_caps), "{word}");
+        }
+        for word in ["zwembad2", "zwembad-zwembad2"] {
+            assert!(crate::is_correct_in_with(word, lang, &defaults));
+            assert!(!crate::is_correct_in_with(word, lang, &check_digits), "{word}");
+        }
+        assert!(crate::is_correct_in_with("ZWEMBAD", lang, &check_caps));
+        assert!(crate::is_correct_in_with("2026", lang, &check_digits));
+        assert!(is_correct("QZX"), "direct checks retain defaults");
+    }
 
     #[test]
     fn mixed_case_acronyms_respect_explicit_keepcase_stems_and_affixes() {

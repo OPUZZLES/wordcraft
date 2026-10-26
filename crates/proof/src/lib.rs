@@ -817,7 +817,7 @@ pub fn is_correct_in_with(word: &str, lang: ProofLang, opts: &Options) -> bool {
         }
         ProofLang::Cs => accepted_by_options(word, opts) || cs::is_correct_with_options(word, opts),
         ProofLang::Id => accepted_by_options(word, opts) || id::is_correct_with_options(word, opts),
-        ProofLang::Nl => accepted_by_options(word, opts) || nl::is_correct(word),
+        ProofLang::Nl => accepted_by_options(word, opts) || nl::is_correct_with_options(word, opts),
         ProofLang::Ca => accepted_by_options(word, opts) || ca::is_correct(word),
         ProofLang::Bg | ProofLang::De | ProofLang::Other => true,
     }
