@@ -11898,3 +11898,41 @@ fn an_empty_bulleted_mark_after_a_bulleted_section_closer_draws_no_bullet() {
         assert!(text, "{filler} lines above: the text closer keeps its bullet");
     }
 }
+
+/// #3615: a long style chain at the end of a large sheet must not rescan every definition
+/// for every paragraph/run and pagination decision.
+#[test]
+fn many_styles_and_long_chains_do_not_multiply_paragraph_layout_work() {
+    use std::time::{Duration, Instant};
+    use wordcraft_doc::styles::Style;
+    let mut d = Document::new();
+    for i in 0..9900 {
+        d.styles.styles.push(Style { id: format!("Unused{i}"), ..Default::default() });
+    }
+    for i in 0..32 {
+        d.styles.styles.push(Style {
+            id: format!("Chain{i}"),
+            based_on: Some(if i == 0 { "Normal".into() } else { format!("Chain{}", i - 1) }),
+            chr: CharProps { italic: (i == 0).then_some(true), ..Default::default() },
+            ..Default::default()
+        });
+    }
+    d.body = (0..1000)
+        .map(|i| {
+            let mut p = Paragraph::with_text(&format!("Original style workload {i}."), CharProps::default());
+            p.props.style = Some("Chain31".into());
+            wordcraft_doc::para_block(p)
+        })
+        .collect();
+    for proofing in [false, true] {
+        let start = Instant::now();
+        let opts = LayoutOptions { proofing, ..Default::default() };
+        let l = layout(&d, &mut LayoutCache::default(), &opts);
+        assert!(start.elapsed() < Duration::from_secs(5), "style lookups with proofing={proofing} took {:?}", start.elapsed());
+        assert!(l.pages.len() > 1);
+        assert_eq!(d.body.len(), 1000);
+        let first = l.index.get(&(StoryRef::Body, wordcraft_doc::Path(vec![0]))).expect("first paragraph placed");
+        assert!(!first.is_empty());
+    }
+    assert!(d.styles.resolve_char(Some("Chain31"), &CharProps::default()).italic);
+}

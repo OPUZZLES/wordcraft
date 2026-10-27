@@ -5,13 +5,17 @@ use super::grid::{auto_space, snap_chars};
 use super::justify::hyphenation_points;
 use super::lines::break_lines;
 use super::model::{ClKind, Cluster, Glyph, Label, LabelRun, ParaEnv, undrawable_bullet};
-use super::proof::{ProofRun, is_list_item, proof_issues};
+use super::proof::{ProofRun, proof_issues};
 use super::*;
 
 /// Lay out one paragraph.
 pub fn layout_para(p: &Paragraph, env: &ParaEnv) -> ParaLayout {
+    layout_para_with_styles(p, env, &wordcraft_doc::resolve::StyleResolver::linear(&env.doc.styles))
+}
+
+pub(crate) fn layout_para_with_styles(p: &Paragraph, env: &ParaEnv, styles: &wordcraft_doc::resolve::StyleResolver<'_>) -> ParaLayout {
     let doc = env.doc;
-    let mut rp = doc.styles.resolve_para_in(&p.props, env.table.map(|t| &t.para));
+    let mut rp = styles.resolve_para_in(&p.props, env.table.map(|t| &t.para));
     if let Some(spacing) = env.read_line_spacing.filter(|s| s.is_finite() && (1.0..=2.0).contains(s)) {
         rp.line_spacing = wordcraft_doc::props::LineSpacing::Multiple(spacing);
     }
@@ -19,7 +23,7 @@ pub fn layout_para(p: &Paragraph, env: &ParaEnv) -> ParaLayout {
     let table_chr = env.table.map(|t| &t.chr);
     // Indents in characters are measured in the paragraph mark's font size.
     if rp.indent_chars.iter().any(|c| *c != 0.0) {
-        rp.set_char_unit(doc.styles.resolve_char_in(para_style, table_chr, &p.mark).size);
+        rp.set_char_unit(styles.resolve_char_in(para_style, table_chr, &p.mark).size);
     }
     // List level indents apply unless the paragraph sets its own, or, for a list from the style,
     // the style giving the list (or one based on it) does (`indents_over_list`). A paragraph
@@ -28,7 +32,7 @@ pub fn layout_para(p: &Paragraph, env: &ParaEnv) -> ParaLayout {
     let own_first = p.props.indent_first.is_some() || p.props.indent_first_chars.is_some_and(|c| c != 0.0);
     if let Some((_, lvl)) = &env.label {
         let (style_left, style_first) =
-            if p.props.numbering.is_some() { (false, false) } else { doc.styles.indents_over_list(para_style.unwrap_or("Normal")) };
+            if p.props.numbering.is_some() { (false, false) } else { styles.indents_over_list(para_style.unwrap_or("Normal")) };
         if !own_left && !style_left {
             rp.indent_left = lvl.indent;
         }
@@ -43,7 +47,7 @@ pub fn layout_para(p: &Paragraph, env: &ParaEnv) -> ParaLayout {
             rp.indent_first = 0.0;
         }
     }
-    let resolve = |c: &CharProps| -> Arc<ResolvedChar> { Arc::new(doc.styles.resolve_char_in(para_style, table_chr, c)) };
+    let resolve = |c: &CharProps| -> Arc<ResolvedChar> { Arc::new(styles.resolve_char_in(para_style, table_chr, c)) };
     let levels = bidi_levels(&p.text, rp.bidi);
     let mut b =
         Builder { env, styles: Vec::new(), style_index: Default::default(), glyphs: Vec::new(), clusters: Vec::new(), levels, shown: Vec::new() };
@@ -490,7 +494,18 @@ pub fn layout_para(p: &Paragraph, env: &ParaEnv) -> ParaLayout {
         joined_cluster_starts,
         has_page_fields,
         notes,
-        issues: env.proofing.map(|o| proof_issues(p, &runs, &o, env.typing_word, is_list_item(doc, p))).unwrap_or_default(),
+        issues: env
+            .proofing
+            .map(|o| {
+                proof_issues(
+                    p,
+                    &runs,
+                    &o,
+                    env.typing_word,
+                    p.props.numbering.or_else(|| styles.resolve_para(&p.props).numbering).is_some_and(|n| n.num != 0),
+                )
+            })
+            .unwrap_or_default(),
         drop_cap,
         hyph_after: Vec::new(),
         bidi_levels: b.levels,

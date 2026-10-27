@@ -38,6 +38,7 @@ pub(crate) fn layout_pass(
     });
     let mut ctx = Ctx {
         doc,
+        styles: wordcraft_doc::resolve::StyleResolver::new(&doc.styles),
         cache,
         opts,
         hide_deleted: opts.hides_deleted(StoryRef::Body),
