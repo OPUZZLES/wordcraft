@@ -1277,8 +1277,14 @@ fn hanging_content(pl: &ParaLayout) -> Option<(f32, f32)> {
         let adv = if adv.is_finite() { adv.clamp(0.0, UNBOUNDED) } else { 0.0 };
         let hard_break = matches!(kind, ClKind::LineBreak | ClKind::PageBreak | ClKind::ColumnBreak);
         let boundary = match kind {
-            ClKind::Space | ClKind::Tab => {
+            ClKind::Space => {
                 spaces += adv;
+                true
+            }
+            ClKind::Tab => {
+                // A tab endpoint occupies the prefix even when no text follows it.
+                line += spaces + adv;
+                spaces = 0.0;
                 true
             }
             ClKind::Marker => false,

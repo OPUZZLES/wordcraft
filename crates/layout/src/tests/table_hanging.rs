@@ -127,3 +127,33 @@ fn hanging_autofit_records_open_font_metrics() {
         }
     }
 }
+
+#[test]
+fn hanging_autofit_trailing_tab_keeps_its_stop_but_trailing_spaces_do_not_add_width() {
+    for text in ["R:\t", "R:\t  "] {
+        let (mut doc, mut table) = fixture(text, 30.0, -30.0, 30.0, false);
+        if let Block::Para(p) = Arc::make_mut(&mut table.rows[0].cells[0].blocks[0]) {
+            p.props.tabs = Some(vec![wordcraft_doc::props::TabStop { pos: 42.0, align: Default::default(), leader: Default::default() }]);
+        }
+        table.props.width = None;
+        for cell in &mut table.rows[0].cells {
+            cell.props.width = None;
+        }
+        table.rows[0].cells[1].blocks = vec![wordcraft_doc::para_block(Paragraph::new())];
+        doc.body[0] = Arc::new(Block::Table(table.clone()));
+        let (min, max) = measure_table_columns(&doc, &table)[0];
+        assert!((min - 40.8).abs() < 0.01, "the minimum prefix must also retain the tab endpoint: {min}");
+        assert!((max - 40.8).abs() < 0.01, "30pt implicit hanging stop precedes the 42pt stop, plus 10.8pt cell margins: {max}");
+        assert!((cells(&lay(&doc))[0].w - 40.8).abs() < 0.01, "cached maximum retains the tab stop");
+    }
+}
+
+#[test]
+fn hanging_autofit_nbsp_stays_inside_the_unbreakable_later_word() {
+    let (joined, joined_table) = fixture("R:\nA\u{a0}B", 30.0, -30.0, 30.0, false);
+    let (breakable, breakable_table) = fixture("R:\nA B", 30.0, -30.0, 30.0, false);
+    let joined_min = measure_table_columns(&joined, &joined_table)[0].0;
+    let breakable_min = measure_table_columns(&breakable, &breakable_table)[0].0;
+    assert!(joined_min > breakable_min + 4.0, "the NBSP joins both letters: {joined_min} versus {breakable_min}");
+    assert!(cells(&lay(&joined))[0].w > cells(&lay(&breakable))[0].w + 4.0, "cached layout also retains the joined word");
+}
