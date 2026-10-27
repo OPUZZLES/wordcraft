@@ -13,6 +13,7 @@ mod bidi;
 mod documents;
 mod fonts;
 mod ime_noop;
+mod links;
 mod revision_checks;
 mod typing;
 mod wordart;
