@@ -101,6 +101,18 @@ fn caret_link(s: &Session) -> Option<(Pos, Pos)> {
 
 /// Whether the selection contains a hyperlink, or the collapsed caret is on one.
 pub fn has_link(s: &Session) -> bool {
+    // A column edits its row pieces, not the stream between its selection corners.
+    if let Some(segs) = s.column_segments() {
+        return segs.iter().any(|(a, b)| {
+            let (a, b) = (s.doc.clamp(a), s.doc.clamp(b));
+            if a == b || a.path != b.path || a.story != b.story {
+                return false;
+            }
+            let Some(p) = s.doc.para_at(&a) else { return false };
+            let (from, to) = (a.off.min(b.off), a.off.max(b.off));
+            p.run_ranges().any(|(r, c)| r.end > from && r.start < to && c.link.is_some())
+        });
+    }
     if s.sel.is_collapsed() {
         return caret_link(s).is_some();
     }

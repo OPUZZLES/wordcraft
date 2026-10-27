@@ -173,3 +173,39 @@ fn remove_hyperlink_refuses_a_locked_column_without_partial_edits() {
     assert_eq!((&s.doc, &s.sel, &s.column, s.undo_depth()), (&doc, &sel, &block, depth));
     assert!(s.column_mode);
 }
+
+#[test]
+fn hyperlink_presence_follows_column_pieces_in_each_drag_direction() {
+    for (top, bottom) in [(2, 4), (4, 2)] {
+        for reversed in [false, true] {
+            for row in 0..3 {
+                for off in [1, 2, 3, 4] {
+                    let mut s = Session::new(wordcraft_doc::Document::from_text("abcdef\nabcdef\nabcdef"));
+                    s.doc.format_range(&Pos::body(row, off), &Pos::body(row, off + 1), &|c| c.link = Some("#column".into())).unwrap();
+                    let (a, b) = (Pos::body(0, top), Pos::body(2, bottom));
+                    let (a, b) = if reversed { (b, a) } else { (a, b) };
+                    let selection = run(&mut s, "select.column", json!({"anchor": a, "focus": b}));
+                    assert_eq!(selection["rows"], json!(["cd", "cd", "cd"]));
+                    let selected = (2..4).contains(&off);
+                    assert_eq!(crate::cmd::insert::has_link(&s), selected, "corners {top}/{bottom}, reversed {reversed}, row {row}, offset {off}");
+                    run(&mut s, "insert.removeLink", json!({}));
+                    assert_eq!(s.doc.para_at(&Pos::body(row, 0)).unwrap().props_of_char(off).link.is_none(), selected);
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn hyperlink_presence_ignores_empty_columns_on_linked_text() {
+    for last_row in [0, 2] {
+        let mut s = Session::new(wordcraft_doc::Document::from_text("abcdef\nabcdef\nabcdef"));
+        run(&mut s, "select.all", json!({}));
+        run(&mut s, "insert.link", json!({"url": "#column"}));
+        run(&mut s, "select.column", json!({"anchor": Pos::body(0, 2), "focus": Pos::body(last_row, 2)}));
+        assert!(!crate::cmd::insert::has_link(&s), "empty column ending on row {last_row}");
+        let doc = s.doc.clone();
+        run(&mut s, "insert.removeLink", json!({}));
+        assert_eq!(s.doc, doc);
+    }
+}
