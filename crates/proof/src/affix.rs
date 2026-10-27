@@ -1060,8 +1060,8 @@ impl AffixDict {
         {
             return true;
         }
-        // A listed forbidden word isn't made right by reading it as a compound.
-        budget > 0 && !self.forbids_converted(w) && self.compound(w, excluded, budget, capitalized, head_excluded)
+        // An excluded derivation cannot regain spelling or suggestion eligibility as a compound.
+        budget > 0 && !self.excludes_derivation(w, excluded) && self.compound(w, excluded, budget, capitalized, head_excluded)
     }
 
     /// Is `w` a stem with one prefix (and possibly a suffix, as a cross product)?
@@ -1137,15 +1137,16 @@ impl AffixDict {
 
     /// A forbidden stem or derivation must not become valid through a language's hyphen fallback.
     pub(crate) fn forbids(&self, w: &str) -> bool {
-        self.forbids_converted(&self.iconv(w))
+        self.excludes_derivation(&self.iconv(w), self.forbidden)
     }
 
     /// Check only standalone derivations, without recursively attempting compounds.
-    fn forbids_converted(&self, w: &str) -> bool {
-        self.forbidden != 0
-            && ((!self.check_excluding(w, self.forbidden, 0) && self.check_excluding(w, 0, 0))
+    fn excludes_derivation(&self, w: &str, excluded: u128) -> bool {
+        let prohibited = excluded & (self.forbidden | self.no_suggest);
+        prohibited != 0
+            && ((!self.check_excluding(w, prohibited, 0) && self.check_excluding(w, 0, 0))
                 || (casing(w) == Casing::Upper
-                    && !self.contains_uppercase(w, self.forbidden, StemLookup::Uppercase)
+                    && !self.contains_uppercase(w, prohibited, StemLookup::Uppercase)
                     && self.contains_uppercase(w, 0, StemLookup::Uppercase)))
     }
 
@@ -1171,7 +1172,7 @@ impl AffixDict {
         {
             return true;
         }
-        if self.forbids_converted(&w) || self.stem_index(&w).is_some() {
+        if self.excludes_derivation(&w, self.forbidden) || self.stem_index(&w).is_some() {
             return true;
         }
         let lower = w.to_lowercase();
@@ -2089,6 +2090,23 @@ pub(crate) mod tests {
                     assert_eq!(d.check(word), flag != 'F', "{flag}: {word}");
                     assert!(!d.can_suggest(word), "{flag}: {word}");
                 }
+            }
+        }
+    }
+
+    #[test]
+    fn nosuggest_derivations_cannot_reenter_through_compounds() {
+        let aff = "SET UTF-8\nNOSUGGEST N\nCOMPOUNDMIN 2\nCOMPOUNDBEGIN B\nCOMPOUNDEND E\nSFX S N 1\nSFX S 0 s .\nPFX P N 1\nPFX P 0 pre .\n";
+        let d = AffixDict::from_hunspell(aff, "5\nalpha/B\nbeta/ES\nalphabeta/NSP\nprealpha/B\ngamma/B\n", &[]).unwrap();
+        let back = AffixDict::from_bytes(&d.to_bytes()).unwrap();
+        for d in [&d, &back] {
+            for word in ["alphabeta", "alphabetas", "prealphabeta", "Alphabeta", "Alphabetas", "ALPHABETA", "ALPHABETAS"] {
+                assert!(d.check(word), "NOSUGGEST remains correct: {word}");
+                assert!(!d.can_suggest(word), "excluded standalone derivation: {word}");
+            }
+            assert!(!d.contains_suggestible("alphabetas") && !d.contains_suggestible("prealphabeta"));
+            for word in ["beta", "betas", "gammabeta", "gammabetas"] {
+                assert!(d.check(word) && d.can_suggest(word), "independent allowed form: {word}");
             }
         }
     }

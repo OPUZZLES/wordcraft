@@ -9,6 +9,14 @@ use wordcraft_doc::{Pos, StoryRef};
 
 use crate::{Session, cmd};
 
+mod bidi;
+mod documents;
+mod fonts;
+mod ime_noop;
+mod revision_checks;
+mod typing;
+mod wordart;
+
 fn s() -> Session {
     Session::new(wordcraft_doc::Document::new())
 }
@@ -8284,8 +8292,8 @@ fn dutch_test_dictionary() {
 
 // Hand-written synthetic fixture (no system dictionary data): two-character flags, `ij` stored
 // as `ĳ` and converted on input and output, and compound parts.
-const DUTCH_TEST_AFF: &str = "SET UTF-8\nFLAG long\nTRY eantirodslgvhkmuwbpjzcf\nICONV 2\nICONV ij ĳ\nICONV IJ Ĳ\nOCONV 2\nOCONV ĳ ij\nOCONV Ĳ IJ\nCOMPOUNDMIN 1\nCOMPOUNDBEGIN Ca\nCOMPOUNDEND Cc\nCOMPOUNDPERMITFLAG Cp\nSFX CA Y 1\nSFX CA 0 /CaCp .\n";
-const DUTCH_TEST_DIC: &str = "8\nhet\nzwembad/CACc\nbouwer/Cc\nis\nklaar\nwĳ\nzĳn\nblĳ\n";
+const DUTCH_TEST_AFF: &str = "SET UTF-8\nFLAG long\nTRY eantirodslgvhkmuwbpjzcf\nICONV 3\nICONV ’ '\nICONV ij ĳ\nICONV IJ Ĳ\nOCONV 2\nOCONV ĳ ij\nOCONV Ĳ IJ\nCOMPOUNDMIN 1\nCOMPOUNDBEGIN Ca\nCOMPOUNDEND Cc\nCOMPOUNDPERMITFLAG Cp\nSFX CA Y 1\nSFX CA 0 /CaCp .\nREP 3\nREP s-hertogenbosh 's-Hertogenbosch\nREP zwembat zwembad\nREP s-bochtt S-bocht\n";
+const DUTCH_TEST_DIC: &str = "10\nhet\nzwembad/CACc\nbouwer/Cc\nis\nklaar\nwĳ\nzĳn\nblĳ\n's-Hertogenbosch\nS-bocht\n";
 
 /// Dutch proofing (#2505) through the same commands as Review, F7, Change and Add to Dictionary:
 /// compounds the dictionary builds are correct, and suggestions show `ij` as typed.
@@ -8320,6 +8328,47 @@ fn dutch_proofing_through_the_review_commands() {
     assert_eq!(left.len(), 1);
     assert_eq!(left[0]["kind"], "grammar");
     assert_eq!(left[0]["lang"], "nl");
+}
+
+#[test]
+fn dutch_suggestions_preserve_existing_apostrophes_and_quotation_marks() {
+    dutch_test_dictionary();
+    for (input, expected) in [
+        ("'s-Hertogenbosh", "'s-Hertogenbosch"),
+        ("’s-Hertogenbosh", "’s-Hertogenbosch"),
+        ("s-Hertogenbosh", "'s-Hertogenbosch"),
+        ("'zwembat'", "'zwembad'"),
+        ("’zwembat’", "’zwembad’"),
+        ("'S-bochtt'", "'S-bocht'"),
+        ("’S-bochtt’", "’S-bocht’"),
+        ("S-bochtt", "S-bocht"),
+    ] {
+        let mut s = s();
+        run(&mut s, "document.setText", json!({"text": input}));
+        run(&mut s, "select.all", json!({}));
+        run(&mut s, "review.language", json!({"lang": "nl-NL"}));
+        run(&mut s, "caret.docStart", json!({}));
+        let issue = run(&mut s, "review.spelling", json!({}));
+        let suggestions = issue["suggestions"].as_array().unwrap();
+        let wanted = if input.contains("zwembat") {
+            "zwembad"
+        } else if input.contains("S-bochtt") {
+            "S-bocht"
+        } else if input.starts_with(['\'', '’']) {
+            "s-Hertogenbosch"
+        } else {
+            "'s-Hertogenbosch"
+        };
+        assert!(suggestions.contains(&json!(wanted)), "{issue}");
+        assert_eq!(run(&mut s, "review.suggestions", json!({}))["suggestions"], issue["suggestions"]);
+        assert_eq!(run(&mut s, "review.issues", json!({}))[0]["suggestions"], issue["suggestions"]);
+        run(&mut s, "review.applySuggestion", json!({"text": wanted}));
+        assert_eq!(text(&s), expected);
+        run(&mut s, "edit.undo", json!({}));
+        assert_eq!(text(&s), input);
+        run(&mut s, "edit.redo", json!({}));
+        assert_eq!(text(&s), expected);
+    }
 }
 
 /// A Spanish interface writes new documents in the region's Spanish (#3360): Uruguay's on a
