@@ -116,3 +116,60 @@ fn remove_hyperlink_stops_at_a_different_adjacent_target() {
     assert!(p.props_of_char(5).link.is_none());
     assert_eq!(p.text, "firstsecond");
 }
+
+#[test]
+fn remove_hyperlink_keeps_each_column_segment() {
+    let mut s = Session::new(wordcraft_doc::Document::from_text("abcdef\nabcdef\nabcdef"));
+    run(&mut s, "select.all", json!({}));
+    run(&mut s, "insert.link", json!({"url": "https://example.org/column"}));
+    run(&mut s, "select.column", json!({"on": true}));
+    let selection = run(&mut s, "select.column", json!({"anchor": Pos::body(0, 2), "focus": Pos::body(2, 4)}));
+    assert_eq!(selection["rows"], json!(["cd", "cd", "cd"]));
+    let (doc, sel, block, depth) = (s.doc.clone(), s.sel.clone(), s.column.clone(), s.undo_depth());
+    run(&mut s, "insert.removeLink", json!({}));
+    for row in 0..3 {
+        let p = s.doc.para_at(&Pos::body(row, 0)).unwrap();
+        assert_eq!(p.text, "abcdef");
+        for off in 0..6 {
+            assert_eq!(p.props_of_char(off).link.as_deref(), if (2..4).contains(&off) { None } else { Some("https://example.org/column") });
+        }
+    }
+    assert_eq!((&s.sel, &s.column), (&sel, &block));
+    assert!(s.column_mode);
+    assert_eq!(s.undo_depth(), depth + 1);
+    run(&mut s, "edit.undo", json!({}));
+    assert_eq!(s.doc, doc);
+    run(&mut s, "edit.redo", json!({}));
+    assert!(s.doc.para_at(&Pos::body(2, 0)).unwrap().props_of_char(2).link.is_none());
+}
+
+#[test]
+fn remove_hyperlink_keeps_an_empty_column_unchanged() {
+    let mut s = Session::new(wordcraft_doc::Document::from_text("abcdef\nabcdef\nabcdef"));
+    run(&mut s, "select.all", json!({}));
+    run(&mut s, "insert.link", json!({"url": "https://example.org/column"}));
+    run(&mut s, "select.column", json!({"on": true}));
+    let selection = run(&mut s, "select.column", json!({"anchor": Pos::body(0, 2), "focus": Pos::body(2, 2)}));
+    assert_eq!(selection["rows"], json!(["", "", ""]));
+    let (doc, sel, block, depth) = (s.doc.clone(), s.sel.clone(), s.column.clone(), s.undo_depth());
+    run(&mut s, "insert.removeLink", json!({}));
+    assert_eq!((&s.doc, &s.sel, &s.column, s.undo_depth()), (&doc, &sel, &block, depth));
+    assert!(s.column_mode);
+}
+
+#[test]
+fn remove_hyperlink_refuses_a_locked_column_without_partial_edits() {
+    let mut s = Session::new(wordcraft_doc::Document::from_text("abcdef\nabcdef\nabcdef"));
+    run(&mut s, "select.all", json!({}));
+    run(&mut s, "insert.link", json!({"url": "https://example.org/column"}));
+    s.sel = Selection { anchor: Pos::body(1, 0), focus: Pos::body(1, 6) };
+    run(&mut s, "developer.richText", json!({"tag": "locked-column-row"}));
+    run(&mut s, "developer.properties", json!({"control": "locked-column-row", "lockEdit": true}));
+    run(&mut s, "select.column", json!({"on": true}));
+    let selection = run(&mut s, "select.column", json!({"anchor": Pos::body(0, 2), "focus": Pos::body(2, 4)}));
+    assert_eq!(selection["rows"], json!(["cd", "cd", "cd"]));
+    let (doc, sel, block, depth) = (s.doc.clone(), s.sel.clone(), s.column.clone(), s.undo_depth());
+    assert!(s.run("insert.removeLink", &json!({})).is_err());
+    assert_eq!((&s.doc, &s.sel, &s.column, s.undo_depth()), (&doc, &sel, &block, depth));
+    assert!(s.column_mode);
+}
