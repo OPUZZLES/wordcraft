@@ -8,7 +8,7 @@ pagination and object placement in `crates/layout`. Typing behaviour is in
 [`typing-parity.md`](typing-parity.md); the reading and writing of the properties is in
 [`file-format-parity.md`](file-format-parity.md).
 
-> **Intrinsic table-width update:** 2026-10-27 · First-line-aware intrinsic table widths (#4203). Short labels use their occupied first-line positions; later lines retain their required indent, and placed trailing tabs retain their stop. Readiness estimates are unchanged.
+> **Intrinsic table-width update:** 2026-10-27 · First-line-aware intrinsic table widths (#4203). Short labels use their occupied first-line positions; later lines retain their required indent, and placed trailing tabs retain their stop in both width bounds. Active numbering keeps its prior measurement even when no rendered label is provided; numbering-off paragraphs still use their first-line origin. Readiness estimates are unchanged.
 
 **Dimension: ~55% (estimated), 90–145 h to full** (the sum of the rows below). The engine implements most of Word's layout
 rules, but nothing has been compared page-for-page with Word on real documents, and the default
@@ -270,7 +270,7 @@ layout suite are pending; this is not a new Word/native-IME acceptance claim.
 
 | Date | Change | Summary |
 |---|---|---|
-| 2026-10-27 | trivial | AutoFit measures hanging-indent content at its first-line and subsequent-line positions (#4203); original geometry/cache controls, no readiness estimate change |
+| 2026-10-27 | trivial | AutoFit measures hanging-indent content at its first-line and subsequent-line positions (#4203); retain active numbering and later-line tab endpoints in the intrinsic minimum; original geometry/cache controls, no readiness estimate change |
 | 2026-10-25 | trivial | Arabic list labels: `arabicAlpha` and `arabicAbjad` draw the 28 Arabic letters (alphabetical and abjad order), doubling past the last letter; Hebrew, Hindi, Thai and Vietnamese still show decimal (`doc::section::tests::arabic_letters_count_in_both_orders`) |
 | 2026-10-24 | trivial | Preserve grapheme edit/wrap boundaries across independently drawn font/style pieces; original emoji regression retained, new mixed-style/bundled-font LTR/bidi controls pending managed validation |
 | 2026-10-24 | trivial | Exact-spacing table contact uses the specified line height in row selection and word skipping; large/small mark regressions in modes 11/12/14/15 (#3977); shape estimates unchanged |

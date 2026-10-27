@@ -60,7 +60,7 @@ Set Proofing Language › Set As Default now persists in user preferences and ap
 
 Text context menus now include the existing formatting mini toolbar (#2959), including at a caret. Object, equation and whole-cell menus keep their own controls; Read Mode and the mini-toolbar preference suppress it. The toolbar reuses the selection toolbar's commands; additional controls from Word's toolbar are not added. Context-menu paste choices remain tracked by #2583 / PR #2599.
 
-Hanging-indent table labels no longer widen a column by unused first-line space (#4203). Original geometry and cache controls narrow gap #4; real-world corpus and broader pagination gates remain open.
+Hanging-indent table labels no longer widen a column by unused first-line space (#4203). Active numbering keeps its prior intrinsic-width measurement, while explicit numbering-off paragraphs still use their first-line origin. Later-line tab endpoints contribute to the intrinsic minimum. Original geometry and cache controls narrow gap #4; real-world corpus and broader pagination gates remain open.
 
 ## Ranked
 
@@ -152,7 +152,7 @@ Small follow-ups from the 2026-10-25 field, table and AutoFormat batch (#4232):
 
 | Date | Change | Summary |
 |---|---|---|
-| 2026-10-27 | trivial | AutoFit measures hanging-indent content at its first-line and subsequent-line positions (#4203); original geometry/cache controls, no readiness estimate change |
+| 2026-10-27 | trivial | AutoFit measures hanging-indent content at its first-line and subsequent-line positions (#4203); active numbering and later-line tab minimum controls, no readiness estimate change |
 | 2026-10-22 | trivial | View windows: several open documents and Switch Windows in the engine |
 | 2026-10-25 | trivial | egui 0.37 migration: interface catalogs remain pinned by `craft-i18n.rev` (`9205108…`; 27 languages, English fallback); IME surrounding deletions and composition resets are implemented with regressions, but managed CI passed; native IME acceptance and native-speaker catalog review remain open; no gap or readiness change |
 | 2026-10-17 | trivial | Gap 9 narrowed: Standard (Word 2007, AES-ECB) encrypted packages open with a password under any Word extension; AES headers in Word 97-2003 files are outside the public spec and refused with a clear message; estimate 3–5 → 0 h, since the remaining AES-in-`.doc` case is refused by design |

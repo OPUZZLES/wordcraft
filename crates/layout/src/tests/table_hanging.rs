@@ -157,3 +157,50 @@ fn hanging_autofit_nbsp_stays_inside_the_unbreakable_later_word() {
     assert!(joined_min > breakable_min + 4.0, "the NBSP joins both letters: {joined_min} versus {breakable_min}");
     assert!(cells(&lay(&joined))[0].w > cells(&lay(&breakable))[0].w + 4.0, "cached layout also retains the joined word");
 }
+
+#[test]
+fn hanging_autofit_review_numbered_direct_indents_keep_their_measurement() {
+    let (mut doc, mut table) = fixture("R:", 30.0, -30.0, 30.0, false);
+    let num = doc.numbering.add_list(wordcraft_doc::ListKind::Numbered);
+    if let Block::Para(p) = Arc::make_mut(&mut table.rows[0].cells[0].blocks[0]) {
+        p.props.numbering = Some(wordcraft_doc::props::NumRef { num, level: 0 });
+    }
+    let hanging = measure_table_columns(&doc, &table)[0];
+    if let Block::Para(p) = Arc::make_mut(&mut table.rows[0].cells[0].blocks[0]) {
+        p.props.indent_first = Some(0.0);
+    }
+    let control = measure_table_columns(&doc, &table)[0];
+    assert!((hanging.0 - control.0).abs() < 0.01, "numbered minimum keeps the existing positive indent: {hanging:?} versus {control:?}");
+    assert!((hanging.1 - control.1).abs() < 0.01, "numbered maximum keeps the existing positive indent: {hanging:?} versus {control:?}");
+}
+
+#[test]
+fn hanging_autofit_review_disabled_numbering_still_uses_the_first_line_origin() {
+    let (doc, mut table) = fixture("R:", 30.0, -30.0, 30.0, false);
+    let control = measure_table_columns(&doc, &table)[0];
+    if let Block::Para(p) = Arc::make_mut(&mut table.rows[0].cells[0].blocks[0]) {
+        p.props.numbering = Some(wordcraft_doc::props::NumRef { num: 0, level: 0 });
+    }
+    let cleared = measure_table_columns(&doc, &table)[0];
+    assert_eq!(cleared, control, "numId 0 explicitly switches numbering off");
+}
+
+#[test]
+fn hanging_autofit_review_later_tabs_retain_the_endpoint_in_the_minimum() {
+    for text in ["R:\n\t", "R:\n\t  "] {
+        let (mut doc, mut table) = fixture(text, 30.0, -30.0, 30.0, false);
+        if let Block::Para(p) = Arc::make_mut(&mut table.rows[0].cells[0].blocks[0]) {
+            p.props.tabs = Some(vec![wordcraft_doc::props::TabStop { pos: 42.0, align: Default::default(), leader: Default::default() }]);
+        }
+        table.props.width = None;
+        for cell in &mut table.rows[0].cells {
+            cell.props.width = None;
+        }
+        table.rows[0].cells[1].blocks = vec![wordcraft_doc::para_block(Paragraph::new())];
+        doc.body[0] = Arc::new(Block::Table(table.clone()));
+        let (min, max) = measure_table_columns(&doc, &table)[0];
+        assert!((min - 52.8).abs() < 0.01, "42pt later-line tab endpoint plus 10.8pt cell margins: {min}");
+        assert!((max - 52.8).abs() < 0.01, "the maximum already retained the same endpoint: {max}");
+        assert!((cells(&lay(&doc))[0].w - 52.8).abs() < 0.01, "cached automatic width retains the tab stop");
+    }
+}

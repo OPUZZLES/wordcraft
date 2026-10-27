@@ -1260,7 +1260,7 @@ fn para_content(pl: &ParaLayout) -> (f32, f32) {
 /// Numbered paragraphs retain their label/tab measurement rather than treating the label as text.
 fn hanging_content(pl: &ParaLayout) -> Option<(f32, f32)> {
     let rp = &pl.rp;
-    if (rp.indent_left >= 0.0 && rp.indent_first >= 0.0) || pl.label.is_some() {
+    if (rp.indent_left >= 0.0 && rp.indent_first >= 0.0) || pl.label.is_some() || rp.numbering.is_some_and(|n| n.num != 0) {
         return None;
     }
     let left = rp.indent_left.max(0.0);
@@ -1285,6 +1285,9 @@ fn hanging_content(pl: &ParaLayout) -> Option<(f32, f32)> {
                 // A tab endpoint occupies the prefix even when no text follows it.
                 line += spaces + adv;
                 spaces = 0.0;
+                if !first_line {
+                    later_min = later_min.max(line + left);
+                }
                 true
             }
             ClKind::Marker => false,
