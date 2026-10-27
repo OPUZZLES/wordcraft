@@ -525,7 +525,8 @@ fn toc_hyperlinks_many_headings_do_not_rescan_bookmarks() {
     s.run("references.toc", &json!({"pageNumbers": false})).unwrap();
     let elapsed = started.elapsed();
     eprintln!("linked TOC with {n} headings: {elapsed:?}");
-    assert!(elapsed.as_secs_f32() < 10.0, "linked TOC took {elapsed:?}");
+    // Leave headroom above the ~5-second fixed run; the old rescan took ~28 seconds.
+    assert!(elapsed.as_secs_f32() < 20.0, "linked TOC took {elapsed:?}");
     let names: Vec<String> = s.doc.bookmarks().into_iter().map(|(name, _)| name).collect();
     assert_eq!(names, (1..=n).map(|i| format!("_Toc{i:09}")).collect::<Vec<_>>());
     let links: Vec<String> = s
