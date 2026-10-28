@@ -229,6 +229,63 @@ fn update_fields_ref_many_bookmarks_is_not_quadratic() {
     assert!(elapsed.as_secs_f32() < 20.0, "8,000 textual REF updates took {elapsed:?}");
 }
 
+/// #3620: many short targets in one paragraph must not copy or scan that paragraph per REF.
+#[test]
+fn update_fields_ref_dense_targets_is_not_quadratic() {
+    let document = |n: usize| {
+        let mut targets = Paragraph::new();
+        let mut refs = Paragraph::new();
+        for i in 0..n {
+            let name = format!("Target{i:05}");
+            targets.text.push(wordcraft_doc::para::OBJ);
+            targets.text.push_str(&format!("  α{i:05}Ω  "));
+            targets.text.push(wordcraft_doc::para::OBJ);
+            targets.objects.push(InlineObject::BookmarkStart { name: name.clone() });
+            targets.objects.push(InlineObject::BookmarkEnd { name: name.clone() });
+            refs.text.push(wordcraft_doc::para::OBJ);
+            refs.objects.push(InlineObject::Field {
+                instr: format!("REF {name}"),
+                result: "stale".into(),
+                locked: false,
+                dirty: true,
+                code: false,
+                form: String::new(),
+            });
+        }
+        for p in [&mut targets, &mut refs] {
+            p.runs = vec![wordcraft_doc::para::Run { len: p.len(), props: CharProps::default() }];
+        }
+        let mut d = wordcraft_doc::Document::new();
+        d.body = vec![Block::Para(targets).into(), Block::Para(refs).into()];
+        Session::new(d)
+    };
+    let cpu = || std::fs::read_to_string("/proc/thread-self/schedstat").ok()?.split_whitespace().next()?.parse::<u64>().ok();
+    let measure = |n| {
+        let mut s = document(n);
+        // Page lookup is shared with PAGEREF and is outside the changed range-reading work.
+        s.layout();
+        let before = cpu();
+        update_fields(&mut s).unwrap();
+        let after = cpu();
+        let got = fields(&s);
+        assert_eq!(got.len(), n);
+        for (i, (_, text)) in got.iter().enumerate() {
+            assert_eq!(text, &format!("α{i:05}Ω"));
+        }
+        match (before, after) {
+            (Some(a), Some(b)) if b > a => Some((b - a) as f64 * 1e-9),
+            _ => None,
+        }
+    };
+    let (small, big) = (measure(2_000), measure(16_000));
+    let (Some(a), Some(b)) = (small, big) else {
+        eprintln!("Dense REF targets: CPU counter unavailable; semantic checks passed, timing assertion skipped");
+        return;
+    };
+    eprintln!("Dense REF targets: small={a:.9}s big={b:.9}s ratio={:.2}", b / a);
+    assert!(b < a * 24.0 + 0.005, "8x dense targets must not take quadratic lookup work: {a:.9}s -> {b:.9}s");
+}
+
 /// The index stores positions, not text: later paragraphs still see earlier result writes.
 #[test]
 fn update_fields_ref_first_bookmark_and_live_results() {

@@ -97,12 +97,59 @@ pub fn bookmark_text(doc: &wordcraft_doc::Document, name: &str) -> Option<String
 
 /// Read a previously found bookmark from the current document, including updated field results.
 pub(super) fn bookmark_text_at(doc: &wordcraft_doc::Document, name: &str, start: &Pos) -> Option<String> {
-    let para = doc.para(start.story, &start.path)?;
-    let end = para
-        .objects_with_offsets()
-        .find_map(|(off, object)| (off > start.off && matches!(object, InlineObject::BookmarkEnd { name: n } if n == name)).then_some(off))
-        .unwrap_or(para.len());
-    Some(doc.copy_range(start, &Pos { off: end, ..start.clone() }).plain_text().trim().to_string())
+    BookmarkTextIndex::default().text_at(doc, name, start)
+}
+
+/// Marker locations shared by textual REF reads during one Update Fields call. Result writes
+/// change object strings, not markers; no text or object value is retained in this index.
+#[derive(Default)]
+pub(super) struct BookmarkTextIndex {
+    paragraphs: std::collections::HashMap<(wordcraft_doc::StoryRef, wordcraft_doc::Path), BookmarkParagraph>,
+}
+
+impl BookmarkTextIndex {
+    pub(super) fn text_at(&mut self, doc: &wordcraft_doc::Document, name: &str, start: &Pos) -> Option<String> {
+        let para = doc.para(start.story, &start.path)?;
+        let index = self.paragraphs.entry((start.story, start.path.clone())).or_insert_with(|| BookmarkParagraph::new(para));
+        let end = index.ends.get(name).and_then(|v| v.get(v.partition_point(|off| *off <= start.off))).copied().unwrap_or(para.len());
+        // The existing fragment reader has specific fallback behavior for mismatched marker
+        // storage. Keep that behavior rather than interpreting malformed objects differently.
+        if index.offsets.len() != para.objects.len() {
+            return Some(doc.copy_range(start, &Pos { off: end, ..start.clone() }).plain_text().trim().to_string());
+        }
+        let text = para.text.get(start.off..end)?;
+        let mut object = index.offsets.partition_point(|off| *off < start.off);
+        let mut out = String::new();
+        for c in text.chars() {
+            if c == wordcraft_doc::para::OBJ {
+                if let Some(o) = para.objects.get(object) {
+                    out.push_str(o.plain_text());
+                }
+                object += 1;
+            } else {
+                out.push(c);
+            }
+        }
+        Some(out.trim().to_string())
+    }
+}
+
+struct BookmarkParagraph {
+    offsets: Vec<usize>,
+    ends: std::collections::HashMap<String, Vec<usize>>,
+}
+
+impl BookmarkParagraph {
+    fn new(para: &wordcraft_doc::Paragraph) -> Self {
+        let offsets = para.object_offsets();
+        let mut ends: std::collections::HashMap<String, Vec<usize>> = Default::default();
+        for (&off, o) in offsets.iter().zip(&para.objects) {
+            if let InlineObject::BookmarkEnd { name } = o {
+                ends.entry(name.clone()).or_default().push(off);
+            }
+        }
+        Self { offsets, ends }
+    }
 }
 
 #[cfg(test)]
@@ -215,5 +262,85 @@ mod tests {
         };
         eprintln!("Bookmark text: small={a:.9}s big={b:.9}s ratio={:.2}", b / a);
         assert!(b < a * 24.0 + 0.005, "8x markers must not take quadratic end lookup work: {a:.9}s -> {b:.9}s");
+    }
+    #[test]
+    fn indexed_bookmark_text_matches_fragment_text_for_objects_and_malformed_storage() {
+        let field =
+            InlineObject::Field {
+                instr: "TITLE".into(), result: "  field β  ".into(), locked: false, dirty: false, code: true, form: String::new()
+            };
+        let objects = vec![
+            end("Target"),
+            InlineObject::ControlStart { control: Box::default() },
+            start("Target"),
+            field,
+            InlineObject::PositionalTab { align: Default::default(), relative_to: Default::default(), leader: Default::default() },
+            InlineObject::Equation { linear: "x+y".into(), display: false, math: Default::default() },
+            InlineObject::Ruby {
+                base: "漢字".into(),
+                ruby: "かんじ".into(),
+                align: Default::default(),
+                size: 6.0,
+                raise: 8.0,
+                base_size: 12.0,
+                lang: "ja-JP".into(),
+                props: Box::default(),
+            },
+            InlineObject::Opaque { format: "docx".into(), xml: String::new(), text: "opaque Ω".into() },
+            InlineObject::ControlEnd,
+            end("Target"),
+            end("Target"),
+            start("Target"),
+            end("Target"),
+            start("Other"),
+        ];
+        let text = format!("é{} tail λ", (0..objects.len()).map(|_| format!(" {OBJ} ψ")).collect::<String>());
+        for mismatch in [0, 1, 2] {
+            let mut p = paragraph(text.clone(), objects.clone());
+            match mismatch {
+                1 => p.objects.truncate(3),
+                2 => p.objects.push(end("Extra")),
+                _ => {}
+            }
+            let mut d = Document::new();
+            d.body = vec![para_block(p)];
+            let original = d.clone();
+            let p = d.para(StoryRef::Body, &wordcraft_doc::Path::top(0)).unwrap();
+            let mut index = BookmarkTextIndex::default();
+            for off in p.object_offsets().into_iter().chain([p.len()]) {
+                let at = Pos::body(0, off);
+                for name in ["Target", "Other", "Missing"] {
+                    let end = p
+                        .objects_with_offsets()
+                        .find_map(|(o, v)| (o > off && matches!(v, InlineObject::BookmarkEnd { name: n } if n == name)).then_some(o))
+                        .unwrap_or(p.len());
+                    let expected = d.copy_range(&at, &Pos::body(0, end)).plain_text().trim().to_string();
+                    assert_eq!(index.text_at(&d, name, &at), Some(expected), "mismatch={mismatch} off={off} name={name}");
+                }
+            }
+            assert_eq!(d, original, "text extraction must not modify the source");
+        }
+    }
+
+    #[test]
+    fn indexed_bookmark_text_reads_changed_result_without_rebuilding_markers() {
+        let mut d = Document::new();
+        d.body = vec![para_block(paragraph(
+            format!("{OBJ}{OBJ}{OBJ}"),
+            vec![
+                start("Target"),
+                InlineObject::Field { instr: "TITLE".into(), result: "Old".into(), locked: false, dirty: true, code: false, form: String::new() },
+                end("Target"),
+            ],
+        ))];
+        let at = Pos::body(0, 0);
+        let mut index = BookmarkTextIndex::default();
+        assert_eq!(index.text_at(&d, "Target", &at).as_deref(), Some("Old"));
+        if let InlineObject::Field { result, .. } = &mut d.para_mut(StoryRef::Body, &at.path).unwrap().objects[1] {
+            *result = "Changed αβ".into();
+        }
+        assert_eq!(index.text_at(&d, "Target", &at).as_deref(), Some("Changed αβ"));
+        assert_eq!(index.paragraphs.len(), 1);
+        assert_eq!(index.text_at(&d, "Target", &Pos::body(1, 0)), None);
     }
 }
