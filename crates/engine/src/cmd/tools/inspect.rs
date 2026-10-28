@@ -145,10 +145,17 @@ fn removable(doc: &Document, story: StoryRef, path: &wordcraft_doc::Path, p: &Pa
         && !(is_table(i.checked_sub(1)) && is_table(i.checked_add(1)))
 }
 
-/// Whether `range` of `p` holds text or an object, not only zero-width markers.
-fn has_content(p: &Paragraph, range: &std::ops::Range<usize>) -> bool {
+/// Whether `range` of `p` holds text or an object, not only zero-width markers. Ranges are
+/// checked in text order, sharing the paragraph's non-marker offsets rather than restarting it.
+fn has_content(p: &Paragraph, range: &std::ops::Range<usize>, non_markers: &mut std::iter::Peekable<impl Iterator<Item = usize>>) -> bool {
     p.text.get(range.clone()).is_some_and(|t| {
-        t.chars().any(|ch| ch != '\u{FFFC}') || p.objects_with_offsets().any(|(off, object)| range.contains(&off) && !object.is_marker())
+        if t.chars().any(|ch| ch != '\u{FFFC}') {
+            return true;
+        }
+        while non_markers.peek().is_some_and(|&off| off < range.start) {
+            non_markers.next();
+        }
+        non_markers.peek().is_some_and(|&off| off < range.end)
     })
 }
 
@@ -239,15 +246,16 @@ fn hidden_text(doc: &Document) -> Vec<Hidden> {
                     _ => ranges.push(r),
                 }
             }
+            let mut non_markers = p.objects_with_offsets().filter_map(|(off, object)| (!object.is_marker()).then_some(off)).peekable();
             if all_hidden && doc.styles.resolve_char(style, &p.mark).hidden {
                 // An empty hidden paragraph that has to stay is invisible and holds no text.
-                if removable(doc, story, &path, p) || has_content(p, &(0..p.len())) {
+                if removable(doc, story, &path, p) || has_content(p, &(0..p.len()), &mut non_markers) {
                     out.push(Hidden { story, path: path.clone(), range: 0..p.len(), whole: true });
                 }
                 continue;
             }
             for range in ranges {
-                if has_content(p, &range) {
+                if has_content(p, &range, &mut non_markers) {
                     out.push(Hidden { story, path: path.clone(), range, whole: false });
                 }
             }

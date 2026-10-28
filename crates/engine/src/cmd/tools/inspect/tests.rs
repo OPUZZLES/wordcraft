@@ -28,10 +28,18 @@ fn cpu_cost(f: &mut impl FnMut()) -> f64 {
     }
 }
 
-fn inspection_cost_is_linear(hidden: bool) {
+fn inspection_cost_is_linear(hidden: bool, alternating: bool) {
     const SCALE: usize = 8;
-    let small_doc = marker_document(2_000, hidden);
-    let big_doc = marker_document(2_000 * SCALE, hidden);
+    let document = |n| {
+        let mut doc = marker_document(n, hidden);
+        if alternating {
+            doc.para_mut(StoryRef::Body, &wordcraft_doc::Path(vec![0])).unwrap().runs =
+                (0..n).map(|i| Run { len: OBJ.len_utf8(), props: CharProps { hidden: Some(i % 2 == 0), ..Default::default() } }).collect();
+        }
+        doc
+    };
+    let small_doc = document(2_000);
+    let big_doc = document(2_000 * SCALE);
     let mut small = Session::new(small_doc.clone());
     let mut big = Session::new(big_doc.clone());
     let check = |s: &mut Session| {
@@ -55,12 +63,17 @@ fn inspection_cost_is_linear(hidden: bool) {
 
 #[test]
 fn inspector_unsupported_scan_scales_linearly() {
-    inspection_cost_is_linear(false);
+    inspection_cost_is_linear(false, false);
 }
 
 #[test]
 fn inspector_hidden_marker_scan_scales_linearly() {
-    inspection_cost_is_linear(true);
+    inspection_cost_is_linear(true, false);
+}
+
+#[test]
+fn inspector_fragmented_hidden_marker_ranges_scale_linearly() {
+    inspection_cost_is_linear(false, true);
 }
 
 #[test]
@@ -74,10 +87,17 @@ fn hidden_content_distinguishes_markers_from_objects_at_unicode_offsets() {
         InlineObject::ControlEnd,
     ];
     for (range, expected) in [(0..2, true), (2..5, false), (5..8, true), (8..9, true), (9..12, false), (2..8, true), (2..2, false), (1..2, false)] {
-        assert_eq!(has_content(&p, &range), expected, "{range:?}");
+        let mut offsets = p.objects_with_offsets().filter_map(|(off, object)| (!object.is_marker()).then_some(off)).peekable();
+        assert_eq!(has_content(&p, &range, &mut offsets), expected, "{range:?}");
     }
+    let mut offsets = p.objects_with_offsets().filter_map(|(off, object)| (!object.is_marker()).then_some(off)).peekable();
+    for (range, expected) in [(0..2, true), (2..5, false), (5..8, true), (8..9, true), (9..12, false)] {
+        assert_eq!(has_content(&p, &range, &mut offsets), expected, "ordered {range:?}");
+    }
+    drop(offsets);
     p.objects.truncate(1);
-    assert!(!has_content(&p, &(5..8)), "an unmatched marker is not content");
+    let mut offsets = p.objects_with_offsets().filter_map(|(off, object)| (!object.is_marker()).then_some(off)).peekable();
+    assert!(!has_content(&p, &(5..8), &mut offsets), "an unmatched marker is not content");
 }
 
 #[test]
