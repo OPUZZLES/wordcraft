@@ -44,6 +44,8 @@ const NUDGE_FINE: f32 = 1.0;
 pub struct ObjectDrag {
     object: ObjectHit,
     drag: Drag,
+    /// The original page's screen origin when pressed, before any drag-time scrolling.
+    press_origin: Pos2,
     /// Smallest size it can be resized to, points.
     min: f32,
     picture: bool,
@@ -214,14 +216,14 @@ pub fn pointer(app: &mut WordApp, ui: &Ui, resp: &egui::Response, pages: &[Rect]
             if d.drag.grab == Grab::Rotate {
                 d.drag.turn_to(at, pages, scale, shift);
             } else {
-                let (at, locked_axis) = if d.copy && shift && d.object.floating() {
-                    let (at, horizontal) = d.drag.axis_pointer(at);
-                    (at, Some(if horizontal { guides::Axis::Y } else { guides::Axis::X }))
+                let locked_axis = if d.copy && shift && d.object.floating() {
+                    let horizontal = d.drag.update_axis(at, pages, scale, d.min, d.press_origin);
+                    Some(if horizontal { guides::Axis::Y } else { guides::Axis::X })
                 } else {
-                    (at, None)
+                    // Pictures keep their proportions from a corner unless Shift; shapes only with Shift.
+                    d.drag.update(at, pages, scale, d.min, d.picture != shift);
+                    None
                 };
-                // Pictures keep their proportions from a corner unless Shift; shapes only with Shift.
-                d.drag.update(at, pages, scale, d.min, d.picture != shift);
                 // Alignment guides: a move snaps to the page, the margins and the other objects
                 // (Alt: freely).
                 d.guides.clear();
@@ -255,6 +257,7 @@ pub fn pointer(app: &mut WordApp, ui: &Ui, resp: &egui::Response, pages: &[Rect]
         let drag = Drag::new(Grab::Move, object.page, object.rect, 0.0, at);
         app.canvas.obj_drag = Some(ObjectDrag {
             drag,
+            press_origin: pages.get(object.page).map_or(at, |p| p.min),
             object,
             min: 0.0,
             picture: false,
@@ -278,7 +281,9 @@ pub fn pointer(app: &mut WordApp, ui: &Ui, resp: &egui::Response, pages: &[Rect]
     let adding = ui.input(|i| i.modifiers.shift || i.modifiers.command);
     // Ctrl on the object that is already selected starts a copy-drag instead, including
     // Ctrl+Shift for an aligned copy. Shift alone keeps its additive-selection behavior.
-    let again = selected(app).is_some_and(|(p, _)| p == object.pos());
+    let again = selected(app).is_some_and(|(p, _)| p == object.pos())
+        || (ui.input(|i| i.modifiers.command && i.modifiers.shift)
+            && wordcraft_engine::cmd::objects::picked_objects(&app.session).contains(&object.pos()));
     let shift_only = ui.input(|i| i.modifiers.shift && !i.modifiers.command);
     if pressed && adding && grab == Grab::Move && selected(app).is_some() && (shift_only || !again) {
         let _ = app.run("select.addObject", json!({"pos": object.pos()}));
@@ -291,6 +296,7 @@ pub fn pointer(app: &mut WordApp, ui: &Ui, resp: &egui::Response, pages: &[Rect]
         };
         app.canvas.obj_drag = Some(ObjectDrag {
             drag: Drag::new(grab, object.page, object.rect, object.spin.deg, at),
+            press_origin: pages.get(object.page).map_or(at, |p| p.min),
             object,
             min,
             picture,
@@ -317,6 +323,7 @@ pub fn pointer(app: &mut WordApp, ui: &Ui, resp: &egui::Response, pages: &[Rect]
             let copy = grab == Grab::Move && ui.input(|i| i.modifiers.command);
             app.canvas.obj_drag = Some(ObjectDrag {
                 drag: Drag::new(grab, object.page, object.rect, object.spin.deg, at),
+                press_origin: pages.get(object.page).map_or(at, |p| p.min),
                 object,
                 min,
                 picture,
