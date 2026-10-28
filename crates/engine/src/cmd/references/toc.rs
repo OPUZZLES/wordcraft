@@ -149,8 +149,8 @@ fn toc_entries(s: &Session, f: &FieldCode) -> Vec<TocEntry> {
             }
         }
         if let Some(id) = &tc {
-            for off in p.object_offsets() {
-                let Some(InlineObject::Field { instr, .. }) = p.object_at(off) else { continue };
+            for (off, object) in p.objects_with_offsets() {
+                let InlineObject::Field { instr, .. } = object else { continue };
                 let c = FieldCode::parse(instr);
                 if c.name != "TC" {
                     continue;
@@ -544,4 +544,99 @@ fn entry_tabs(s: &Session, props: &wordcraft_doc::ParaProps, text: &str, right: 
     }
     tabs.push(right);
     tabs
+}
+
+#[cfg(test)]
+mod discovery_tests {
+    use super::*;
+    use wordcraft_doc::{Document, para::Run, para_block};
+
+    fn field(instr: &str) -> InlineObject {
+        InlineObject::Field { instr: instr.into(), result: String::new(), locked: false, dirty: false, code: false, form: String::new() }
+    }
+
+    fn paragraph(objects: Vec<InlineObject>) -> Paragraph {
+        let mut p = Paragraph::new();
+        p.text = format!("é{}尾", OBJ.to_string().repeat(objects.len()));
+        p.runs = vec![Run { len: p.len(), props: CharProps::default() }];
+        p.objects = objects;
+        p
+    }
+
+    // Thread CPU time excludes time waiting for another process on shared runners. Fall back
+    // to elapsed time when the counter is unavailable or does not advance.
+    fn cost(f: &mut impl FnMut()) -> f64 {
+        let cpu = || std::fs::read_to_string("/proc/thread-self/schedstat").ok()?.split_whitespace().next()?.parse::<u64>().ok();
+        let (start, before) = (std::time::Instant::now(), cpu());
+        f();
+        match (before, cpu()) {
+            (Some(a), Some(b)) if b > a => (b - a) as f64 * 1e-9,
+            _ => start.elapsed().as_secs_f64(),
+        }
+    }
+
+    #[test]
+    fn tc_discovery_scales_with_unrelated_markers() {
+        let session = |n| {
+            let mut objects = vec![InlineObject::BookmarkStart { name: "Other".into() }; n];
+            objects.push(field("TC \"Witness\" \\l 2"));
+            let mut d = Document::new();
+            d.body = vec![para_block(paragraph(objects))];
+            Session::new(d)
+        };
+        let (small, big) = (session(2_000), session(16_000));
+        let code = FieldCode::parse("TOC \\f \\l \"1-3\"");
+        let check = |s: &Session, n| {
+            let entries = toc_entries(s, &code);
+            assert_eq!(entries.len(), 1);
+            assert_eq!((entries[0].text.as_str(), entries[0].level, entries[0].lead), ("Witness", 1, 2 + n * OBJ.len_utf8()));
+        };
+        check(&small, 2_000);
+        check(&big, 16_000);
+        let measure = |s, n| {
+            let mut total = 0.0;
+            let mut calls = 0;
+            while total < 0.01 && calls < 128 {
+                total += cost(&mut || check(s, n));
+                calls += 1;
+            }
+            total / f64::from(calls)
+        };
+        let a = measure(&small, 2_000);
+        let b = measure(&big, 16_000);
+        eprintln!("TC discovery: small={a:.9}s big={b:.9}s ratio={:.2}", b / a);
+        assert!(b < a * 24.0 + 0.005, "8x markers must not take quadratic TC discovery work: {a:.9}s -> {b:.9}s");
+    }
+
+    #[test]
+    fn tc_discovery_preserves_filters_offsets_and_unpaired_objects() {
+        let mut d = Document::new();
+        d.body = vec![para_block(paragraph(vec![
+            InlineObject::BookmarkStart { name: "Other".into() },
+            field("TC \" First \" \\f c \\l 2"),
+            field("TC \"Wrong kind\" \\f X \\l 2"),
+            field("TC \"Too deep\" \\l 4"),
+            field("AUTHOR"),
+            field("TC \" \""),
+            field("TC \"Last\""),
+        ]))];
+        let mut s = Session::new(d);
+        let code = FieldCode::parse("TOC \\f C \\l \"1-3\"");
+        let entries = toc_entries(&s, &code);
+        assert_eq!(
+            entries.iter().map(|e| (e.text.as_str(), e.level, e.lead, &e.path)).collect::<Vec<_>>(),
+            [("First", 1, 5, &Path::top(0)), ("Last", 0, 20, &Path::top(0)),]
+        );
+        // Extra text markers have no objects; extra objects have no positions. Neither is a TC.
+        let p = s.doc.para_mut(StoryRef::Body, &Path::top(0)).unwrap();
+        p.text.push(OBJ);
+        p.runs[0].len = p.len();
+        assert_eq!(toc_entries(&s, &code).len(), 2);
+        let p = s.doc.para_mut(StoryRef::Body, &Path::top(0)).unwrap();
+        p.text.pop();
+        p.runs[0].len = p.len();
+        p.objects.push(field("TC \"Unpaired\""));
+        assert_eq!(toc_entries(&s, &code).len(), 2);
+        assert!(toc_entries(&s, &FieldCode::parse("TOC \\o \"1-3\"")).is_empty());
+    }
 }
