@@ -18,18 +18,36 @@ fn dense(n: usize, unique: bool) -> Document {
     doc
 }
 
-// Match the warmed, alternating scaling checks used in layout. Linux thread CPU time
-// excludes scheduler wait; elsewhere use the best elapsed sample for each input size.
+// Match the warmed, alternating scaling checks used in layout. Advancing Linux thread CPU
+// time excludes scheduler wait; otherwise use the best elapsed sample for each input size.
 fn cpu_cost(f: &mut impl FnMut()) -> f64 {
     let ran = || {
         let s = std::fs::read_to_string("/proc/thread-self/schedstat").ok()?;
         s.split_whitespace().next()?.parse::<u64>().ok()
     };
+    cpu_cost_with(ran, f)
+}
+
+fn cpu_cost_with(mut ran: impl FnMut() -> Option<u64>, f: &mut impl FnMut()) -> f64 {
     let (t, before) = (std::time::Instant::now(), ran());
     f();
     match (before, ran()) {
-        (Some(a), Some(b)) => b.saturating_sub(a) as f64 * 1e-9,
+        (Some(a), Some(b)) if b > a => (b - a) as f64 * 1e-9,
         _ => t.elapsed().as_secs_f64(),
+    }
+}
+
+#[test]
+fn bookmark_cost_measures_work_when_cpu_counters_do_not_advance() {
+    let mut s = Session::new(dense(64, true));
+    for readings in [[Some(0), Some(0)], [Some(10), Some(10)], [Some(10), Some(5)], [None, None], [Some(10), None]] {
+        let mut readings = readings.into_iter();
+        let cost = cpu_cost_with(|| readings.next().flatten(), &mut || {
+            let result = link_targets(&mut s, &json!({})).unwrap();
+            assert_eq!(result["bookmarks"].as_array().unwrap().len(), 64);
+            std::hint::black_box(result);
+        });
+        assert!(cost > 0.0, "completed bookmark work must have a positive elapsed cost: {cost}");
     }
 }
 
