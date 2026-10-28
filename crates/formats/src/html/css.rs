@@ -66,6 +66,8 @@ pub(super) fn apply_style(css: &str, style: &mut ElementStyle, parent: &Fmt) {
                     "inherit" | "unset" => Some(parent.bold),
                     "normal" | "initial" | "lighter" => Some(false),
                     "bold" | "bolder" => Some(true),
+                    // Rust accepts `700.` and `7.e2`; CSS requires a digit after the dot.
+                    _ if lv.split_once('.').is_some_and(|(_, tail)| !tail.as_bytes().first().is_some_and(u8::is_ascii_digit)) => None,
                     _ => lv.parse::<f32>().ok().filter(|w| (1.0..=1000.0).contains(w)).map(|w| w >= 600.0),
                 };
                 if let Some(bold) = bold {
