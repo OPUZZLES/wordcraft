@@ -225,13 +225,18 @@ fn constructions(
     let mut m = HashMap::new();
     let Some(cov) = sub(b, variants, cov_at) else { return m };
     let glyphs = coverage(b, cov);
+    let mut offsets = HashMap::new();
     for (i, g) in glyphs.iter().enumerate().take(count) {
         let Some(c) = sub(b, variants, offsets_at + i * 2) else { continue };
         if *g != u32::MAX {
-            // Several glyphs, in either direction, can reference the same immutable record.
-            let con = cache.entry(c).or_insert_with(|| Arc::new(construction(b, c)));
-            m.insert(*g, Arc::clone(con));
+            offsets.insert(*g, c);
         }
+    }
+    // Malformed coverage may repeat a glyph. Decode only its last valid reference so
+    // superseded records cannot accumulate in the shared cache.
+    for (g, c) in offsets {
+        let con = cache.entry(c).or_insert_with(|| Arc::new(construction(b, c)));
+        m.insert(g, Arc::clone(con));
     }
     m
 }
@@ -530,6 +535,33 @@ mod tests {
         for con in table.vert.values().chain(table.horiz.values()) {
             assert_eq!(con.variants.as_ptr(), first.variants.as_ptr());
         }
+    }
+
+    #[test]
+    fn duplicate_coverage_retains_only_surviving_constructions() {
+        let mut variants = construction_bytes(3, true);
+        let cov = u16_at(&variants, 2).unwrap() as usize;
+        // Format 1 accepts repeated glyph IDs. Each direction keeps its last valid offset.
+        for (i, value) in [1u16, 3, 7, 7, 7].into_iter().enumerate() {
+            variants[cov + i * 2..cov + i * 2 + 2].copy_from_slice(&value.to_be_bytes());
+        }
+        let mut cache = HashMap::new();
+        let vert = constructions(&variants, 0, 2, 3, 10, &mut cache);
+        assert_eq!(vert.len(), 1);
+        assert_eq!(vert[&7].variants[0], (7, 500.0));
+        assert_eq!(cache.len(), 1, "superseded records must not stay alive in the cache");
+        let horiz = constructions(&variants, 0, 4, 3, 16, &mut cache);
+        assert_eq!(horiz.len(), 1);
+        assert_eq!(horiz[&7].variants[0], (7, 501.0));
+        assert_eq!(cache.len(), 2, "each surviving direction can retain its own record");
+
+        // A later absent offset must not remove the preceding valid mapping.
+        variants[14..16].copy_from_slice(&0u16.to_be_bytes());
+        let table = parse(&construction_math(&variants)).unwrap();
+        assert_eq!(table.vert.len(), 1);
+        assert_eq!(table.vert[&7].variants[0], (7, 501.0));
+        assert_eq!(table.horiz[&7].variants[0], (7, 501.0));
+        assert!(Arc::ptr_eq(&table.vert[&7], &table.horiz[&7]));
     }
 
     #[test]

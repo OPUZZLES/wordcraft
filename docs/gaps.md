@@ -140,7 +140,7 @@ Small follow-ups from the 2026-10-25 field, table and AutoFormat batch (#4232):
 - AutoFormat's `*bold*` and `_italic_` don't convert when a closing bracket or quote follows the closing mark (`(*see note*)`): the trigger checks only space and `,.;:!?` (#4098).
 - The ribbon's Accept and Reject buttons only open their menus; Word's main half runs Accept (Reject) and Move to Next. The ribbon needs a big split button (Paste needs one too) (#4205).
 
-MATH glyphs that reference the same construction now share its immutable variants and assembly data (#3630). Glyph mappings, values and the existing partial-record fallback stay unchanged. Distinct overlapping constructions and assembly-only sharing remain separate.
+MATH glyphs that reference the same construction now share its immutable variants and assembly data (#3630). Glyph mappings, values and the existing partial-record fallback stay unchanged. Repeated glyph IDs keep their last valid reference without retaining superseded constructions. Distinct overlapping constructions and assembly-only sharing remain separate.
 
 ## Revision history
 

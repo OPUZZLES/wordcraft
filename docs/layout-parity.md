@@ -254,7 +254,7 @@ new mixed-style emoji and mixed bundled-font combining-mark controls cover LTR/b
 hit stops, full selection, and narrow/overwide line wrapping. Independent review and the full
 layout suite are pending; this is not a new Word/native-IME acceptance claim.
 
-MATH glyphs that reference the same construction now share its immutable variants and assembly data (#3630). Glyph mappings, values and the existing partial-record fallback stay unchanged. Distinct overlapping constructions and assembly-only sharing remain separate.
+MATH glyphs that reference the same construction now share its immutable variants and assembly data (#3630). Glyph mappings, values and the existing partial-record fallback stay unchanged. Repeated glyph IDs keep their last valid reference without retaining superseded constructions. Distinct overlapping constructions and assembly-only sharing remain separate.
 
 ## Revision history
 
