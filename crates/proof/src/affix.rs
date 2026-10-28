@@ -994,7 +994,7 @@ impl AffixDict {
                     .rules
                     .iter()
                     .filter_map(|&i| self.suffixes.get(i as usize))
-                    .filter(|r| self.standalone(r) && r.cont & flags != 0 && r.cond_matches(&root, true))
+                    .filter(|r| r.cont & excluded & self.only_in_compound == 0 && r.cont & flags != 0 && r.cond_matches(&root, true))
                     .fold(0u128, |m, r| m | r.bit);
                 if inner != 0 && self.form_has_flag(&root, inner, depth - 1, excluded, lookup) {
                     return true;
@@ -1047,13 +1047,18 @@ impl AffixDict {
     /// `budget`: part lookups a compound analysis may take (0: no compounds).
     /// `head_excluded`: extra restrictions on a case-folded standalone word or compound head.
     fn contains_excluding(&self, w: &str, excluded: u128, budget: u32, capitalized: bool, head_excluded: u128) -> bool {
+        self.contains_in_position(w, excluded, budget, capitalized, head_excluded, self.only_in_compound)
+    }
+
+    /// `only_in_compound` is the normal position mask, or zero for a prohibition probe.
+    fn contains_in_position(&self, w: &str, excluded: u128, budget: u32, capitalized: bool, head_excluded: u128, only_in_compound: u128) -> bool {
         if w.is_empty() || w.len() > MAX_WORD_BYTES {
             return false;
         }
         if self.excludes_spelling(w, excluded) {
             return false;
         }
-        let alone = excluded | head_excluded | self.only_in_compound;
+        let alone = excluded | head_excluded | only_in_compound;
         if self.stems_excluding(w, alone).next().is_some()
             || self.suffixed(w, 0, alone, StemLookup::Exact)
             || self.prefixed(w, alone, StemLookup::Exact)
@@ -1067,7 +1072,7 @@ impl AffixDict {
     /// Is `w` a stem with one prefix (and possibly a suffix, as a cross product)?
     fn prefixed(&self, w: &str, excluded: u128, lookup: StemLookup) -> bool {
         let mut root = String::with_capacity(w.len() + 8);
-        for r in self.prefixes.iter().filter(|r| self.standalone(r)) {
+        for r in self.prefixes.iter().filter(|r| r.cont & excluded & self.only_in_compound == 0) {
             let Some(rest) = w.strip_prefix(&*r.add) else { continue };
             if rest.is_empty() && !self.full_strip {
                 continue;
@@ -1105,7 +1110,8 @@ impl AffixDict {
                 root.clear();
                 root.push_str(base);
                 root.push_str(&g.strip);
-                let rules = || g.rules.iter().filter_map(|&i| self.suffixes.get(i as usize)).filter(|r| self.standalone(r));
+                let rules =
+                    || g.rules.iter().filter_map(|&i| self.suffixes.get(i as usize)).filter(|r| r.cont & excluded & self.only_in_compound == 0);
                 // The stem path: `root` is a stem carrying the rule's flag (and the prefix's,
                 // when a cross product is being checked).
                 if self
@@ -1140,14 +1146,15 @@ impl AffixDict {
         self.excludes_derivation(&self.iconv(w), self.forbidden)
     }
 
-    /// Check only standalone derivations, without recursively attempting compounds.
+    /// Detect prohibited derivations even when stems or rules require a compound position.
+    /// Ignore that position restriction for both probes; never recursively attempt compounds.
     fn excludes_derivation(&self, w: &str, excluded: u128) -> bool {
         let prohibited = excluded & (self.forbidden | self.no_suggest);
         prohibited != 0
-            && ((!self.check_excluding(w, prohibited, 0) && self.check_excluding(w, 0, 0))
+            && ((!self.check_in_position(w, prohibited, 0, 0) && self.check_in_position(w, 0, 0, 0))
                 || (casing(w) == Casing::Upper
-                    && !self.contains_uppercase(w, prohibited, StemLookup::Uppercase)
-                    && self.contains_uppercase(w, 0, StemLookup::Uppercase)))
+                    && !self.contains_uppercase_in_position(w, prohibited, StemLookup::Uppercase, 0)
+                    && self.contains_uppercase_in_position(w, 0, StemLookup::Uppercase, 0)))
     }
 
     /// Default Hunspell breaks check hyphen components independently; BREAK 0 disables that.
@@ -1189,9 +1196,13 @@ impl AffixDict {
     }
 
     fn check_excluding(&self, w: &str, excluded: u128, budget: u32) -> bool {
+        self.check_in_position(w, excluded, budget, self.only_in_compound)
+    }
+
+    fn check_in_position(&self, w: &str, excluded: u128, budget: u32, only_in_compound: u128) -> bool {
         // Keep the input capitalization when looking up its lowercase dictionary parts.
         let capitalized = w.chars().next().is_some_and(char::is_uppercase);
-        if self.contains_excluding(w, excluded, budget, capitalized, 0) {
+        if self.contains_in_position(w, excluded, budget, capitalized, 0, only_in_compound) {
             return true;
         }
         let case = casing(w);
@@ -1201,19 +1212,19 @@ impl AffixDict {
         // A prohibited exact spelling or derivation is terminal. Case folding must not
         // reinterpret it as a different, allowed compound (or a suggestion).
         let prohibited = excluded & (self.forbidden | self.no_suggest);
-        if prohibited != 0 && (self.excludes_spelling(w, prohibited) || self.contains_excluding(w, 0, 0, capitalized, 0)) {
+        if prohibited != 0 && (self.excludes_spelling(w, prohibited) || self.contains_in_position(w, 0, 0, capitalized, 0, only_in_compound)) {
             return false;
         }
         // A folded standalone word or compound head must permit capitalization. Later
         // compound components retain their dictionary case, including KEEPCASE stems.
         match case {
             Casing::Lower | Casing::Mixed => false,
-            Casing::Initial => self.contains_excluding(&w.to_lowercase(), excluded, budget, capitalized, self.keep_case),
+            Casing::Initial => self.contains_in_position(&w.to_lowercase(), excluded, budget, capitalized, self.keep_case, only_in_compound),
             Casing::Upper => {
                 let lower = w.to_lowercase();
-                self.contains_excluding(&capitalize(&lower), excluded, budget, capitalized, self.keep_case)
-                    || self.contains_excluding(&lower, excluded, budget, capitalized, self.keep_case)
-                    || self.contains_uppercase(w, excluded | self.keep_case, StemLookup::MixedOnly)
+                self.contains_in_position(&capitalize(&lower), excluded, budget, capitalized, self.keep_case, only_in_compound)
+                    || self.contains_in_position(&lower, excluded, budget, capitalized, self.keep_case, only_in_compound)
+                    || self.contains_uppercase_in_position(w, excluded | self.keep_case, StemLookup::MixedOnly, only_in_compound)
             }
         }
     }
@@ -1222,11 +1233,15 @@ impl AffixDict {
     /// Affixes are analysed on the initial-capital probe, rather than uppercasing
     /// their literals or conditions. Exact-case APIs never use these aliases.
     fn contains_uppercase(&self, w: &str, excluded: u128, lookup: StemLookup) -> bool {
+        self.contains_uppercase_in_position(w, excluded, lookup, self.only_in_compound)
+    }
+
+    fn contains_uppercase_in_position(&self, w: &str, excluded: u128, lookup: StemLookup, only_in_compound: u128) -> bool {
         if w.is_empty() || w.len() > MAX_WORD_BYTES {
             return false;
         }
         let lower = w.to_lowercase();
-        let excluded = excluded | self.only_in_compound;
+        let excluded = excluded | only_in_compound;
         [capitalize(&lower), lower].iter().any(|word| {
             !self.excludes_spelling(word, excluded)
                 && (self.lookup_stems(word, excluded, lookup).next().is_some()
@@ -1848,6 +1863,54 @@ pub(crate) mod tests {
         assert!(d.contains("verboa") && d.contains("verboz") && d.contains("verbo9"));
         assert!(d.contains("verboç") && d.contains("verboã"), "multi-byte UTF-8 flags");
         assert!(!d.contains("verboß"), "ß is not a flag and not a stem");
+    }
+
+    #[test]
+    fn forbidden_compound_only_spellings_block_language_hyphen_fallback() {
+        let dictionary =
+            AffixDict::from_hunspell("FORBIDDENWORD F\nONLYINCOMPOUND X\n", "4\nalpha\nbeta\nalpha-beta/FX\nalpha-beta/X\n", &[]).unwrap();
+        let restored = AffixDict::from_bytes(&dictionary.to_bytes()).unwrap();
+        for dictionary in [&dictionary, &restored] {
+            for word in ["alpha-beta", "Alpha-beta", "ALPHA-BETA", "-alpha-beta", "alpha-beta-"] {
+                assert!(!dictionary.check(word), "{word}");
+                assert!(!crate::ca::is_correct_with(dictionary, word), "Catalan {word}");
+                assert!(!crate::nl::is_correct_with(dictionary, word), "Dutch {word}");
+            }
+            assert!(dictionary.forbids("alpha-beta"));
+        }
+        let allowed = AffixDict::from_hunspell("ONLYINCOMPOUND X\n", "3\nalpha\nbeta\nalpha-beta/X\n", &[]).unwrap();
+        assert!(!allowed.check("alpha-beta"));
+        assert!(!allowed.forbids("alpha-beta"));
+        assert!(crate::ca::is_correct_with(&allowed, "alpha-beta"));
+        assert!(crate::nl::is_correct_with(&allowed, "alpha-beta"));
+    }
+
+    #[test]
+    fn forbidden_compound_only_derivations_block_language_hyphen_fallback() {
+        for (affix, entries, words) in [
+            (
+                "SFX S Y 1\nSFX S 0 s .\nPFX P Y 1\nPFX P 0 pre .\n",
+                "3\nalpha/P\nbeta/S\nalpha-beta/FXSP\n",
+                &["alpha-betas", "prealpha-beta", "prealpha-betas", "Alpha-betas", "ALPHA-BETAS"][..],
+            ),
+            ("SFX S N 1\nSFX S 0 s/T .\nSFX T N 1\nSFX T 0 t .\n", "3\nalpha\nbeta/S\nalpha-beta/FXS\n", &["alpha-betast"][..]),
+            ("SFX S N 1\nSFX S 0 s/X .\nSFX B N 1\nSFX B 0 s .\n", "3\nalpha\nbeta/B\nalpha-beta/FS\n", &["alpha-betas"][..]),
+        ] {
+            let affix = format!("FORBIDDENWORD F\nONLYINCOMPOUND X\n{affix}");
+            let forbidden = AffixDict::from_hunspell(&affix, entries, &[]).unwrap();
+            let restored = AffixDict::from_bytes(&forbidden.to_bytes()).unwrap();
+            let allowed = AffixDict::from_hunspell(&affix, &entries.replace("/F", "/"), &[]).unwrap();
+            for word in words {
+                for dictionary in [&forbidden, &restored] {
+                    assert!(dictionary.forbids(word), "forbidden derivation {word}");
+                    assert!(!crate::ca::is_correct_with(dictionary, word), "Catalan {word}");
+                    assert!(!crate::nl::is_correct_with(dictionary, word), "Dutch {word}");
+                }
+                assert!(!allowed.forbids(word), "allowed derivation {word}");
+                assert!(crate::ca::is_correct_with(&allowed, word), "Catalan allowed {word}");
+                assert!(crate::nl::is_correct_with(&allowed, word), "Dutch allowed {word}");
+            }
+        }
     }
 
     #[test]
