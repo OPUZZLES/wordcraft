@@ -9,7 +9,9 @@
 //! an operator or space; a parenthesised operand loses its parentheses). `^`/`_` with nothing
 //! before them are pre-scripts. A top-level `#` numbers the equation (`E=mc^2#(1)`).
 
-use crate::math::{Arg, FracKind, MAX_DEPTH, MClass, MNode, MRun, ScriptKind, any_too_deep, is_nary_char, math_class, merge_runs, too_deep};
+use crate::math::{
+    Arg, FracKind, MAX_DEPTH, MAX_PARSE_CHARS, MClass, MNode, MRun, ScriptKind, any_too_deep, is_nary_char, math_class, merge_runs, too_deep,
+};
 
 /// Function names set upright and applied to the following operand.
 pub const FUNCTION_NAMES: &[&str] = &[
@@ -38,7 +40,7 @@ pub const PLACEHOLDER: char = '⬚';
 
 /// Parse linear-format text. Never fails: what isn't understood stays as text.
 pub fn parse(s: &str) -> Arg {
-    let mut p = P { c: s.chars().take(20_000).collect(), i: 0, depth: 0, no_limits: 0, steps: 0 };
+    let mut p = P { c: s.chars().take(MAX_PARSE_CHARS).collect(), i: 0, depth: 0, no_limits: 0, steps: 0 };
     let mut out = Vec::new();
     // Stray closers at the top level are text.
     while p.i < p.c.len() {

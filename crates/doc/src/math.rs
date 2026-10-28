@@ -16,6 +16,9 @@ pub type Arg = Vec<MNode>;
 /// Deepest structure nesting kept (parsers stop here; layout draws nothing deeper).
 pub const MAX_DEPTH: usize = 64;
 
+/// Maximum input characters consumed by the UnicodeMath and LaTeX parsers.
+pub const MAX_PARSE_CHARS: usize = 20_000;
+
 /// An equation's structure, plus what's needed to write it back.
 #[derive(Clone, Debug, PartialEq, Default, Serialize, Deserialize)]
 pub struct Math {
