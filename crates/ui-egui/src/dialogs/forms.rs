@@ -78,7 +78,7 @@ impl CustomPropertiesForm {
                         self.selected = i;
                     }
                     None => {
-                        self.props.push(wordcraft_doc::CustomProp { name, kind: "lpwstr".into(), value });
+                        self.props.push(wordcraft_doc::CustomProp { name, kind: "lpwstr".into(), value, ..Default::default() });
                         self.selected = self.props.len().saturating_sub(1);
                     }
                 }
@@ -119,7 +119,7 @@ impl CustomPropertiesForm {
             }
             None => {
                 let i = self.selected.min(self.props.len());
-                self.props.insert(i, wordcraft_doc::CustomProp { name, kind: old.kind.clone(), value });
+                self.props.insert(i, wordcraft_doc::CustomProp { name, value, ..old });
                 self.selected = i;
             }
         }

@@ -4594,7 +4594,7 @@ fn word_count_with_an_object_selected_counts_the_document() {
 fn custom_properties_delete_legacy_names_but_new_names_keep_the_limit() {
     let mut s = s();
     let long = "x".repeat(crate::cmd::file::MAX_CUSTOM_NAME + 1);
-    s.doc.custom_props.push(wordcraft_doc::CustomProp { name: long.clone(), kind: "raw".into(), value: "<data/>".into() });
+    s.doc.custom_props.push(wordcraft_doc::CustomProp { name: long.clone(), kind: "raw".into(), value: "<data/>".into(), ..Default::default() });
     let mut custom = serde_json::Map::new();
     custom.insert(long.clone(), serde_json::Value::Null);
     run(&mut s, "file.properties", json!({"custom": custom}));

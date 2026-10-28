@@ -1536,7 +1536,7 @@ fn the_custom_properties_dialog_leaves_imported_non_text_properties_alone() {
     use egui_kittest::kittest::Queryable;
     let mut app = app_with("Report body");
     let _ = app.run("file.properties", json!({"custom": {"Status": "draft"}}));
-    app.session.doc.custom_props.push(wordcraft_doc::CustomProp { name: "Count".into(), kind: "i4".into(), value: "7".into() });
+    app.session.doc.custom_props.push(wordcraft_doc::CustomProp { name: "Count".into(), kind: "i4".into(), value: "7".into(), ..Default::default() });
     let _ = app.run("ui.backstage", json!({"value": true, "page": "info"}));
     let mut h = egui_kittest::Harness::builder().with_size(vec2(1440.0, 900.0)).build_ui_state(
         |ui, app: &mut WordApp| {

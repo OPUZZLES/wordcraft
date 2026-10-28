@@ -39,6 +39,9 @@ pub struct CustomProp {
     /// the property's XML content kept verbatim (vectors, blobs).
     pub kind: String,
     pub value: String,
+    /// Bookmark associated with this property (`linkTarget`), retained without evaluating it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub link_target: Option<String>,
 }
 
 /// Document properties (File › Info).
