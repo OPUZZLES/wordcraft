@@ -60,7 +60,7 @@ Set Proofing Language › Set As Default now persists in user preferences and ap
 
 Text context menus now include the existing formatting mini toolbar (#2959), including at a caret. Object, equation and whole-cell menus keep their own controls; Read Mode and the mini-toolbar preference suppress it. The toolbar reuses the selection toolbar's commands; additional controls from Word's toolbar are not added. Context-menu paste choices remain tracked by #2583 / PR #2599.
 
-Headless MCP uses the system region for its initial blank page, later New commands and imports without a page size. Explicit page sizes stay intact. This narrows CLI compatibility; readiness estimates are unchanged.
+Headless MCP uses the system region for its initial blank page, later New commands and plain-text, Markdown and HTML imports. Explicit page sizes stay intact. This narrows CLI compatibility; readiness estimates are unchanged.
 
 ## Ranked
 
