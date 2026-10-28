@@ -92,11 +92,16 @@ pub fn date_picture(instr: &str) -> Option<String> {
 /// the paragraph's end. `None` when there is no such bookmark.
 pub fn bookmark_text(doc: &wordcraft_doc::Document, name: &str) -> Option<String> {
     let (_, start) = doc.bookmarks().into_iter().find(|(n, _)| n == name)?;
+    bookmark_text_at(doc, name, &start)
+}
+
+/// Read a previously found bookmark from the current document, including updated field results.
+pub(super) fn bookmark_text_at(doc: &wordcraft_doc::Document, name: &str, start: &Pos) -> Option<String> {
     let para = doc.para(start.story, &start.path)?;
     let end = para
         .object_offsets()
         .into_iter()
         .find(|o| *o > start.off && matches!(para.object_at(*o), Some(InlineObject::BookmarkEnd { name: n }) if n == name))
         .unwrap_or(para.len());
-    Some(doc.copy_range(&start, &Pos { off: end, ..start.clone() }).plain_text().trim().to_string())
+    Some(doc.copy_range(start, &Pos { off: end, ..start.clone() }).plain_text().trim().to_string())
 }
