@@ -115,6 +115,7 @@ impl CustomPropertiesForm {
         match self.props.iter().position(|p| p.name.eq_ignore_ascii_case(&name)) {
             Some(i) => {
                 self.props[i].value = value;
+                self.props[i].link_target = old.link_target;
                 self.selected = i;
             }
             None => {
@@ -134,7 +135,7 @@ impl CustomPropertiesForm {
     }
 
     /// The one `file.properties` call OK makes: a property gone since the dialog opened is
-    /// null, one added or changed is its value. Untouched properties aren't sent, so one of
+    /// null, one added or changed carries its value and any bookmark target. Untouched properties aren't sent, so one of
     /// another type (Zotero's raw XML, a number) keeps its stored form. A rename that only
     /// changes case sends the old spelling as null too, so the stored spelling follows it.
     pub(crate) fn params(&self) -> Value {
@@ -148,10 +149,17 @@ impl CustomPropertiesForm {
             }
         }
         for p in &self.props {
-            let changed =
-                self.start.iter().find(|q| q.name.eq_ignore_ascii_case(&p.name)).is_none_or(|was| was.name != p.name || was.value != p.value);
+            let changed = self
+                .start
+                .iter()
+                .find(|q| q.name.eq_ignore_ascii_case(&p.name))
+                .is_none_or(|was| was.name != p.name || was.value != p.value || was.link_target != p.link_target);
             if changed {
-                custom.insert(p.name.clone(), json!(p.value));
+                // A rename removes the old property before creating the new one. Carry its
+                // target too, including an explicit unlink when replacing a linked property.
+                let linked = p.link_target.is_some() || self.start.iter().any(|q| q.name.eq_ignore_ascii_case(&p.name) && q.link_target.is_some());
+                let value = if linked { json!({"value": p.value, "linkTarget": p.link_target}) } else { json!(p.value) };
+                custom.insert(p.name.clone(), value);
             }
         }
         json!({"custom": custom})

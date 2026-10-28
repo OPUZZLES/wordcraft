@@ -256,7 +256,7 @@ Inline code exports each LF, CR or CRLF line ending as one space, following [Com
 
 Repeated DOCX style IDs use the last complete definition. The original regression also covers repeated save/reopen, including removal of earlier-only properties.
 
-Custom document properties retain their bookmark link targets through DOCX saves, native JSON reopens and value edits (#4767). Linked values are not evaluated; the existing dialog and field-update behavior are unchanged. Original fixtures cover ordinary and raw property values; broader corpus qualification and readiness estimates remain unchanged.
+Custom document properties retain their bookmark link targets through DOCX saves, native JSON reopens, value edits and dialog renames (#4767). `file.properties` accepts a text string or a linked text object with `value` and optional `linkTarget`. Strings keep the existing association. Objects replace it, with an omitted or null target meaning unlinked. Values and bookmark targets are limited to 1 MiB each. Linked values are not evaluated; the dialog layout and field-update behavior are unchanged. Original fixtures cover ordinary and raw property values; broader corpus qualification and readiness estimates remain unchanged.
 
 ## Revision history
 
@@ -266,7 +266,7 @@ Custom document properties retain their bookmark link targets through DOCX saves
 
 | Date | Change | Summary |
 |---|---|---|
-| 2026-10-28 | trivial | Preserve custom-property bookmark link targets through saves and value edits (#4767); no linked-value evaluation or readiness change |
+| 2026-10-28 | trivial | Preserve custom-property bookmark link targets through saves, value edits and dialog renames (#4767); no linked-value evaluation or readiness change |
 | 2026-10-17 | trivial | Encryption rows: Standard (Word 2007, AES-ECB) encrypted packages open with a password, also when named `.doc`/`.dot`; AES headers in Word 97-2003 files are outside the public spec and refused (gap 9). The duplicate combined `.docx`/`.doc` row is removed; the `.doc` row reads 🟡 ~60% (it opens XOR/RC4/RC4 CryptoAPI); hours 2–4 → 1–2 and 4–6 → 1–2 (left: checks against Word-written files); total re-summed from the rows, 175–287 h |
 | 2026-10-25 | trivial | Repeated DOCX style IDs: repeated save/reopen regression for whole-definition replacement. |
 | 2026-10-25 | trivial | Arabic list labels: `arabicAlpha` and `arabicAbjad` draw the 28 Arabic letters (alphabetical and abjad order), doubling past the last letter; Hebrew, Hindi, Thai and Vietnamese still show decimal (`doc::section::tests::arabic_letters_count_in_both_orders`) |
