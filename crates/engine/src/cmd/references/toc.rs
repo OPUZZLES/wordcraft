@@ -563,15 +563,25 @@ mod discovery_tests {
         p
     }
 
-    // Thread CPU time excludes time waiting for another process on shared runners. Fall back
-    // to elapsed time when the counter is unavailable or does not advance.
-    fn cost(f: &mut impl FnMut()) -> f64 {
-        let cpu = || std::fs::read_to_string("/proc/thread-self/schedstat").ok()?.split_whitespace().next()?.parse::<u64>().ok();
-        let (start, before) = (std::time::Instant::now(), cpu());
+    // Thread CPU time excludes scheduler delays. An unavailable or nonadvancing counter
+    // cannot measure CPU work; callers must skip the timing assertion in that case.
+    fn cost(f: &mut impl FnMut(), cpu: impl Fn() -> Option<u64>) -> Option<f64> {
+        let before = cpu();
         f();
         match (before, cpu()) {
-            (Some(a), Some(b)) if b > a => (b - a) as f64 * 1e-9,
-            _ => start.elapsed().as_secs_f64(),
+            (Some(a), Some(b)) if b > a => Some((b - a) as f64 * 1e-9),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn unavailable_cpu_counter_does_not_measure_elapsed_time() {
+        let mut called = false;
+        assert_eq!(cost(&mut || called = true, || None), None);
+        assert!(called);
+        for (before, after) in [(Some(1), None), (None, Some(2)), (Some(1), Some(1)), (Some(2), Some(1))] {
+            let counter = std::cell::Cell::new(before);
+            assert_eq!(cost(&mut || {}, || counter.replace(after)), None);
         }
     }
 
@@ -594,16 +604,19 @@ mod discovery_tests {
         check(&small, 2_000);
         check(&big, 16_000);
         let measure = |s, n| {
+            let cpu = || std::fs::read_to_string("/proc/thread-self/schedstat").ok()?.split_whitespace().next()?.parse::<u64>().ok();
             let mut total = 0.0;
             let mut calls = 0;
             while total < 0.01 && calls < 128 {
-                total += cost(&mut || check(s, n));
+                total += cost(&mut || check(s, n), cpu)?;
                 calls += 1;
             }
-            total / f64::from(calls)
+            Some(total / f64::from(calls))
         };
-        let a = measure(&small, 2_000);
-        let b = measure(&big, 16_000);
+        let (Some(a), Some(b)) = (measure(&small, 2_000), measure(&big, 16_000)) else {
+            eprintln!("TC discovery: CPU counter unavailable; semantic checks passed, timing assertion skipped");
+            return;
+        };
         eprintln!("TC discovery: small={a:.9}s big={b:.9}s ratio={:.2}", b / a);
         assert!(b < a * 24.0 + 0.005, "8x markers must not take quadratic TC discovery work: {a:.9}s -> {b:.9}s");
     }
