@@ -469,7 +469,8 @@ impl P {
         if !applies {
             return name;
         }
-        let e = self.operand(stops);
+        // Unlike fraction/radical grouping, a function's parentheses remain visible (UTN 28 §3.5).
+        let e = self.operand_with_parens(stops, true);
         if e.is_empty() {
             return name;
         }
@@ -498,6 +499,10 @@ impl P {
     /// An operand: a parenthesised group (parentheses dropped) or a run of atoms with their
     /// postfix scripts, accents and limits, up to an operator or space.
     fn operand(&mut self, stops: &[char]) -> Arg {
+        self.operand_with_parens(stops, false)
+    }
+
+    fn operand_with_parens(&mut self, stops: &[char], keep_parens: bool) -> Arg {
         if self.tired() {
             return self.rest();
         }
@@ -507,7 +512,7 @@ impl P {
             self.i += 1;
             let g = self.group(Some('('), &[')']);
             let inner = match g {
-                MNode::Delim { elems, end: Some(')'), .. } if elems.len() == 1 => elems.into_iter().next().unwrap_or_default(),
+                MNode::Delim { elems, end: Some(')'), .. } if !keep_parens && elems.len() == 1 => elems.into_iter().next().unwrap_or_default(),
                 other => vec![other],
             };
             out = inner;
