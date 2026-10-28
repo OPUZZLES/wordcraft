@@ -17,7 +17,7 @@ agent control. This page is the summary; the assessment is
 > **Comment command update:** 2026-10-14 · malformed explicit IDs rejected; synthetic refusal, undo/redo and DOCX save/reopen checks (#1690 finding 3). Readiness estimates unchanged.
 
 
-Style-heavy documents (#3615): paragraph formatting, body flow and border grouping use a borrowed style-ID index for each immutable layout pass. The first definition of a duplicate ID, missing parents, cycles, the 32-style chain limit and all formatting overlays are unchanged. Synthetic equivalence and long-chain layout regressions cover this path. Numbering lookups, other independent resolver callers and the broader stability/corpus gates remain open; readiness estimates are unchanged.
+Style-heavy documents (#3615): paragraph formatting, body flow and border grouping use a borrowed style-ID index for each immutable layout pass. Explicit AutoFit measurements reuse one index across their paragraph batch, with unchanged widths and the same measurement budget. The first definition of a duplicate ID, missing parents, cycles, the 32-style chain limit and all formatting overlays are unchanged. Synthetic equivalence and long-chain layout regressions cover this path. Numbering lookups, other independent resolver callers and the broader stability/corpus gates remain open; readiness estimates are unchanged.
 
 ## Headline numbers (2026-10-10)
 
@@ -647,7 +647,7 @@ Footer page-table height and body wrapping are corrected. Other pagination gaps 
 
 | Date | Change | Summary |
 |---|---|---|
-| 2026-10-28 | trivial | Layout style indexes retain the typed paragraph inputs and extracted resolver on current main (#3615); readiness estimates unchanged |
+| 2026-10-28 | trivial | Layout and explicit AutoFit measurements reuse style indexes; typed paragraph inputs, widths and measurement limits are preserved (#3615); readiness estimates unchanged |
 | 2026-10-27 | trivial | Style-ID lookups indexed for an immutable layout pass; first duplicate, chain bounds and formatting overlays preserved; synthetic equivalence and scaling regressions (#3615). Other lookup paths and readiness estimates unchanged. |
 | 2026-10-22 | trivial | Progress log: one native window per open document |
 | 2026-10-22 | trivial | Progress log: every open document keeps its own recovery copy |

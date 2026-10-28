@@ -17,7 +17,7 @@ Additive paragraph spacing retains the full before-space after a section page br
 Exact line spacing keeps the run font baseline around tall equations; automatic and minimum spacing still grow for math. Synthetic control: `layout::tests::exact_math_keeps_run_baseline`.
 
 
-Style-heavy documents (#3615): paragraph formatting, body flow and border grouping use a borrowed style-ID index for each immutable layout pass. The first definition of a duplicate ID, missing parents, cycles, the 32-style chain limit and all formatting overlays are unchanged. Synthetic equivalence and long-chain layout regressions cover this path. Numbering lookups, other independent resolver callers and the broader stability/corpus gates remain open; readiness estimates are unchanged.
+Style-heavy documents (#3615): paragraph formatting, body flow and border grouping use a borrowed style-ID index for each immutable layout pass. Explicit AutoFit measurements reuse one index across their paragraph batch, with unchanged widths and the same measurement budget. The first definition of a duplicate ID, missing parents, cycles, the 32-style chain limit and all formatting overlays are unchanged. Synthetic equivalence and long-chain layout regressions cover this path. Numbering lookups, other independent resolver callers and the broader stability/corpus gates remain open; readiness estimates are unchanged.
 
 ## Checklist
 
@@ -269,7 +269,7 @@ layout suite are pending; this is not a new Word/native-IME acceptance claim.
 
 | Date | Change | Summary |
 |---|---|---|
-| 2026-10-28 | trivial | Layout style indexes retain the typed paragraph inputs and extracted resolver on current main (#3615); readiness estimates unchanged |
+| 2026-10-28 | trivial | Layout and explicit AutoFit measurements reuse style indexes; typed paragraph inputs, widths and measurement limits are preserved (#3615); readiness estimates unchanged |
 | 2026-10-27 | trivial | Style-ID lookups indexed for an immutable layout pass; first duplicate, chain bounds and formatting overlays preserved; synthetic equivalence and scaling regressions (#3615). Other lookup paths and readiness estimates unchanged. |
 | 2026-10-25 | trivial | Arabic list labels: `arabicAlpha` and `arabicAbjad` draw the 28 Arabic letters (alphabetical and abjad order), doubling past the last letter; Hebrew, Hindi, Thai and Vietnamese still show decimal (`doc::section::tests::arabic_letters_count_in_both_orders`) |
 | 2026-10-24 | trivial | Preserve grapheme edit/wrap boundaries across independently drawn font/style pieces; original emoji regression retained, new mixed-style/bundled-font LTR/bidi controls pending managed validation |

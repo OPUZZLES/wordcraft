@@ -11937,3 +11937,36 @@ fn many_styles_and_long_chains_do_not_multiply_paragraph_layout_work() {
     }
     assert!(d.styles.resolve_char(Some("Chain31"), &CharProps::default()).italic);
 }
+
+/// Explicit AutoFit measures a batch of paragraphs, so it must share style lookups too.
+#[test]
+fn autofit_measurement_does_not_rescan_styles_per_paragraph() {
+    use std::time::{Duration, Instant};
+    use wordcraft_doc::styles::Style;
+    let mut d = Document::new();
+    for i in 0..9900 {
+        d.styles.styles.push(Style { id: format!("Unused{i}"), ..Default::default() });
+    }
+    for i in 0..32 {
+        d.styles.styles.push(Style {
+            id: format!("Chain{i}"),
+            based_on: Some(if i == 0 { "Normal".into() } else { format!("Chain{}", i - 1) }),
+            chr: CharProps { italic: (i == 0).then_some(true), ..Default::default() },
+            ..Default::default()
+        });
+    }
+    let mut table = wordcraft_doc::Table::new(400, 2, 468.0);
+    for row in &mut table.rows {
+        for cell in &mut row.cells {
+            let mut p = Paragraph::with_text("Original AutoFit workload.", CharProps::default());
+            p.props.style = Some("Chain31".into());
+            cell.blocks = vec![wordcraft_doc::para_block(p)];
+        }
+    }
+    let start = Instant::now();
+    let measured = crate::table::measure_table_columns(&d, &table);
+    assert!(start.elapsed() < Duration::from_secs(3), "AutoFit style lookup took {:?}", start.elapsed());
+    d.styles.styles.retain(|style| !style.id.starts_with("Unused"));
+    assert_eq!(measured, crate::table::measure_table_columns(&d, &table));
+    assert!(measured.iter().all(|(min, max)| *min > 0.0 && *max >= *min));
+}

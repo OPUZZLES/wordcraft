@@ -61,7 +61,7 @@ Set Proofing Language › Set As Default now persists in user preferences and ap
 Text context menus now include the existing formatting mini toolbar (#2959), including at a caret. Object, equation and whole-cell menus keep their own controls; Read Mode and the mini-toolbar preference suppress it. The toolbar reuses the selection toolbar's commands; additional controls from Word's toolbar are not added. Context-menu paste choices remain tracked by #2583 / PR #2599.
 
 
-Style-heavy documents (#3615): paragraph formatting, body flow and border grouping use a borrowed style-ID index for each immutable layout pass. The first definition of a duplicate ID, missing parents, cycles, the 32-style chain limit and all formatting overlays are unchanged. Synthetic equivalence and long-chain layout regressions cover this path. Numbering lookups, other independent resolver callers and the broader stability/corpus gates remain open; readiness estimates are unchanged.
+Style-heavy documents (#3615): paragraph formatting, body flow and border grouping use a borrowed style-ID index for each immutable layout pass. Explicit AutoFit measurements reuse one index across their paragraph batch, with unchanged widths and the same measurement budget. The first definition of a duplicate ID, missing parents, cycles, the 32-style chain limit and all formatting overlays are unchanged. Synthetic equivalence and long-chain layout regressions cover this path. Numbering lookups, other independent resolver callers and the broader stability/corpus gates remain open; readiness estimates are unchanged.
 
 ## Ranked
 
@@ -153,7 +153,7 @@ Small follow-ups from the 2026-10-25 field, table and AutoFormat batch (#4232):
 
 | Date | Change | Summary |
 |---|---|---|
-| 2026-10-28 | trivial | Layout style indexes retain the typed paragraph inputs and extracted resolver on current main (#3615); readiness estimates unchanged |
+| 2026-10-28 | trivial | Layout and explicit AutoFit measurements reuse style indexes; typed paragraph inputs, widths and measurement limits are preserved (#3615); readiness estimates unchanged |
 | 2026-10-27 | trivial | Style-ID lookups indexed for an immutable layout pass; first duplicate, chain bounds and formatting overlays preserved; synthetic equivalence and scaling regressions (#3615). Other lookup paths and readiness estimates unchanged. |
 | 2026-10-22 | trivial | View windows: several open documents and Switch Windows in the engine |
 | 2026-10-25 | trivial | egui 0.37 migration: interface catalogs remain pinned by `craft-i18n.rev` (`9205108…`; 27 languages, English fallback); IME surrounding deletions and composition resets are implemented with regressions, but managed CI passed; native IME acceptance and native-speaker catalog review remain open; no gap or readiness change |
