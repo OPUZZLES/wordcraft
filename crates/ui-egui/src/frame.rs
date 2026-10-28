@@ -190,6 +190,13 @@ impl Drag {
         Drag { grab, page, start, press, to_page: page, rect: start, moved: false, deg: wordcraft_geom::normalize_degrees(deg) }
     }
 
+    /// Keep the pointer on the dominant axis through the press, before choosing its page.
+    /// The boolean says the movement is horizontal; ties keep the horizontal axis.
+    pub(crate) fn axis_pointer(&self, pointer: Pos2) -> (Pos2, bool) {
+        let delta = pointer - self.press;
+        if delta.x.abs() >= delta.y.abs() { (pos2(pointer.x, self.press.y), true) } else { (pos2(self.press.x, pointer.y), false) }
+    }
+
     /// Follow the pointer with the rotation handle: the frame turns to face it, by whole degrees
     /// (or `snap`ping to 15° steps, Shift).
     pub fn turn_to(&mut self, pointer: Pos2, pages: &[egui::Rect], scale: f32, snap: bool) {

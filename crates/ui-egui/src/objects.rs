@@ -214,6 +214,12 @@ pub fn pointer(app: &mut WordApp, ui: &Ui, resp: &egui::Response, pages: &[Rect]
             if d.drag.grab == Grab::Rotate {
                 d.drag.turn_to(at, pages, scale, shift);
             } else {
+                let (at, locked_axis) = if d.copy && shift && d.object.floating() {
+                    let (at, horizontal) = d.drag.axis_pointer(at);
+                    (at, Some(if horizontal { guides::Axis::Y } else { guides::Axis::X }))
+                } else {
+                    (at, None)
+                };
                 // Pictures keep their proportions from a corner unless Shift; shapes only with Shift.
                 d.drag.update(at, pages, scale, d.min, d.picture != shift);
                 // Alignment guides: a move snaps to the page, the margins and the other objects
@@ -223,7 +229,7 @@ pub fn pointer(app: &mut WordApp, ui: &Ui, resp: &egui::Response, pages: &[Rect]
                     // An inline one lands in the text: the insertion cursor follows the pointer.
                     d.drop_at = drop_point(app, layout, pages, scale, at, &d);
                 } else if d.drag.grab == Grab::Move && d.drag.moved && app.ui.alignment_guides && !ui.input(|i| i.modifiers.alt) {
-                    snap_move(layout, &mut d, scale);
+                    snap_move(layout, &mut d, scale, locked_axis);
                 }
             }
             if d.drag.moved && d.preview.is_none() && shows_pixels(&d) {
@@ -270,9 +276,11 @@ pub fn pointer(app: &mut WordApp, ui: &Ui, resp: &egui::Response, pages: &[Rect]
     }
     // Shift/Ctrl+click adds an object to the selected ones (or takes it out), for Group.
     let adding = ui.input(|i| i.modifiers.shift || i.modifiers.command);
-    // Ctrl on the object that is already selected starts a copy-drag instead.
+    // Ctrl on the object that is already selected starts a copy-drag instead, including
+    // Ctrl+Shift for an aligned copy. Shift alone keeps its additive-selection behavior.
     let again = selected(app).is_some_and(|(p, _)| p == object.pos());
-    if pressed && adding && grab == Grab::Move && selected(app).is_some() && (ui.input(|i| i.modifiers.shift) || !again) {
+    let shift_only = ui.input(|i| i.modifiers.shift && !i.modifiers.command);
+    if pressed && adding && grab == Grab::Move && selected(app).is_some() && (shift_only || !again) {
         let _ = app.run("select.addObject", json!({"pos": object.pos()}));
         return true;
     }
@@ -352,9 +360,11 @@ fn drop_point(app: &WordApp, layout: &DocLayout, pages: &[Rect], scale: f32, at:
 
 /// Snap a moved object's bounds (rotated ones by their turned box) to the guides of the page
 /// it's over: the page's edges and centre, its margins, the other floating objects there.
-fn snap_move(layout: &DocLayout, d: &mut ObjectDrag, scale: f32) {
+fn snap_move(layout: &DocLayout, d: &mut ObjectDrag, scale: f32, locked_axis: Option<guides::Axis>) {
     let Some(pg) = layout.pages.get(d.drag.to_page) else { return };
-    let candidates = guides::candidates(paper_width(pg), pg.h, pg.body, snap_targets(pg, &d.object));
+    // Guides may snap along the free axis, but must not pull an aligned copy off its axis.
+    let mut candidates = guides::candidates(paper_width(pg), pg.h, pg.body, snap_targets(pg, &d.object));
+    candidates.retain(|g| Some(g.axis) != locked_axis);
     let s = guides::snap(d.object.spin.bounds(d.drag.rect), &candidates, guides::SNAP_SCREEN / scale.max(0.01));
     d.drag.rect.x += s.dx;
     d.drag.rect.y += s.dy;
