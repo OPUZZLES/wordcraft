@@ -1,0 +1,106 @@
+use super::*;
+use std::hint::black_box;
+use wordcraft_doc::para::{NoteKind, OBJ, Run};
+use wordcraft_doc::props::CharProps;
+
+fn marker_document(n: usize, hidden: bool) -> Document {
+    let mut doc = Document::from_text("");
+    let p = doc.para_mut(StoryRef::Body, &wordcraft_doc::Path(vec![0])).unwrap();
+    p.text = OBJ.to_string().repeat(n);
+    p.runs = vec![Run { len: p.len(), props: CharProps::default() }];
+    p.objects = vec![InlineObject::BookmarkStart { name: "Original".into() }; n];
+    doc.styles.default_chr.hidden = Some(hidden);
+    doc
+}
+
+// Same warmed, alternating CPU-cost measurement as the layout scaling regressions. Linux
+// scheduler wait is excluded; other platforms use the best elapsed sample from each size.
+fn cpu_cost(f: &mut impl FnMut()) -> f64 {
+    let ran = || {
+        let s = std::fs::read_to_string("/proc/thread-self/schedstat").ok()?;
+        s.split_whitespace().next()?.parse::<u64>().ok()
+    };
+    let (t, before) = (std::time::Instant::now(), ran());
+    f();
+    match (before, ran()) {
+        (Some(a), Some(b)) => b.saturating_sub(a) as f64 * 1e-9,
+        _ => t.elapsed().as_secs_f64(),
+    }
+}
+
+fn inspection_cost_is_linear(hidden: bool) {
+    const SCALE: usize = 8;
+    let small_doc = marker_document(2_000, hidden);
+    let big_doc = marker_document(2_000 * SCALE, hidden);
+    let mut small = Session::new(small_doc.clone());
+    let mut big = Session::new(big_doc.clone());
+    let check = |s: &mut Session| {
+        let report = s.run("file.inspect", &json!({})).unwrap();
+        assert_eq!(report["found"]["hiddenCount"], 0);
+        assert_eq!(report["found"]["unsupported"], json!([]));
+        black_box(report);
+    };
+    check(&mut small);
+    check(&mut big);
+    let (mut t1, mut t8) = (f64::INFINITY, f64::INFINITY);
+    for _ in 0..5 {
+        t1 = t1.min(cpu_cost(&mut || (0..SCALE).for_each(|_| check(&mut small))) / SCALE as f64);
+        t8 = t8.min(cpu_cost(&mut || check(&mut big)));
+    }
+    assert_eq!(small.doc, small_doc);
+    assert_eq!(big.doc, big_doc);
+    // Eight times as many markers costs about 8x with a walk and 64x with a prefix scan.
+    assert!(t8 / t1.max(1e-9) < 24.0, "hidden={hidden}: small={t1}, big={t8}, ratio={}", t8 / t1.max(1e-9));
+}
+
+#[test]
+fn inspector_unsupported_scan_scales_linearly() {
+    inspection_cost_is_linear(false);
+}
+
+#[test]
+fn inspector_hidden_marker_scan_scales_linearly() {
+    inspection_cost_is_linear(true);
+}
+
+#[test]
+fn hidden_content_distinguishes_markers_from_objects_at_unicode_offsets() {
+    let mut p = Paragraph::new();
+    p.text = format!("é{OBJ}{OBJ}x{OBJ}");
+    p.runs = vec![Run { len: p.len(), props: CharProps::default() }];
+    p.objects = vec![
+        InlineObject::BookmarkStart { name: "Original".into() },
+        InlineObject::NoteRef { kind: NoteKind::Footnote, id: 7, custom: String::new() },
+        InlineObject::ControlEnd,
+    ];
+    for (range, expected) in [(0..2, true), (2..5, false), (5..8, true), (8..9, true), (9..12, false), (2..8, true), (2..2, false), (1..2, false)] {
+        assert_eq!(has_content(&p, &range), expected, "{range:?}");
+    }
+    p.objects.truncate(1);
+    assert!(!has_content(&p, &(5..8)), "an unmatched marker is not content");
+}
+
+#[test]
+fn inspector_keeps_opaque_report_order_and_excludes_hidden_objects() {
+    let mut doc = marker_document(5, false);
+    let p = doc.para_mut(StoryRef::Body, &wordcraft_doc::Path(vec![0])).unwrap();
+    p.text.insert(0, 'é');
+    let opaque = |format: &str| InlineObject::Opaque { format: format.into(), xml: "<w:r><w:vanish/></w:r>".into(), text: "Original".into() };
+    p.objects = vec![
+        InlineObject::BookmarkStart { name: "Original".into() },
+        opaque("first"),
+        InlineObject::NoteRef { kind: NoteKind::Footnote, id: 7, custom: String::new() },
+        opaque("second"),
+        opaque("hidden"),
+    ];
+    p.runs = vec![
+        Run { len: 2 + 4 * OBJ.len_utf8(), props: CharProps::default() },
+        Run { len: OBJ.len_utf8(), props: CharProps { hidden: Some(true), ..Default::default() } },
+    ];
+    let mut s = Session::new(doc.clone());
+    let report = s.run("file.inspect", &json!({})).unwrap();
+    let entry = |format: &str| json!({"story": "body", "object": "opaque", "format": format, "reason": "hidden text inside an object kept from the source file"});
+    assert_eq!(report["found"]["unsupported"], json!([entry("first"), entry("second")]));
+    assert_eq!(report["found"]["hiddenCount"], 1);
+    assert_eq!(s.doc, doc);
+}
