@@ -11957,6 +11957,17 @@ fn many_styles_and_long_chains_do_not_multiply_paragraph_layout_work() {
         assert_eq!(big.body.len(), SCALE * 16);
         let first = l.index.get(&(StoryRef::Body, wordcraft_doc::Path(vec![0]))).expect("first paragraph placed");
         assert!(!first.is_empty());
+        let para = l
+            .pages
+            .iter()
+            .flat_map(|page| &page.items)
+            .find_map(|item| match item {
+                Placed::Lines { story: StoryRef::Body, path, para, .. } if path.0 == [0] => Some(para),
+                _ => None,
+            })
+            .expect("first paragraph laid out");
+        let cluster = para.clusters.first().expect("first paragraph has text");
+        assert!(para.styles[cluster.style as usize].rc.italic, "laid-out text inherits italic with proofing={proofing}");
     }
     assert!(big.styles.resolve_char(Some("Chain31"), &CharProps::default()).italic);
 }
