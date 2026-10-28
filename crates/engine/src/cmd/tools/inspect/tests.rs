@@ -13,18 +13,37 @@ fn marker_document(n: usize, hidden: bool) -> Document {
     doc
 }
 
-// Same warmed, alternating CPU-cost measurement as the layout scaling regressions. Linux
-// scheduler wait is excluded; other platforms use the best elapsed sample from each size.
+// Match the warmed, alternating scaling checks used in layout. Advancing Linux thread CPU
+// time excludes scheduler wait; otherwise use the best elapsed sample for each input size.
 fn cpu_cost(f: &mut impl FnMut()) -> f64 {
     let ran = || {
         let s = std::fs::read_to_string("/proc/thread-self/schedstat").ok()?;
         s.split_whitespace().next()?.parse::<u64>().ok()
     };
+    cpu_cost_with(ran, f)
+}
+
+fn cpu_cost_with(mut ran: impl FnMut() -> Option<u64>, f: &mut impl FnMut()) -> f64 {
     let (t, before) = (std::time::Instant::now(), ran());
     f();
     match (before, ran()) {
-        (Some(a), Some(b)) => b.saturating_sub(a) as f64 * 1e-9,
+        (Some(a), Some(b)) if b > a => (b - a) as f64 * 1e-9,
         _ => t.elapsed().as_secs_f64(),
+    }
+}
+
+#[test]
+fn inspector_cost_measures_work_when_cpu_counters_do_not_advance() {
+    let mut s = Session::new(marker_document(64, false));
+    for readings in [[Some(0), Some(0)], [Some(10), Some(10)], [Some(10), Some(5)], [None, None], [Some(10), None]] {
+        let mut readings = readings.into_iter();
+        let cost = cpu_cost_with(|| readings.next().flatten(), &mut || {
+            let report = s.run("file.inspect", &json!({})).unwrap();
+            assert_eq!(report["found"]["hiddenCount"], 0);
+            assert_eq!(report["found"]["unsupported"], json!([]));
+            black_box(report);
+        });
+        assert!(cost > 0.0, "completed inspection work must have a positive elapsed cost: {cost}");
     }
 }
 
