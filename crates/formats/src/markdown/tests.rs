@@ -79,6 +79,53 @@ fn reference_links_resolve_and_their_definitions_leave_the_body() {
     assert_eq!(links(fenced), vec![], "a fenced definition defines nothing");
 }
 
+/// Cached bracket pairs must not make undefined shortcut references normalize every nested
+/// suffix again. One unrelated definition keeps this on the reference-lookup path.
+#[test]
+fn nested_undefined_reference_labels_have_bounded_work() {
+    let literal = format!("prefix {}x{} suffix", "[".repeat(128_000), "]".repeat(128_000));
+    let src = format!("{literal}\n\n[other]: https://example.com/other\n");
+    let started = std::time::Instant::now();
+    let doc = import(&src);
+    let elapsed = started.elapsed();
+    assert_eq!(doc.plain_text(wordcraft_doc::StoryRef::Body), literal);
+    assert!(elapsed < std::time::Duration::from_secs(10), "nested undefined references took {elapsed:?}");
+}
+
+#[test]
+fn reference_lookup_keeps_long_unicode_labels_and_nested_text() {
+    // The work guard is not a label-length cap. Collapsed/full/shortcut references keep their
+    // case and whitespace matching, even when lowercasing changes the number of UTF-8 bytes.
+    let label = format!("{}İ END", "Écho ".repeat(1500));
+    let key = label.to_lowercase();
+    let src = format!("[{label}] [{label}][] [full][{label}]\n\n[{key}]: https://example.com/long\n");
+    let flow = parse(&src);
+    let FBlock::Para(p) = &flow.blocks[0] else { panic!("paragraph") };
+    let links: Vec<_> = p
+        .inlines
+        .iter()
+        .filter_map(|x| match x {
+            Inline::Text(t, f) if f.link.is_some() => Some((t.as_str(), f.link.as_deref())),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        links,
+        vec![
+            (label.as_str(), Some("https://example.com/long")),
+            (label.as_str(), Some("https://example.com/long")),
+            ("full", Some("https://example.com/long"))
+        ]
+    );
+
+    let refs = Refs::from([("known".into(), Arc::from("https://example.com/known"))]);
+    let out = parse_inlines("[outer [known]] tail [inline](https://example.com/inline)", &Fmt::default(), 0, &refs);
+    let text: String = out.iter().filter_map(|x| if let Inline::Text(t, _) = x { Some(t.as_str()) } else { None }).collect();
+    assert_eq!(text, "[outer known] tail inline");
+    assert!(out.iter().any(|x| matches!(x, Inline::Text(t, f) if t == "known" && f.link.as_deref() == Some("https://example.com/known"))));
+    assert!(out.iter().any(|x| matches!(x, Inline::Text(t, f) if t == "inline" && f.link.as_deref() == Some("https://example.com/inline"))));
+}
+
 /// A definition has to start a block (CommonMark §4.7), and a fence opens and closes by the
 /// same rules the block parser uses. Reading a line without that context deleted text: a
 /// definition-shaped line inside a paragraph, and every such line inside a code block whose
