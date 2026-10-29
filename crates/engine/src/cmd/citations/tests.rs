@@ -12,6 +12,9 @@ fn citation_refresh_recognizes_field_names_and_quoted_primary_tags() {
         r#"citation plain \p 12"#,
         r#"CITATION "Primary Ω" \p 12"#,
         r#"cItAtIoN "Primary Ω" \p 12"#,
+        r#"CITATION "Primary Ω" \p 12 \m plain"#,
+        r#"CITATION "Primary Ω" \m plain \p 12"#,
+        r#"CITATION "Primary Ω" \p "12" \m plain"#,
         "CITATION PLAIN",
         "citation missing",
         "REF plain",
@@ -50,7 +53,7 @@ fn citation_refresh_recognizes_field_names_and_quoted_primary_tags() {
     assert_ne!(fields[0].1, "Original cached citation");
     for (index, (instr, result)) in fields.iter().enumerate() {
         assert_eq!(*instr, instructions[index]);
-        assert_eq!(*result, if index < 4 { fields[0].1 } else { "Original cached citation" });
+        assert_eq!(*result, if index < 7 { fields[0].1 } else { "Original cached citation" });
     }
     assert_eq!(s.doc.sources, before.sources);
     s.run("edit.undo", &json!({})).unwrap();
