@@ -39,6 +39,11 @@ fn hyperlink_screentips_survive_edited_saves_without_merging_different_hints() {
         }
         assert!(xml.contains("w:anchor=\"target\""));
         doc = wordcraft_docx::read(&bytes).unwrap();
+        let p = doc.body[0].as_para().unwrap();
+        for (text, tip) in [("First", "Original café & \"Ω\""), ("Second", "Different hint"), ("Internal", "Internal hint")] {
+            let offset = p.text.find(text).unwrap();
+            assert_eq!(p.props_of_char(offset).link_tooltip.as_deref(), Some(tip), "{text}");
+        }
         assert!(doc.body[0].as_para().unwrap().plain_text().ends_with("FirstSecondInternal"));
     }
 }
