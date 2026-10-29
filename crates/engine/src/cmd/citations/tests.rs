@@ -1,6 +1,83 @@
 use super::*;
 use crate::Session;
 
+/// The bibliography includes every source in a multi-source field, once, in first-cited
+/// order for numbered styles. Building the list must leave the imported citation intact.
+#[test]
+fn bibliography_discovers_secondary_citation_sources() {
+    let mut d = Document::from_text("Original citation ");
+    for (tag, title) in [("A", "Alpha"), ("B", "Beta"), ("C", "Gamma"), ("unused", "Uncited")] {
+        d.sources.push(Source { tag: tag.into(), title: title.into(), year: "2024".into(), ..Default::default() });
+    }
+    let instr = r#"CITATION C \l 1033 \m A \p 12 \m B \m A"#;
+    let at = Pos { story: StoryRef::Body, path: Path::top(0), off: d.para(StoryRef::Body, &Path::top(0)).unwrap().len() };
+    let field = InlineObject::Field {
+        instr: instr.into(),
+        result: "Original multi-source citation".into(),
+        locked: false,
+        dirty: false,
+        code: false,
+        form: String::new(),
+    };
+    d.insert_object(&at, field.clone(), &CharProps::default()).unwrap();
+    d.settings.bib_style = Some("IEEE".into());
+    let mut s = Session::new(d);
+    s.run("caret.docEnd", &json!({})).unwrap();
+    s.run("text.newParagraph", &json!({})).unwrap();
+    let before = s.doc.clone();
+    s.run("references.bibliography", &json!({})).unwrap();
+    let entries = |d: &Document| -> Vec<String> {
+        d.body.iter().filter_map(|b| b.as_para()).filter(|p| p.props.style.as_deref() == Some(ENTRY_STYLE)).map(|p| p.plain_text()).collect()
+    };
+    let expected: Vec<_> = [2, 0, 1].into_iter().enumerate().map(|(n, i)| entry(&s.doc.sources[i], "IEEE", n + 1)).collect();
+    assert_eq!(entries(&s.doc), expected);
+    assert!(s.doc.body.iter().filter_map(|b| b.as_para()).flat_map(|p| &p.objects).any(|o| o == &field));
+    assert_eq!(s.doc.sources.len(), 4);
+    s.run("edit.undo", &json!({})).unwrap();
+    assert_eq!(s.doc, before);
+    s.run("edit.redo", &json!({})).unwrap();
+    assert_eq!(entries(&s.doc), expected);
+    for _ in 0..2 {
+        let reopened = wordcraft_docx::read(&wordcraft_docx::write(&s.doc).unwrap()).unwrap();
+        s = Session::new(reopened);
+        s.run("references.updateFields", &json!({})).unwrap();
+        assert_eq!(entries(&s.doc), expected);
+        assert_eq!(s.doc.sources.len(), 4);
+    }
+}
+
+/// Quoted tags and repeated switches use the existing field tokenizer. Unrelated fields,
+/// switch arguments, missing source tags and duplicate citations add no source of their own.
+#[test]
+fn bibliography_discovers_quoted_citation_tags() {
+    let mut d = Document::new();
+    for tag in ["Primary Ω", "Second Tag", "third", "THIRD", "prefix"] {
+        d.sources.push(Source { tag: tag.into(), title: tag.into(), ..Default::default() });
+    }
+    let p = d.para_mut(StoryRef::Body, &Path::top(0)).unwrap();
+    for instr in [r#"citation "Primary Ω" \f prefix \m "Second Tag" \m third \m missing \m third \m"#, "REF THIRD \\m prefix"] {
+        p.insert_object(
+            p.len(),
+            InlineObject::Field {
+                instr: instr.into(),
+                result: "Cached citation".into(),
+                locked: false,
+                dirty: false,
+                code: false,
+                form: String::new(),
+            },
+            &CharProps::default(),
+        )
+        .unwrap();
+    }
+    let order = super::sources::bib_order(&d, style("IEEE"), None);
+    assert_eq!(order, [0, 1, 2]);
+    let sorted = super::sources::bib_order(&d, style("APA"), None);
+    assert_eq!(sorted.len(), 3);
+    assert!(!sorted.contains(&3));
+    assert!(!sorted.contains(&4));
+}
+
 #[test]
 fn citations_and_bibliography() {
     let mut s = Session::new(wordcraft_doc::Document::new());

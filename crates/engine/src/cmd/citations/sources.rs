@@ -166,18 +166,24 @@ fn citation_field(instr: &str) -> Option<(&str, &str)> {
     Some((tag, pages))
 }
 
-/// Tags cited in the body, in order of first citation.
+/// Tags cited in the body, including each `\m` source, in order of first citation.
 fn cited_tags(doc: &Document) -> Vec<String> {
     let mut seen = std::collections::HashSet::new();
     let mut out = Vec::new();
     for path in doc.para_paths(StoryRef::Body) {
         let Some(p) = doc.para(StoryRef::Body, &path) else { continue };
         for o in &p.objects {
-            if let InlineObject::Field { instr, .. } = o
-                && let Some((tag, _)) = citation_field(instr)
-                && seen.insert(tag.to_string())
-            {
-                out.push(tag.to_string());
+            let InlineObject::Field { instr, .. } = o else { continue };
+            let field = super::FieldCode::parse(instr);
+            if field.name != "CITATION" {
+                continue;
+            }
+            let Some(primary) = field.args.first() else { continue };
+            let secondary = field.switches.iter().filter(|(key, _)| *key == 'm').filter_map(|(_, arg)| arg.as_ref());
+            for tag in std::iter::once(primary).chain(secondary) {
+                if seen.insert(tag.clone()) {
+                    out.push(tag.clone());
+                }
             }
         }
     }
