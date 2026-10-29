@@ -144,3 +144,57 @@ fn many_colliding_media_names_do_not_restart_the_suffix_search() {
     }
     assert!(ratios.len() < 3, "8x colliding image names took {ratios:?}x CPU: repeated suffix search");
 }
+
+#[test]
+fn writing_media_names_keeps_case_insensitive_first_free_spelling() {
+    let keys = ["...", "A.png", "A?.png", "A_2.png", "a.png", "a_4.png", "raw", "raw?", "é"];
+    let names: Vec<_> = (0..keys.len()).map(|i| format!("media/p{i}.png")).collect();
+    let refs: Vec<_> = (0..keys.len()).chain([2, 0, 8]).collect();
+    let mut doc = wordcraft_docx::read(&package(&names, &refs)).unwrap();
+    let old = std::mem::take(&mut doc.media);
+    for (i, key) in keys.iter().enumerate() {
+        doc.media.insert((*key).into(), old[&format!("p{i}.png")].clone());
+    }
+    let para = doc.para_mut(wordcraft_doc::StoryRef::Body, &wordcraft_doc::Path::top(0)).unwrap();
+    for (object, index) in para.objects.iter_mut().zip(&refs) {
+        if let InlineObject::Image { media, .. } = object {
+            *media = keys[*index].into();
+        }
+    }
+    let expected = ["image.png", "A.png", "A_2.png", "A_2_2.png", "a_3.png", "a_4.png", "raw.png", "raw_2.png", "image_2.png"];
+    for _ in 0..3 {
+        doc = wordcraft_docx::read(&wordcraft_docx::write(&doc).unwrap()).unwrap();
+        assert_eq!(doc.media.len(), keys.len());
+        let actual = image_refs(&doc);
+        assert_eq!(actual, refs.iter().map(|i| expected[*i]).collect::<Vec<_>>());
+        for (key, index) in actual.iter().zip(&refs) {
+            assert_eq!(doc.media[*key].as_slice(), picture(*index));
+        }
+    }
+}
+
+#[test]
+fn writing_media_names_does_not_restart_the_suffix_search() {
+    let input = |n| {
+        let names: Vec<_> = (0..n).map(|i| format!("media/{}{i}.png", "L".repeat(80))).collect();
+        wordcraft_docx::read(&package(&names, &(0..n).collect::<Vec<_>>())).unwrap()
+    };
+    let (small, big) = (input(512), input(4096));
+    let write = |doc: &Document| drop(std::hint::black_box(wordcraft_docx::write(doc).unwrap()));
+    write(&small);
+    let mut ratios = Vec::new();
+    for _ in 0..3 {
+        let (mut s, mut b) = (f64::INFINITY, f64::INFINITY);
+        for _ in 0..2 {
+            s = s.min(cpu_cost(|| (0..4).for_each(|_| write(&small))) / 4.0);
+            b = b.min(cpu_cost(|| write(&big)));
+        }
+        let ratio = b / s.max(1e-9);
+        eprintln!("writing media name collisions: {s:.4}s -> {b:.4}s, ratio {ratio:.2}");
+        if ratio < 24.0 {
+            break;
+        }
+        ratios.push(ratio);
+    }
+    assert!(ratios.len() < 3, "8x colliding image names took {ratios:?}x CPU to write: repeated suffix search");
+}
