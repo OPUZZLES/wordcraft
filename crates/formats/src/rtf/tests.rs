@@ -85,6 +85,28 @@ fn creation_date_keeps_its_outer_scope_across_nested_creatim() {
 }
 
 #[test]
+fn creation_date_ignores_other_destinations_and_resumes_outer_controls() {
+    for ignored in [
+        r"{\*\originalIgnored \yr1999\mo12\dy31\hr23\min59}",
+        r"{\comment \yr1999\mo12\dy31\hr23\min59}",
+        r"{\revtime\yr1999\mo12\dy31\hr23\min59}",
+        r"{\*\originalIgnored {\creatim\yr1999\mo12\dy31\hr23\min59}}",
+        r"{\comment {\creatim\yr1999\mo12\dy31\hr23\min59}}",
+    ] {
+        let rtf = format!(
+            r"{{\rtf1{{\info{{\creatim\yr2026\mo1\dy2\hr3\min4{{\title Original title}}{ignored}{{\creatim\mo2}}\dy3}}}}Original body.\par}}"
+        );
+        let doc = import(rtf.as_bytes()).unwrap();
+        assert_eq!(doc.core.created, "2026-02-03T03:04:00Z", "{ignored}");
+        assert_eq!(doc.core.title, "Original title");
+        let again = import(export(&doc).as_bytes()).unwrap();
+        assert_eq!(again.core.created, doc.core.created);
+        assert_eq!(again.core.title, doc.core.title);
+        assert_eq!(texts(&parse(export(&again).as_bytes()).unwrap()), ["Normal:Original body."]);
+    }
+}
+
+#[test]
 fn basic_reader() {
     let rtf = br#"{\rtf1\ansi{\fonttbl{\f0 Arial;}{\f1 Courier New;}}{\colortbl;\red255\green0\blue0;}{\stylesheet{\s0 Normal;}{\s1 heading 1;}}
 {\info{\title My Doc}{\author Ann}}

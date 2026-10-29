@@ -40,7 +40,7 @@ missing-title bug before this change and retain their title after it.
 
 ## RTF document properties
 
-RTF title, author, subject, keywords and description keep their complete text across nested groups, including scoped Unicode (#4906). Accepted truncated input keeps pending property text at EOF, and creation-date controls stop at their own group. Whitespace trimming and body formatting remain unchanged. An original grouped-input regression checks all five properties and an RTF save/reopen, with body and creation-time controls.
+RTF title, author, subject, keywords and description keep their complete text across nested groups, including scoped Unicode (#4906). Accepted truncated input keeps pending property text at EOF, and creation-date controls stop at their own group and ignore unrelated destinations, including nested groups containing date controls. Whitespace trimming and body formatting remain unchanged. An original grouped-input regression checks all five properties and an RTF save/reopen, with body and creation-time controls.
 
 ## Formats
 
@@ -268,7 +268,7 @@ Repeated DOCX style IDs use the last complete definition. The original regressio
 
 | Date | Change | Summary |
 |---|---|---|
-| 2026-10-29 | trivial | RTF title, author, subject, keywords and description keep their complete text across nested groups, including scoped Unicode (#4906). Accepted truncated input keeps pending property text at EOF, and creation-date controls stop at their own group. Whitespace trimming and body formatting remain unchanged. Readiness estimates unchanged. |
+| 2026-10-29 | trivial | RTF title, author, subject, keywords and description keep their complete text across nested groups, including scoped Unicode (#4906). Accepted truncated input keeps pending property text at EOF, and creation-date controls stop at their own group and ignore unrelated destinations, including nested groups containing date controls. Whitespace trimming and body formatting remain unchanged. Readiness estimates unchanged. |
 | 2026-10-17 | trivial | Encryption rows: Standard (Word 2007, AES-ECB) encrypted packages open with a password, also when named `.doc`/`.dot`; AES headers in Word 97-2003 files are outside the public spec and refused (gap 9). The duplicate combined `.docx`/`.doc` row is removed; the `.doc` row reads 🟡 ~60% (it opens XOR/RC4/RC4 CryptoAPI); hours 2–4 → 1–2 and 4–6 → 1–2 (left: checks against Word-written files); total re-summed from the rows, 175–287 h |
 | 2026-10-25 | trivial | Repeated DOCX style IDs: repeated save/reopen regression for whole-definition replacement. |
 | 2026-10-25 | trivial | Arabic list labels: `arabicAlpha` and `arabicAbjad` draw the 28 Arabic letters (alphabetical and abjad order), doubling past the last letter; Hebrew, Hindi, Thai and Vietnamese still show decimal (`doc::section::tests::arabic_letters_count_in_both_orders`) |

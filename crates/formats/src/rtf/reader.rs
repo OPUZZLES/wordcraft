@@ -84,7 +84,6 @@ pub(super) struct Reader {
     pub(super) def_cur: CellDef,
     pub(super) row_header: bool,
     pub(super) created: Option<(u32, u32, u32, u32, u32)>,
-    pub(super) creatim_depth: Option<usize>,
     pub(super) rule_pending: bool,
     pub(super) info_depth: Option<usize>,
 }
@@ -272,9 +271,6 @@ impl Reader {
             }
         }
         self.st = prev;
-        if self.creatim_depth.is_some_and(|d| self.depth() < d) {
-            self.creatim_depth = None;
-        }
         if self.hf.as_ref().is_some_and(|(d, _, _)| self.depth() < *d) {
             self.end_header_footer();
         }
