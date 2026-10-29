@@ -1124,6 +1124,17 @@ fn metadata_keywords_keep_xml_text_chunks_together() {
 }
 
 #[test]
+fn metadata_keywords_keep_all_dense_entries_without_empty_separators() {
+    let mut xml = String::from("<office:meta>");
+    let expected: Vec<_> = (0..20_001).map(|i| format!("K{i}&V")).collect();
+    for i in 0..expected.len() {
+        xml.push_str(&format!("<meta:keyword/><meta:keyword><![CDATA[]]></meta:keyword><meta:keyword>K{i}&amp;V</meta:keyword>"));
+    }
+    xml.push_str("</office:meta>");
+    assert_eq!(read_meta(xml.as_bytes()).keywords, expected.join(", "));
+}
+
+#[test]
 fn metadata_keywords_survive_repeated_odt_saves() {
     let content = format!(
         "<office:document-content {NS_T}><office:body><office:text><text:p>Original text</text:p></office:text></office:body></office:document-content>"

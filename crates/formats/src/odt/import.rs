@@ -59,17 +59,17 @@ impl Pictures {
     }
 }
 
+/// Read metadata, joining text events within each keyword directly into the result.
 pub(super) fn read_meta(xml: &[u8]) -> Meta {
     let mut m = Meta::default();
     let mut cur: Option<String> = None;
-    let mut keywords: Vec<String> = Vec::new();
+    let mut keywords = String::new();
+    let mut keyword_has_text = false;
     let mut creator = String::new();
     let mut mod_date = String::new();
     events(xml, |ev| match ev {
         Ev::Start(q, _) => {
-            if q == "meta:keyword" {
-                keywords.push(String::new());
-            }
+            keyword_has_text = false;
             cur = Some(q);
         }
         Ev::End(_) => cur = None,
@@ -79,11 +79,13 @@ pub(super) fn read_meta(xml: &[u8]) -> Meta {
             Some("dc:description") => m.description.push_str(&t),
             Some("meta:initial-creator") => m.author.push_str(&t),
             Some("dc:creator") => creator.push_str(&t),
-            Some("meta:keyword") => {
+            Some("meta:keyword") if !t.is_empty() => {
                 // Entities, CDATA and comments can split one keyword into several text events.
-                if let Some(keyword) = keywords.last_mut() {
-                    keyword.push_str(&t);
+                if !keyword_has_text && !keywords.is_empty() {
+                    keywords.push_str(", ");
                 }
+                keywords.push_str(&t);
+                keyword_has_text = true;
             }
             Some("meta:creation-date") => m.created.push_str(&t),
             Some("dc:date") => mod_date.push_str(&t),
@@ -96,8 +98,7 @@ pub(super) fn read_meta(xml: &[u8]) -> Meta {
     if m.created.is_empty() {
         m.created = mod_date;
     }
-    keywords.retain(|k| !k.is_empty());
-    m.keywords = keywords.join(", ");
+    m.keywords = keywords;
     let created = m.created.trim();
     if !created.is_empty() {
         let has_tz =

@@ -1,6 +1,6 @@
 # WordCraft roadmap
 
-> **Keyword preservation update:** 2026-10-29 · ODT keyword preservation (#4876): XML entities, CDATA and comments no longer introduce separators within one metadata keyword. Existing keyword ordering and representation are unchanged; readiness estimates remain unchanged.
+> **Keyword preservation update:** 2026-10-29 · Keyword text is accumulated directly without per-keyword slots or a count truncation. ODT keyword preservation (#4876): XML entities, CDATA and comments no longer introduce separators within one metadata keyword. Existing keyword ordering and representation are unchanged; readiness estimates remain unchanged.
 
 > **Highlight update:** 2026-10-25 · Highlight shortcut toggles the last chosen colour off when the whole selection has it; explicit colour commands remain setters (#4085). Readiness estimates unchanged.
 
