@@ -161,6 +161,8 @@ The acceptance test `crates/mcp/src/tests.rs` writes a formatted document using 
 
 ## Character and paragraph properties
 
+`styles.manage` returns each listed style's own properties as `props: {"chr": CharProps, "para": ParaProps}`, beside the short `format` description. `props` uses the typed schema below, including tagged line spacing, borders, shading, tabs and explicit false or zero values. Inherited properties stay absent; this is not resolved formatting or a complete style definition. The returned objects can be passed as `chr` and `para` to `styles.modify`. That command applies a patch: properties left out keep their destination values. Style metadata, the other half of a linked pair and conditional table-style parts are not included in `props`. The legacy `format` summary is not a property patch.
+
 `format.set {"props": CharProps}`, `para.set {"props": ParaProps}`,
 `styles.modify {"style": …, "chr"?: CharProps, "para"?: ParaProps}` and the `para` of
 `table.newStyle` / `table.modifyStyle` take these two objects. Every field is optional: a field
