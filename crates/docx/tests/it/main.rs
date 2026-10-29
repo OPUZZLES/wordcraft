@@ -16,6 +16,7 @@ mod glossary;
 mod legacy_forms;
 mod ligatures;
 mod malformed;
+mod media_names;
 mod passthrough;
 mod positional_tabs;
 mod privacy;
