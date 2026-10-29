@@ -94,7 +94,7 @@ Text context menus now include the existing formatting mini toolbar (#2959), inc
 | 28 | **Dictate** | | `tools.dictate` missing | Dictation users | 8–15 + owner (speech model) | [hardware-parity.md](hardware-parity.md) |
 | 29 | **Equations**: ink equations; a copied equation pasting into Word as an editable equation, still to be confirmed (#816, #1297) | | #191 notes; long display equations wrap at operators (#326); a copy holding an equation puts MathML in HTML on the clipboard (#816), and a copy of one equation alone also its MathML in the "MathML" clipboard formats Word reads first (Windows, macOS; #1297; Word/LibreOffice paste not yet verified) | Maths-heavy documents | 2–3 | [layout-parity.md](layout-parity.md) |
 
-Gap 19 preservation: RTF title, author, subject, keywords and description keep their complete text across nested groups, including scoped Unicode (#4906). The existing whitespace trimming, date handling and body formatting remain unchanged.
+Gap 19 preservation: RTF title, author, subject, keywords and description keep their complete text across nested groups, including scoped Unicode (#4906). Accepted truncated input keeps pending property text at EOF, and creation-date controls stop at their own group. Whitespace trimming and body formatting remain unchanged.
 
 **Beta needs #1–#7** (~150–230 h with the stability and layout work they imply): they are the
 blocking gaps, and closing them lifts file formats, layout, stability and UI enough to take the
@@ -152,7 +152,7 @@ Small follow-ups from the 2026-10-25 field, table and AutoFormat batch (#4232):
 
 | Date | Change | Summary |
 |---|---|---|
-| 2026-10-29 | trivial | RTF title, author, subject, keywords and description keep their complete text across nested groups, including scoped Unicode (#4906). The existing whitespace trimming, date handling and body formatting remain unchanged. Readiness estimates unchanged. |
+| 2026-10-29 | trivial | RTF title, author, subject, keywords and description keep their complete text across nested groups, including scoped Unicode (#4906). Accepted truncated input keeps pending property text at EOF, and creation-date controls stop at their own group. Whitespace trimming and body formatting remain unchanged. Readiness estimates unchanged. |
 | 2026-10-22 | trivial | View windows: several open documents and Switch Windows in the engine |
 | 2026-10-25 | trivial | egui 0.37 migration: interface catalogs remain pinned by `craft-i18n.rev` (`9205108…`; 27 languages, English fallback); IME surrounding deletions and composition resets are implemented with regressions, but managed CI passed; native IME acceptance and native-speaker catalog review remain open; no gap or readiness change |
 | 2026-10-17 | trivial | Gap 9 narrowed: Standard (Word 2007, AES-ECB) encrypted packages open with a password under any Word extension; AES headers in Word 97-2003 files are outside the public spec and refused with a clear message; estimate 3–5 → 0 h, since the remaining AES-in-`.doc` case is refused by design |

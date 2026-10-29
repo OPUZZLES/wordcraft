@@ -140,7 +140,7 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 
 ## Progress log
 
-- 2026-10-29: RTF title, author, subject, keywords and description keep their complete text across nested groups, including scoped Unicode (#4906). The existing whitespace trimming, date handling and body formatting remain unchanged.
+- 2026-10-29: RTF title, author, subject, keywords and description keep their complete text across nested groups, including scoped Unicode (#4906). Accepted truncated input keeps pending property text at EOF, and creation-date controls stop at their own group. Whitespace trimming and body formatting remain unchanged.
 
 - 2026-10-22: View › Window › New Window opens a second window on the document (desktop). The windows are titled `Name:1` and `Name:2` and each keeps its own caret, scroll position, zoom and view; edits and Undo are the document's and show in both. Closing one of them asks nothing; the last one asks about unsaved changes, and quitting asks once per document.
 - 2026-10-22: One native window per open document on the desktop. File › New and Open (from the ribbon, File, shortcuts, the file manager, the command line or the control channel) open the document in a window of its own, focused and placed a step below and right of the last one; opening a file replaces a blank document nobody has used in its own window, and a file that is already open brings its window to the front. Each window keeps its own ribbon tab, File page, dialogs, panes, scroll position and composition. View › Window › Switch Windows lists the windows and brings the chosen one forward. File › Close and a window's close button close that window, asking about unsaved changes first; the last window stays open with no document. Quitting asks about each document with unsaved changes in its own window, and Cancel keeps everything open. The control channel's input and screenshots go to the window focused last. The web app keeps one window.
@@ -646,7 +646,7 @@ Footer page-table height and body wrapping are corrected. Other pagination gaps 
 
 | Date | Change | Summary |
 |---|---|---|
-| 2026-10-29 | trivial | RTF title, author, subject, keywords and description keep their complete text across nested groups, including scoped Unicode (#4906). The existing whitespace trimming, date handling and body formatting remain unchanged. Readiness estimates unchanged. |
+| 2026-10-29 | trivial | RTF title, author, subject, keywords and description keep their complete text across nested groups, including scoped Unicode (#4906). Accepted truncated input keeps pending property text at EOF, and creation-date controls stop at their own group. Whitespace trimming and body formatting remain unchanged. Readiness estimates unchanged. |
 | 2026-10-22 | trivial | Progress log: one native window per open document |
 | 2026-10-22 | trivial | Progress log: every open document keeps its own recovery copy |
 | 2026-10-22 | trivial | Progress log: several open documents in the desktop window |

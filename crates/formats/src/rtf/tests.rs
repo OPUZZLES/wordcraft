@@ -45,6 +45,35 @@ fn metadata_keeps_text_across_nested_groups() {
 }
 
 #[test]
+fn unfinished_metadata_keeps_its_text_at_eof() {
+    for (suffix, expected) in
+        [(r"Before {middle}", "Before middle"), (r"Before {middle", "Before middle"), (r"Before {middle}{\*\ignored discarded", "Before middle")]
+    {
+        for field in ["title", "author", "subject", "keywords", "doccomm"] {
+            let rtf = format!(r"{{\rtf1{{\info{{\{field} {suffix}");
+            let f = parse(rtf.as_bytes()).unwrap();
+            let value = match field {
+                "title" => f.meta.title,
+                "author" => f.meta.author,
+                "subject" => f.meta.subject,
+                "keywords" => f.meta.keywords,
+                _ => f.meta.description,
+            };
+            assert_eq!(value, expected, "{field}: {suffix}");
+        }
+    }
+}
+
+#[test]
+fn creation_date_ends_with_its_group_before_nested_metadata() {
+    let rtf = br"{\rtf1{\info{\creatim\yr2026\mo1\dy2\hr3\min4}{\title {Name}{\*\ignored \yr1999}}}Body.\par}";
+    let f = parse(rtf).unwrap();
+    assert_eq!(f.meta.created, "2026-01-02T03:04:00Z");
+    assert_eq!(f.meta.title, "Name");
+    assert_eq!(texts(&f), ["Normal:Body."]);
+}
+
+#[test]
 fn basic_reader() {
     let rtf = br#"{\rtf1\ansi{\fonttbl{\f0 Arial;}{\f1 Courier New;}}{\colortbl;\red255\green0\blue0;}{\stylesheet{\s0 Normal;}{\s1 heading 1;}}
 {\info{\title My Doc}{\author Ann}}

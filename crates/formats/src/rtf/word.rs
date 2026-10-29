@@ -291,7 +291,7 @@ impl Reader {
             | "rsidtbl" | "generator" | "mmathPr" | "pgdsctbl" | "filetbl" | "listpicture" | "userprops" | "docvar" | "objdata" | "fontemb"
             | "fontfile" | "panose" | "falt" | "mhtmltag" | "htmltag" | "pnseclvl" | "background" | "sp" | "pn" | "pgptbl" => Some(Dest::Skip),
             "creatim" if self.in_info() => {
-                self.in_creatim = true;
+                self.creatim_depth = Some(self.depth());
                 Some(Dest::Skip)
             }
             _ => None,
@@ -327,7 +327,7 @@ impl Reader {
     fn destination_word(&mut self, word: &str, param: Option<i32>, on: bool, value: i32) -> bool {
         match self.st.dest {
             Dest::Skip => {
-                if self.in_creatim {
+                if self.creatim_depth.is_some() {
                     self.record_created_part(word, value);
                 }
                 true
@@ -466,7 +466,7 @@ impl Reader {
         if self.st.dest != Dest::Skip || kept_info {
             return false;
         }
-        if self.in_creatim {
+        if self.creatim_depth.is_some() {
             self.record_created_part(word, value);
         }
         true
