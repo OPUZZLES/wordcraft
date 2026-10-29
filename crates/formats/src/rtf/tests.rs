@@ -74,6 +74,17 @@ fn creation_date_ends_with_its_group_before_nested_metadata() {
 }
 
 #[test]
+fn creation_date_keeps_its_outer_scope_across_nested_creatim() {
+    let rtf = br"{\rtf1{\info{\creatim\yr2026{\creatim\mo2}\yr2027\dy3\hr4\min5}{\title Original title}}Original body.\par}";
+    let doc = import(rtf).unwrap();
+    assert_eq!(doc.core.created, "2027-02-03T04:05:00Z");
+    assert_eq!(doc.core.title, "Original title");
+    let again = import(export(&doc).as_bytes()).unwrap();
+    assert_eq!(again.core.created, doc.core.created);
+    assert_eq!(again.core.title, doc.core.title);
+}
+
+#[test]
 fn basic_reader() {
     let rtf = br#"{\rtf1\ansi{\fonttbl{\f0 Arial;}{\f1 Courier New;}}{\colortbl;\red255\green0\blue0;}{\stylesheet{\s0 Normal;}{\s1 heading 1;}}
 {\info{\title My Doc}{\author Ann}}

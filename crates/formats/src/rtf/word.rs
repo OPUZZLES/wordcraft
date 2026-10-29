@@ -291,7 +291,9 @@ impl Reader {
             | "rsidtbl" | "generator" | "mmathPr" | "pgdsctbl" | "filetbl" | "listpicture" | "userprops" | "docvar" | "objdata" | "fontemb"
             | "fontfile" | "panose" | "falt" | "mhtmltag" | "htmltag" | "pnseclvl" | "background" | "sp" | "pn" | "pgptbl" => Some(Dest::Skip),
             "creatim" if self.in_info() => {
-                self.creatim_depth = Some(self.depth());
+                if self.creatim_depth.is_none() {
+                    self.creatim_depth = Some(self.depth());
+                }
                 Some(Dest::Skip)
             }
             _ => None,
