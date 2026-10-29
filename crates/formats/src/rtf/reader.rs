@@ -233,7 +233,8 @@ impl Reader {
             Dest::FontTbl if !self.font_name.is_empty() => self.commit_font(),
             Dest::StyleSheet if !self.style_name.is_empty() => self.commit_style(),
             Dest::RevTbl if !self.rev_name.trim().is_empty() => self.commit_author(),
-            Dest::Info(k) => {
+            // Ordinary nested groups keep using the property's shared text buffer.
+            Dest::Info(k) if self.stack.last().is_none_or(|parent| parent.dest != closing) => {
                 let t = std::mem::take(&mut self.info_text).trim().to_string();
                 match k {
                     1 => self.meta.title = t,

@@ -13,6 +13,38 @@ fn texts(f: &Flow) -> Vec<String> {
 }
 
 #[test]
+fn metadata_keeps_text_across_nested_groups() {
+    for (content, expected) in [
+        (r"Before Caf\u233? After", "Before Café After"),
+        (r"Before {\uc1 Caf\u233?} After", "Before Café After"),
+        (r"Before {middle {inner} tail} After", "Before middle inner tail After"),
+        (r"Before {} After", "Before  After"),
+        (r"Before {last}", "Before last"),
+        (r"Before {\*\originalIgnored ignored} After", "Before  After"),
+        (r"{\uc0 \u20013}\u25991?", "中文"),
+        (r"{one}{two}", "onetwo"),
+    ] {
+        let fields = ["title", "author", "subject", "keywords", "doccomm"];
+        let info: String = fields.iter().map(|field| format!("{{\\{field} {content}}}")).collect();
+        let rtf = format!(r"{{\rtf1\ansi\uc1{{\info{info}{{\creatim\yr2026\mo1\dy2\hr3\min4}}}}Original body.\par}}");
+        let f = parse(rtf.as_bytes()).unwrap();
+        for (field, value) in fields.iter().zip([&f.meta.title, &f.meta.author, &f.meta.subject, &f.meta.keywords, &f.meta.description]) {
+            assert_eq!(value, expected, "{field}: {content}");
+        }
+        assert_eq!(f.meta.created, "2026-01-02T03:04:00Z");
+        assert_eq!(texts(&f), ["Normal:Original body."]);
+        let doc = import(rtf.as_bytes()).unwrap();
+        let again = import(export(&doc).as_bytes()).unwrap();
+        assert_eq!(again.core.title, expected);
+        assert_eq!(again.core.creator, expected);
+        assert_eq!(again.core.subject, expected);
+        assert_eq!(again.core.keywords, expected);
+        assert_eq!(again.core.description, expected);
+        assert_eq!(again.core.created, doc.core.created);
+    }
+}
+
+#[test]
 fn basic_reader() {
     let rtf = br#"{\rtf1\ansi{\fonttbl{\f0 Arial;}{\f1 Courier New;}}{\colortbl;\red255\green0\blue0;}{\stylesheet{\s0 Normal;}{\s1 heading 1;}}
 {\info{\title My Doc}{\author Ann}}
