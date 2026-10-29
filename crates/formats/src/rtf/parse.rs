@@ -108,7 +108,7 @@ fn parse_full(bytes: &[u8]) -> Result<Parsed, String> {
                     if word == "upr"
                         && first_in_group
                         && !starred
-                        && let Some(content) = alternative_ends.select(bytes, i)?
+                        && let Some(content) = alternative_ends.select(bytes, i, r.st.dest)?
                     {
                         // The ANSI branch must have no reader side effects, including metadata
                         // and destination commits. Open only the selected Unicode subgroup;
@@ -322,7 +322,10 @@ struct AlternativeGroups {
 }
 
 impl AlternativeGroups {
-    fn select(&mut self, bytes: &[u8], at: usize) -> Result<Option<usize>, String> {
+    fn select(&mut self, bytes: &[u8], at: usize, dest: Dest) -> Result<Option<usize>, String> {
+        if dest == Dest::Skip {
+            return Ok(None);
+        }
         let content = unicode_alternative(bytes, at, self);
         if self.limited { Err("RTF Unicode alternative lookahead limit exceeded".into()) } else { Ok(content) }
     }

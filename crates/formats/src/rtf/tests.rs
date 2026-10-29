@@ -1,6 +1,12 @@
 use super::*;
 
 #[test]
+fn unicode_alternatives_do_not_scan_ignored_destinations() {
+    let rtf = format!("{{\\rtf1{{\\*\\unknown{{\\upr{{{}}}{{\\*\\ud hidden}}}}}}Visible\\par}}", "{}".repeat(1 << 16));
+    assert_eq!(texts(&parse(rtf.as_bytes()).unwrap()), ["Normal:Visible"]);
+}
+
+#[test]
 fn unicode_alternatives_refuse_excessive_lookahead_depth() {
     let nested = format!("{}{}", "{".repeat(512), "}".repeat(512));
     let rtf = format!("{{\\rtf1{{\\upr{{{nested}}}{{\\*\\ud Unicode}}}}}}");
