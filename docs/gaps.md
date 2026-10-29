@@ -60,7 +60,7 @@ Set Proofing Language › Set As Default now persists in user preferences and ap
 
 Text context menus now include the existing formatting mini toolbar (#2959), including at a caret. Object, equation and whole-cell menus keep their own controls; Read Mode and the mini-toolbar preference suppress it. The toolbar reuses the selection toolbar's commands; additional controls from Word's toolbar are not added. Context-menu paste choices remain tracked by #2583 / PR #2599.
 
-DOCX hyperlinks retain their authored ScreenTips through edits, native JSON and repeated saves (#4793). Different hints remain separate even for the same URL. This narrows preservation gap #1; hover display and field-code hints remain unsupported, and the corpus gate and readiness estimates stay unchanged.
+Native JSON serialization stops at the existing 2 GiB document-read ceiling, before retaining bytes past it; a refused save leaves the destination unchanged. DOCX hyperlinks retain their authored ScreenTips through edits, native JSON and repeated saves (#4793). Different hints remain separate even for the same URL. This narrows preservation gap #1; hover display and field-code hints remain unsupported, and the corpus gate and readiness estimates stay unchanged.
 
 ## Ranked
 
