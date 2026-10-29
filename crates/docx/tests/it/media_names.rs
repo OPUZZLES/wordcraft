@@ -92,11 +92,18 @@ fn colliding_media_names_keep_first_free_spelling_and_picture_identity() {
     let mut doc = wordcraft_docx::read(&package(&names, &refs)).unwrap();
     assert_eq!(doc.media.len(), names.len());
     assert_eq!(image_refs(&doc), refs.iter().map(|i| keys[*i]).collect::<Vec<_>>());
-    for _ in 0..3 {
-        for (reference, index) in image_refs(&doc).iter().zip(&refs) {
+    let check = |doc: &Document| {
+        assert_eq!(doc.media.len(), names.len());
+        let actual = image_refs(doc);
+        assert_eq!(actual.len(), refs.len());
+        for (reference, index) in actual.iter().zip(&refs) {
             assert_eq!(doc.media[*reference].as_slice(), picture(*index));
         }
+    };
+    check(&doc);
+    for _ in 0..3 {
         doc = wordcraft_docx::read(&wordcraft_docx::write(&doc).unwrap()).unwrap();
+        check(&doc);
     }
 }
 
