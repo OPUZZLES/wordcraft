@@ -67,8 +67,10 @@ pub(super) fn link(s: &mut Session, v: &Value) -> CmdResult {
     } else {
         let (a, b) = s.sel.ordered();
         s.doc.format_range(&a, &b, &|c| {
+            if c.link.as_deref() != Some(url.as_str()) {
+                c.link_tooltip = None;
+            }
             c.link = Some(url.clone());
-            c.link_tooltip = None;
             c.style = style.clone();
         })?;
     }
