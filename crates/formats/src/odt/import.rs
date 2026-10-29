@@ -66,7 +66,12 @@ pub(super) fn read_meta(xml: &[u8]) -> Meta {
     let mut creator = String::new();
     let mut mod_date = String::new();
     events(xml, |ev| match ev {
-        Ev::Start(q, _) => cur = Some(q),
+        Ev::Start(q, _) => {
+            if q == "meta:keyword" {
+                keywords.push(String::new());
+            }
+            cur = Some(q);
+        }
         Ev::End(_) => cur = None,
         Ev::Text(t) => match cur.as_deref() {
             Some("dc:title") => m.title.push_str(&t),
@@ -74,7 +79,12 @@ pub(super) fn read_meta(xml: &[u8]) -> Meta {
             Some("dc:description") => m.description.push_str(&t),
             Some("meta:initial-creator") => m.author.push_str(&t),
             Some("dc:creator") => creator.push_str(&t),
-            Some("meta:keyword") => keywords.push(t),
+            Some("meta:keyword") => {
+                // Entities, CDATA and comments can split one keyword into several text events.
+                if let Some(keyword) = keywords.last_mut() {
+                    keyword.push_str(&t);
+                }
+            }
             Some("meta:creation-date") => m.created.push_str(&t),
             Some("dc:date") => mod_date.push_str(&t),
             _ => {}
@@ -86,6 +96,7 @@ pub(super) fn read_meta(xml: &[u8]) -> Meta {
     if m.created.is_empty() {
         m.created = mod_date;
     }
+    keywords.retain(|k| !k.is_empty());
     m.keywords = keywords.join(", ");
     let created = m.created.trim();
     if !created.is_empty() {
