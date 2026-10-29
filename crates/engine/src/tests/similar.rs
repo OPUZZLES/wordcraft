@@ -122,3 +122,18 @@ fn select_similar_returns_body_and_table_matches_in_story_order() {
     assert_eq!(r["ranges"][1], json!({"anchor": Pos { off: 0, ..cell.clone() }, "focus": Pos { off: 4, ..cell }}));
     assert_eq!(s.sel, Selection { anchor: Pos::body(0, 0), focus: Pos::body(0, 4) });
 }
+
+#[test]
+fn select_similar_ranges_can_be_deleted_in_reverse_without_touching_nonmatches() {
+    let mut s = fixture();
+    let result = run(&mut s, "select.similar", json!({}));
+    for range in result["ranges"].as_array().unwrap().iter().rev() {
+        run(&mut s, "select.range", range.clone());
+        run(&mut s, "text.delete", json!({}));
+    }
+    assert_eq!(text(&s), "alpha  gamma ");
+    run(&mut s, "edit.undo", json!({}));
+    assert_eq!(text(&s), "alpha beta gamma ");
+    run(&mut s, "edit.redo", json!({}));
+    assert_eq!(text(&s), "alpha  gamma ");
+}
