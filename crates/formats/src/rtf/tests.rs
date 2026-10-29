@@ -1,6 +1,27 @@
 use super::*;
 
 #[test]
+fn unicode_alternatives_refuse_excessive_lookahead_depth() {
+    let nested = format!("{}{}", "{".repeat(512), "}".repeat(512));
+    let rtf = format!("{{\\rtf1{{\\upr{{{nested}}}{{\\*\\ud Unicode}}}}}}");
+    assert!(parse(rtf.as_bytes()).is_err(), "over-budget Unicode lookahead must not silently import ANSI");
+}
+
+#[test]
+fn unicode_alternatives_refuse_excessive_boundary_cache() {
+    let rtf = format!("{{\\rtf1{{\\upr{{{}}}{{\\*\\ud Unicode}}}}}}", "{}".repeat(1 << 16));
+    assert!(parse(rtf.as_bytes()).is_err(), "over-budget Unicode lookahead must not silently import ANSI");
+}
+
+#[test]
+fn unicode_alternatives_accept_lookahead_at_its_limits() {
+    for ansi in [format!("{}{}", "{".repeat(511), "}".repeat(511)), "{}".repeat((1 << 16) - 1)] {
+        let rtf = format!("{{\\rtf1{{\\upr{{{ansi}}}{{\\*\\ud Unicode}}}}}}");
+        assert_eq!(texts(&parse(rtf.as_bytes()).unwrap()), ["Normal:Unicode"]);
+    }
+}
+
+#[test]
 fn unicode_alternatives_keep_body_text_and_formatting() {
     let f = parse(br"{\rtf1\ansi before {\upr{wrong}{\*\ud \b Greek \u915? and \u-10179?\u-8704?}} after\par}").unwrap();
     assert_eq!(texts(&f), ["Normal:before Greek Γ and 😀 after"]);

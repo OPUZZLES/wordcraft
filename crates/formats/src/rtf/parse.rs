@@ -1,5 +1,5 @@
 use super::reader::Reader;
-use super::state::{Dest, HeaderFooter, HfPages, MAX_PICT, PageGeom};
+use super::state::{Dest, HeaderFooter, HfPages, MAX_GROUPS, MAX_PICT, PageGeom};
 use super::{Cell, Document, FBlock, Flow, Para, model};
 
 /// Parse RTF bytes into the flow model.
@@ -33,7 +33,7 @@ fn parse_full(bytes: &[u8]) -> Result<Parsed, String> {
     let mut i = start;
     let mut first_in_group = false;
     let mut starred = false;
-    let mut alternative_ends = std::collections::HashMap::new();
+    let mut alternative_ends = AlternativeGroups::default();
     while let Some(&c) = bytes.get(i) {
         match c {
             b'{' => {
@@ -108,7 +108,7 @@ fn parse_full(bytes: &[u8]) -> Result<Parsed, String> {
                     if word == "upr"
                         && first_in_group
                         && !starred
-                        && let Some(content) = unicode_alternative(bytes, i, &mut alternative_ends)
+                        && let Some(content) = alternative_ends.select(bytes, i)?
                     {
                         // The ANSI branch must have no reader side effects, including metadata
                         // and destination commits. Open only the selected Unicode subgroup;
@@ -219,7 +219,7 @@ fn parse_full(bytes: &[u8]) -> Result<Parsed, String> {
 /// A missing or unrecognised Unicode header leaves the existing ANSI fallback path in place.
 /// Scan the discarded group without recursion; escaped braces and bin payloads
 /// cannot close it. The selected content is read by the ordinary parser, not a second reader.
-fn unicode_alternative(bytes: &[u8], mut at: usize, ends: &mut std::collections::HashMap<usize, Option<usize>>) -> Option<usize> {
+fn unicode_alternative(bytes: &[u8], mut at: usize, ends: &mut AlternativeGroups) -> Option<usize> {
     while bytes.get(at).is_some_and(u8::is_ascii_whitespace) {
         at += 1;
     }
@@ -253,17 +253,23 @@ fn unicode_alternative(bytes: &[u8], mut at: usize, ends: &mut std::collections:
 /// Keep the boundaries found during lookahead: if an outer pair is malformed and falls back
 /// to its first branch, nested pairs must not rescan that branch's bytes. Both closed and
 /// truncated groups are cached, using storage proportional to the discarded input's groups.
-fn alternative_group_end(bytes: &[u8], mut at: usize, ends: &mut std::collections::HashMap<usize, Option<usize>>) -> Option<usize> {
-    if let Some(end) = ends.get(&at) {
+fn alternative_group_end(bytes: &[u8], mut at: usize, ends: &mut AlternativeGroups) -> Option<usize> {
+    if let Some(end) = ends.ends.get(&at) {
         return *end;
     }
     let mut open = Vec::new();
     let result = (|| {
         loop {
             match *bytes.get(at)? {
-                b'{' => open.push(at),
+                b'{' => {
+                    if open.len() >= MAX_GROUPS {
+                        ends.limited = true;
+                        return None;
+                    }
+                    open.push(at);
+                }
                 b'}' => {
-                    ends.insert(open.pop()?, Some(at + 1));
+                    ends.remember(open.pop()?, Some(at + 1))?;
                     if open.is_empty() {
                         return Some(at + 1);
                     }
@@ -298,10 +304,38 @@ fn alternative_group_end(bytes: &[u8], mut at: usize, ends: &mut std::collection
             at += 1;
         }
     })();
+    if ends.limited {
+        return None;
+    }
     for start in open {
-        ends.insert(start, None);
+        ends.remember(start, None)?;
     }
     result
+}
+
+/// Bound memory before the ordinary reader sees a discarded branch. Exceeding either budget
+/// refuses import instead of silently substituting ANSI for the intended Unicode content.
+#[derive(Default)]
+struct AlternativeGroups {
+    ends: std::collections::HashMap<usize, Option<usize>>,
+    limited: bool,
+}
+
+impl AlternativeGroups {
+    fn select(&mut self, bytes: &[u8], at: usize) -> Result<Option<usize>, String> {
+        let content = unicode_alternative(bytes, at, self);
+        if self.limited { Err("RTF Unicode alternative lookahead limit exceeded".into()) } else { Ok(content) }
+    }
+
+    fn remember(&mut self, start: usize, end: Option<usize>) -> Option<()> {
+        const MAX_ENTRIES: usize = 1 << 16;
+        if self.ends.len() >= MAX_ENTRIES && !self.ends.contains_key(&start) {
+            self.limited = true;
+            return None;
+        }
+        self.ends.insert(start, end);
+        Some(())
+    }
 }
 
 fn finalize(mut r: Reader) -> Parsed {
