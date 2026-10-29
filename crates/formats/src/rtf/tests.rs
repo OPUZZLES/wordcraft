@@ -1,5 +1,61 @@
 use super::*;
 
+#[test]
+fn unicode_alternatives_keep_body_text_and_formatting() {
+    let f = parse(br"{\rtf1\ansi before {\upr{wrong}{\*\ud \b Greek \u915? and \u-10179?\u-8704?}} after\par}").unwrap();
+    assert_eq!(texts(&f), ["Normal:before Greek Γ and 😀 after"]);
+    let FBlock::Para(p) = &f.blocks[0] else { panic!() };
+    assert!(p.inlines.iter().any(|i| matches!(i, Inline::Text(t, fmt) if t == "Greek Γ and 😀" && fmt.bold)));
+    assert!(p.inlines.iter().any(|i| matches!(i, Inline::Text(t, fmt) if t == " after" && !fmt.bold)));
+}
+
+#[test]
+fn unicode_alternatives_accept_line_wrapped_headers() {
+    for header in ["{\r\n\\*\\ud ", "{\\*\r\n\\ud ", "{\\*\\ud\r\n"] {
+        let rtf = format!("{{\\rtf1{{\\upr{{G}}{header}\\u915?}}}} tail\\par}}");
+        assert_eq!(texts(&parse(rtf.as_bytes()).unwrap()), ["Normal:Γ tail"], "{header:?}");
+    }
+}
+
+#[test]
+fn unicode_alternatives_keep_destination_names_and_metadata() {
+    let rtf = br"{\rtf1\ansi{\info{\upr{\title Wrong}{\*\ud{\title R\u233?sum\u233?}}}}
+{\upr{\*\bkmkstart fallback}{\*\ud{\*\bkmkstart mark\u915?}}}text\par}";
+    let d = import(rtf).unwrap();
+    assert_eq!(d.core.title, "Résumé");
+    assert_eq!(d.bookmarks().iter().map(|(name, _)| name.as_str()).collect::<Vec<_>>(), ["markΓ"]);
+}
+
+#[test]
+fn unicode_alternatives_skip_nested_escaped_and_binary_ansi_content() {
+    // The three raw bytes after bin3 are structural-looking binary data, not group delimiters.
+    let rtf = br"{\rtf1\ansi{\upr{bad {\b nested}\{\}\\\bin3 }{\}{\*\ud Good {\upr{bad}{\*\ud \u20013?}}}} tail\par}";
+    assert_eq!(texts(&parse(rtf).unwrap()), ["Normal:Good 中 tail"]);
+}
+
+#[test]
+fn unicode_alternatives_leave_ignored_and_unpaired_destinations_ignored() {
+    let rtf = br"{\rtf1\ansi{\*\unknown{\upr{bad}{\*\ud hidden}}}{\*\ud hidden}
+{\upr{fallback}{\*\unknown hidden}}{\upr{only fallback}} tail\par}";
+    assert_eq!(texts(&parse(rtf).unwrap()), ["Normal:fallbackonly fallback tail"]);
+    let f = parse(br"{\rtf1{\info{\title Original}}{\upr{{\info{\title Wrong}}bad}{\*\ud Good}}\par}").unwrap();
+    assert_eq!(f.meta.title, "Original");
+    assert_eq!(texts(&f), ["Normal:Good"]);
+}
+
+#[test]
+fn unicode_alternatives_keep_nested_fallbacks_and_truncated_groups() {
+    // Every outer pair lacks a Unicode branch. Its first branch can still contain a valid pair.
+    // A long payload makes repeated lookahead expensive unless group boundaries are reused.
+    let payload = "x".repeat(64 * 1024);
+    let prefix = "{\\upr{".repeat(200);
+    let suffix = "}}".repeat(200);
+    let rtf = format!("{{\\rtf1{prefix}{payload}{{\\upr{{G}}{{\\*\\ud \\u915?}}}}{suffix} tail\\par}}");
+    assert_eq!(texts(&parse(rtf.as_bytes()).unwrap()), [format!("Normal:{payload}Γ tail")]);
+    let truncated = format!("{{\\rtf1{prefix}{payload}");
+    assert_eq!(texts(&parse(truncated.as_bytes()).unwrap()), [format!("Normal:{payload}")]);
+}
+
 fn texts(f: &Flow) -> Vec<String> {
     f.blocks
         .iter()

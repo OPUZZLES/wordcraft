@@ -33,6 +33,7 @@ fn parse_full(bytes: &[u8]) -> Result<Parsed, String> {
     let mut i = start;
     let mut first_in_group = false;
     let mut starred = false;
+    let mut alternative_ends = std::collections::HashMap::new();
     while let Some(&c) = bytes.get(i) {
         match c {
             b'{' => {
@@ -102,6 +103,21 @@ fn parse_full(bytes: &[u8]) -> Result<Parsed, String> {
                             r.pict_hex.extend_from_slice(data);
                         }
                         i = end;
+                        continue;
+                    }
+                    if word == "upr"
+                        && first_in_group
+                        && !starred
+                        && let Some(content) = unicode_alternative(bytes, i, &mut alternative_ends)
+                    {
+                        // The ANSI branch must have no reader side effects, including metadata
+                        // and destination commits. Open only the selected Unicode subgroup;
+                        // its ud wrapper is transparent to the enclosing destination.
+                        r.finish_multibyte();
+                        r.open();
+                        i = content;
+                        first_in_group = false;
+                        starred = false;
                         continue;
                     }
                     if word == "info" {
@@ -197,6 +213,95 @@ fn parse_full(bytes: &[u8]) -> Result<Parsed, String> {
         }
     }
     Ok(finalize(r))
+}
+
+/// Select the second subgroup of an RTF 1.9.1 Unicode alternative (Unicode RTF, pp. 15–16).
+/// A missing or unrecognised Unicode header leaves the existing ANSI fallback path in place.
+/// Scan the discarded group without recursion; escaped braces and bin payloads
+/// cannot close it. The selected content is read by the ordinary parser, not a second reader.
+fn unicode_alternative(bytes: &[u8], mut at: usize, ends: &mut std::collections::HashMap<usize, Option<usize>>) -> Option<usize> {
+    while bytes.get(at).is_some_and(u8::is_ascii_whitespace) {
+        at += 1;
+    }
+    if bytes.get(at) != Some(&b'{') {
+        return None;
+    }
+    at = alternative_group_end(bytes, at, ends)?;
+    while bytes.get(at).is_some_and(u8::is_ascii_whitespace) {
+        at += 1;
+    }
+    // CR/LF line breaks are ignored between RTF tokens, including the header tokens.
+    for token in [b"{".as_slice(), b"\\*", b"\\ud"] {
+        while bytes.get(at).is_some_and(|b| matches!(b, b'\r' | b'\n' | 0)) {
+            at += 1;
+        }
+        let end = at.checked_add(token.len())?;
+        if bytes.get(at..end)? != token {
+            return None;
+        }
+        at = end;
+    }
+    if bytes.get(at).is_some_and(|b| b.is_ascii_alphanumeric() || *b == b'-') {
+        return None;
+    }
+    if bytes.get(at) == Some(&b' ') {
+        at += 1;
+    }
+    Some(at)
+}
+
+/// Keep the boundaries found during lookahead: if an outer pair is malformed and falls back
+/// to its first branch, nested pairs must not rescan that branch's bytes. Both closed and
+/// truncated groups are cached, using storage proportional to the discarded input's groups.
+fn alternative_group_end(bytes: &[u8], mut at: usize, ends: &mut std::collections::HashMap<usize, Option<usize>>) -> Option<usize> {
+    if let Some(end) = ends.get(&at) {
+        return *end;
+    }
+    let mut open = Vec::new();
+    let result = (|| {
+        loop {
+            match *bytes.get(at)? {
+                b'{' => open.push(at),
+                b'}' => {
+                    ends.insert(open.pop()?, Some(at + 1));
+                    if open.is_empty() {
+                        return Some(at + 1);
+                    }
+                }
+                b'\\' => {
+                    at += 1;
+                    let start = at;
+                    if bytes.get(at)?.is_ascii_alphabetic() {
+                        while bytes.get(at).is_some_and(u8::is_ascii_alphabetic) {
+                            at += 1;
+                        }
+                        if bytes.get(start..at) == Some(b"bin") {
+                            let number = at;
+                            while bytes.get(at).is_some_and(u8::is_ascii_digit) {
+                                at += 1;
+                            }
+                            let size = std::str::from_utf8(bytes.get(number..at)?).ok()?.parse::<usize>().ok()?;
+                            if bytes.get(at) == Some(&b' ') {
+                                at += 1;
+                            }
+                            at = at.checked_add(size)?;
+                            if at > bytes.len() {
+                                return None;
+                            }
+                        }
+                        continue;
+                    }
+                    // A control symbol, including an escaped brace or backslash.
+                }
+                _ => {}
+            }
+            at += 1;
+        }
+    })();
+    for start in open {
+        ends.insert(start, None);
+    }
+    result
 }
 
 fn finalize(mut r: Reader) -> Parsed {
