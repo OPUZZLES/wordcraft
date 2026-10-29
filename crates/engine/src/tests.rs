@@ -6462,6 +6462,7 @@ fn manage_styles_reports_own_typed_properties_for_reapplication() {
     let mut s = s();
     run(&mut s, "styles.create", json!({"name": "Own", "basedOn": "Heading1", "fromSelection": false}));
     run(&mut s, "styles.create", json!({"name": "Copy", "fromSelection": false}));
+    run(&mut s, "styles.modify", json!({"style": "Copy", "chr": {"font": "Destination Font"}}));
     let own =
         |s: &mut Session, id: &str| run(s, "styles.manage", json!({})).as_array().unwrap().iter().find(|st| st["id"] == id).unwrap()["props"].clone();
     assert_eq!(own(&mut s, "Own"), json!({"chr": {}, "para": {}}), "inherited properties stay absent");
@@ -6474,7 +6475,7 @@ fn manage_styles_reports_own_typed_properties_for_reapplication() {
                     "lineSpacing": {"rule": rule, "value": value}, "outlineLevel": 0,
                     "numbering": {"num": 0, "level": 0}, "tabs": [{"pos": 0.0, "align": "clear"}],
                     "borders": {"bottom": {"style": "single", "width": 0.75, "color": "1F3A5F"}},
-                    "shading": "EEEEEE", "contextualSpacing": false}}),
+                    "shading": "EEEEEE", "contextualSpacing": false, "spaceBefore": 72.0, "spaceBeforeAuto": true}}),
         );
         let props = own(&mut s, "Own");
         assert_eq!(props["chr"]["bold"], false);
@@ -6483,6 +6484,7 @@ fn manage_styles_reports_own_typed_properties_for_reapplication() {
         assert!(props["chr"].get("font").is_none(), "do not resolve the base style");
         assert_eq!(props["para"]["keepLines"], false);
         assert_eq!(props["para"]["outlineLevel"], 0);
+        assert_eq!(props["para"]["spaceBeforeAuto"], true);
         assert_eq!(props["para"]["lineSpacing"], json!({"rule": rule, "value": value}));
         assert_eq!(props["para"]["shading"], json!([238, 238, 238]));
         assert_eq!(props["para"]["borders"]["bottom"]["color"], json!([31, 58, 95]));
@@ -6493,7 +6495,9 @@ fn manage_styles_reports_own_typed_properties_for_reapplication() {
         patch["style"] = json!("Copy");
         run(&mut s, "styles.modify", patch);
         let copy = s.doc.styles.get("Copy").unwrap();
-        assert_eq!((&copy.chr, &copy.para), (&source.chr, &source.para));
+        let mut chr = copy.chr.clone();
+        assert_eq!(chr.font.take().as_deref(), Some("Destination Font"), "an omitted destination property survives");
+        assert_eq!((chr, &copy.para), (source.chr, &source.para));
         run(&mut s, "edit.undo", json!({}));
         let before = s.doc.clone();
         let depth = s.undo_depth();
@@ -6510,8 +6514,15 @@ fn manage_styles_reports_own_typed_properties_for_reapplication() {
         assert_eq!(s.sel, selection);
         assert_eq!(s.undo_depth(), depth);
         run(&mut s, "edit.redo", json!({}));
-        assert_eq!(own(&mut s, "Copy"), own(&mut s, "Own"), "queries preserve redo");
+        let mut expected = own(&mut s, "Own");
+        expected["chr"]["font"] = json!("Destination Font");
+        assert_eq!(own(&mut s, "Copy"), expected, "queries preserve redo and the destination-only property");
     }
+    let copy = ParaProps { style: Some("Copy".into()), ..Default::default() };
+    run(&mut s, "styles.modify", json!({"style": "Copy", "para": {"spaceBefore": 84.0}}));
+    assert_eq!(s.doc.styles.resolve_para(&copy).space_before, 14.0, "automatic spacing still takes precedence");
+    run(&mut s, "styles.modify", json!({"style": "Copy", "para": {"spaceBeforeAuto": false}}));
+    assert_eq!(s.doc.styles.resolve_para(&copy).space_before, 84.0, "disable automatic spacing to use the point value");
 }
 
 #[test]
