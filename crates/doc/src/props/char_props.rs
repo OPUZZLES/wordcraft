@@ -475,7 +475,7 @@ impl CharProps {
         drop_same_fields!(self, base; link, ins, del, ligatures);
     }
 
-    /// Apply every `Some` field of `patch` on top of `self`.
+    /// Overlay the present properties of `patch` on `self`. Link hints require a nonempty link.
     ///
     /// Plain and complex-script properties inherit independently. Commands that intend to
     /// format both scripts must set both values explicitly.
@@ -502,6 +502,9 @@ impl CharProps {
             self.link_tooltip = None;
         }
         overlay_fields!(self, patch; link, link_tooltip, ins, del, fmt_change, ligatures);
+        if self.link.as_deref().is_none_or(|link| link.is_empty()) {
+            self.link_tooltip = None;
+        }
     }
     pub fn overlaid(mut self, patch: &CharProps) -> CharProps {
         self.overlay(patch);
@@ -564,5 +567,23 @@ mod tests {
         let json = serde_json::to_vec(&original).unwrap();
         assert_eq!(serde_json::from_slice::<CharProps>(&json).unwrap(), original);
         assert_eq!(serde_json::from_str::<CharProps>(r##"{"link":"#target"}"##).unwrap().link_tooltip, None);
+    }
+    #[test]
+    fn hyperlink_screentip_patch_requires_a_nonempty_link() {
+        let hint = CharProps { link_tooltip: Some("Updated hint Ω".into()), bold: Some(true), ..Default::default() };
+        for link in [None, Some(String::new())] {
+            let mut plain = CharProps { link, ..Default::default() };
+            plain.overlay(&hint);
+            assert_eq!(plain.link_tooltip, None);
+            assert_eq!(plain.bold, Some(true));
+        }
+        let linked = CharProps { link: Some("#target".into()), ..Default::default() }.overlaid(&hint);
+        assert_eq!(linked.link_tooltip, hint.link_tooltip);
+        assert_eq!(linked.clone().overlaid(&CharProps::default()), linked);
+        let introduced = CharProps::default().overlaid(&linked);
+        assert_eq!(introduced.link, linked.link);
+        assert_eq!(introduced.link_tooltip, hint.link_tooltip);
+        let empty_hint = CharProps { link_tooltip: Some("".into()), ..Default::default() };
+        assert_eq!(linked.overlaid(&empty_hint).link_tooltip.as_deref(), Some(""));
     }
 }

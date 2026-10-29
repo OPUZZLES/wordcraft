@@ -63,3 +63,24 @@ fn hyperlink_screentips_do_not_escape_the_link_or_become_painted_formatting() {
     assert_eq!(props.link_tooltip.as_deref(), Some("Destination hint"));
     assert_eq!(props.bold, Some(true));
 }
+
+#[test]
+fn hyperlink_screentip_patch_normalizes_unlinked_format_set_and_preserves_history() {
+    let mut s = s();
+    run(&mut s, "text.insert", json!({"text":"Plain text"}));
+    run(&mut s, "select.all", json!({}));
+    run(&mut s, "format.set", json!({"props":{"linkTooltip":"Orphan hint","bold":true}}));
+    let props = s.doc.body[0].as_para().unwrap().props_of_char(0);
+    assert_eq!((props.link.as_deref(), props.link_tooltip.as_deref()), (None, None));
+    assert_eq!(props.bold, Some(true));
+    run(&mut s, "insert.link", json!({"url":"https://example.invalid/existing"}));
+    run(&mut s, "format.set", json!({"props":{"linkTooltip":"Updated hint"}}));
+    assert_eq!(s.doc.body[0].as_para().unwrap().props_of_char(0).link_tooltip.as_deref(), Some("Updated hint"));
+    run(&mut s, "edit.undo", json!({}));
+    assert_eq!(s.doc.body[0].as_para().unwrap().props_of_char(0).link_tooltip, None);
+    run(&mut s, "edit.redo", json!({}));
+    assert_eq!(s.doc.body[0].as_para().unwrap().props_of_char(0).link_tooltip.as_deref(), Some("Updated hint"));
+    run(&mut s, "insert.removeLink", json!({}));
+    run(&mut s, "format.set", json!({"props":{"link":"","linkTooltip":"Empty target"}}));
+    assert_eq!(s.doc.body[0].as_para().unwrap().props_of_char(0).link_tooltip, None);
+}
