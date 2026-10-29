@@ -13,6 +13,8 @@ mod east_asian_lang;
 mod east_asian_layout;
 mod fixtures;
 mod glossary;
+mod hyperlink_screentip_sharing;
+mod hyperlink_screentips;
 mod legacy_forms;
 mod ligatures;
 mod malformed;

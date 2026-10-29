@@ -12,6 +12,7 @@ use crate::{Session, cmd};
 mod bidi;
 mod documents;
 mod fonts;
+mod hyperlink_screentips;
 mod ime_noop;
 mod revision_checks;
 mod typing;
