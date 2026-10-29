@@ -1,6 +1,62 @@
 use super::*;
 use crate::Session;
 
+#[test]
+fn citation_refresh_recognizes_field_names_and_quoted_primary_tags() {
+    let mut d = Document::new();
+    for tag in ["plain", "Primary Ω"] {
+        d.sources.push(Source { tag: tag.into(), author: "Original Author".into(), year: "2024".into(), ..Default::default() });
+    }
+    let instructions = [
+        r#"CITATION plain \p 12"#,
+        r#"citation plain \p 12"#,
+        r#"CITATION "Primary Ω" \p 12"#,
+        r#"cItAtIoN "Primary Ω" \p 12"#,
+        "CITATION PLAIN",
+        "citation missing",
+        "REF plain",
+    ];
+    let para = d.para_mut(StoryRef::Body, &Path::top(0)).unwrap();
+    for instr in instructions {
+        para.insert_object(
+            para.len(),
+            InlineObject::Field {
+                instr: instr.into(),
+                result: "Original cached citation".into(),
+                locked: false,
+                dirty: false,
+                code: false,
+                form: String::new(),
+            },
+            &CharProps::default(),
+        )
+        .unwrap();
+    }
+    let before = d.clone();
+    let mut s = Session::new(d);
+    s.run("references.updateFields", &json!({})).unwrap();
+    let fields: Vec<_> = s
+        .doc
+        .para(StoryRef::Body, &Path::top(0))
+        .unwrap()
+        .objects
+        .iter()
+        .filter_map(|object| match object {
+            InlineObject::Field { instr, result, .. } => Some((instr.as_str(), result.as_str())),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(fields.len(), instructions.len());
+    assert_ne!(fields[0].1, "Original cached citation");
+    for (index, (instr, result)) in fields.iter().enumerate() {
+        assert_eq!(*instr, instructions[index]);
+        assert_eq!(*result, if index < 4 { fields[0].1 } else { "Original cached citation" });
+    }
+    assert_eq!(s.doc.sources, before.sources);
+    s.run("edit.undo", &json!({})).unwrap();
+    assert_eq!(s.doc, before);
+}
+
 /// The bibliography includes every source in a multi-source field, once, in first-cited
 /// order for numbered styles. Building the list must leave the imported citation intact.
 #[test]

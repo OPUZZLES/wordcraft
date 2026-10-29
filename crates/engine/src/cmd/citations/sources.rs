@@ -156,12 +156,12 @@ pub(super) fn citation(s: &mut Session, v: &Value) -> CmdResult {
 }
 
 /// The tag and `\p` pages of a CITATION field instruction.
-fn citation_field(instr: &str) -> Option<(&str, &str)> {
-    let mut words = instr.split_whitespace();
-    if words.next()? != "CITATION" {
+fn citation_field(instr: &str) -> Option<(String, &str)> {
+    let field = super::FieldCode::parse(instr);
+    if field.name != "CITATION" {
         return None;
     }
-    let tag = words.next()?;
+    let tag = field.args.into_iter().next()?;
     let pages = instr.split("\\p").nth(1).map(str::trim).unwrap_or("");
     Some((tag, pages))
 }
@@ -243,7 +243,7 @@ fn refresh_citations(s: &mut Session) -> Result<(), CmdError> {
                 InlineObject::Field { instr, .. } => {
                     let (tag, pages) = citation_field(instr)?;
                     let src = s.doc.sources.iter().find(|x| x.tag == tag)?;
-                    Some((k, cite(src, st.name, number_of(&s.doc, &order, tag), pages)))
+                    Some((k, cite(src, st.name, number_of(&s.doc, &order, &tag), pages)))
                 }
                 _ => None,
             })
