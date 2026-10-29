@@ -644,4 +644,37 @@ mod tests_warp_lookups {
         eprintln!("text-box warp discovery: {a:.6}s -> {b:.6}s, {ratio:.2}x for 8x boxes");
         assert!(ratio < 24.0, "text-box warp discovery rescanned paragraph prefixes: {ratio:.2}x");
     }
+
+    /// #3614: an invalid request must not extend the prefix walk into unrelated trailing text.
+    #[test]
+    #[ignore = "performance regression; run explicitly"]
+    fn text_box_warp_lookups_stop_at_the_last_valid_requested_offset() {
+        let make = |suffix: usize| {
+            let mut p = Paragraph::new();
+            p.text = format!("{OBJ}{}", "x".repeat(suffix));
+            p.runs = vec![wordcraft_doc::para::Run { len: p.text.len(), props: CharProps::default() }];
+            p.objects = vec![shape(TextWarp::new("textArchUp"))];
+            let mut d = Document::from_text("");
+            d.body = vec![Block::Para(p).into()];
+            d
+        };
+        let (short, long) = (make(0), make(1_000_000));
+        let items = vec![
+            placed(StoryRef::Body, Path::top(0), 0, Some(7)),
+            placed(StoryRef::Body, Path::top(0), usize::MAX, Some(8)),
+            placed(StoryRef::Body, Path::top(0), 1, Some(9)),
+            placed(StoryRef::Body, Path::top(0), OBJ.len_utf8(), Some(10)),
+        ];
+        let expected = vec![(7, Rect::new(0.0, 2.0, 100.0, 30.0), TextWarp::new("textArchUp").unwrap())];
+        assert_eq!(warped_boxes(&short, &items), expected);
+        assert_eq!(warped_boxes(&long, &items), expected);
+        let scan = |doc: &Document| {
+            for _ in 0..1000 {
+                std::hint::black_box(warped_boxes(doc, &items));
+            }
+        };
+        let (a, b, _) = crate::tests::cost_ratio(1, || scan(&short), || scan(&long));
+        eprintln!("text-box warp suffix: {a:.6}s -> {b:.6}s for 1000 calls with one million trailing bytes");
+        assert!(b <= a * 8.0 + 0.005, "text-box warp lookup scanned the suffix: {a:.6}s -> {b:.6}s");
+    }
 }
