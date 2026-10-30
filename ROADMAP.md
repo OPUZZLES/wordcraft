@@ -692,6 +692,7 @@ Footer page-table height and body wrapping are corrected. Other pagination gaps 
 | 2026-10-29 | trivial | Progress log: window titles omit NUL characters (#3634) |
 | 2026-10-29 | trivial | Recipient labels continue across product-sized sheets instead of stopping after the first sheet (#4880). Filtered/sorted order, product geometry and single-label mode retained; readiness estimates unchanged. |
 | 2026-10-29 | trivial | Bibliographies include primary and secondary `\m` citation tags, including quoted tags, once in the existing style order. Primary citation refresh uses the same field-name, tag and page-argument tokenizer; multi-source inline rendering remains separate. Readiness estimates unchanged. |
+| 2026-10-30 | trivial | Citation refresh preserves legacy tags with quotes and unquoted multiword pages. New page and source-tag arguments are quoted and escaped. Missing sources retain cached citations. Readiness estimates unchanged. |
 | 2026-10-22 | trivial | Progress log: one native window per open document |
 | 2026-10-22 | trivial | Progress log: every open document keeps its own recovery copy |
 | 2026-10-22 | trivial | Progress log: several open documents in the desktop window |

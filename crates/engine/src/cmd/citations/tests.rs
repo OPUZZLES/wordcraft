@@ -46,7 +46,7 @@ fn inserted_citation_tags_survive_refresh_and_docx_reopen() {
 
 #[test]
 fn legacy_literal_citation_tags_keep_their_sources_and_pages() {
-    for tag in ["Quote\"Tag", r"\m", r"\p", "\"Quoted\""] {
+    for tag in ["Quote\"Tag", r"\m", r"\p", "\"Quoted\"", "\"Quoted\"Suffix", "\"Quoted", r#""Quoted"\Tail"#] {
         for pages in ["", "12, 14"] {
             let mut d = Document::new();
             d.sources.push(Source {
@@ -56,7 +56,8 @@ fn legacy_literal_citation_tags_keep_their_sources_and_pages() {
                 year: "2024".into(),
                 ..Default::default()
             });
-            d.sources.push(Source { tag: "Quote".into(), author: "Wrong".into(), year: "1999".into(), ..Default::default() });
+            let prefix = if tag.starts_with('"') && !tag.ends_with('"') { "Quoted" } else { "Quote" };
+            d.sources.push(Source { tag: prefix.into(), author: "Wrong".into(), year: "1999".into(), ..Default::default() });
             let instr = if pages.is_empty() { format!("CITATION {tag}") } else { format!("CITATION {tag} \\p {pages}") };
             d.para_mut(StoryRef::Body, &Path::top(0))
                 .unwrap()
@@ -116,9 +117,10 @@ fn legacy_literal_citation_tags_keep_their_sources_and_pages() {
 
 #[test]
 fn missing_legacy_literal_citation_tags_keep_their_cached_results() {
-    for tag in ["Quote\"Tag", r"\m", r"\p"] {
+    for tag in ["Quote\"Tag", r"\m", r"\p", "\"Quoted\"Suffix", "\"Quoted", r#""Quoted"\Tail"#] {
         let mut d = Document::new();
-        d.sources.push(Source { tag: "Quote".into(), author: "Wrong".into(), year: "1999".into(), ..Default::default() });
+        let prefix = if tag.starts_with('"') { "Quoted" } else { "Quote" };
+        d.sources.push(Source { tag: prefix.into(), author: "Wrong".into(), year: "1999".into(), ..Default::default() });
         let instr = format!("CITATION {tag} \\p 12, 14");
         d.para_mut(StoryRef::Body, &Path::top(0))
             .unwrap()
@@ -144,6 +146,37 @@ fn missing_legacy_literal_citation_tags_keep_their_cached_results() {
         s.run("references.updateFields", &json!({})).unwrap();
         assert_eq!(s.doc.plain_text(StoryRef::Body), "Original retained citation");
         assert!(super::sources::bib_order(&s.doc, style("IEEE"), None).is_empty());
+    }
+}
+
+#[test]
+fn missing_quoted_source_does_not_match_a_literal_prefix() {
+    for (instr, prefix) in [(r#"CITATION "Quoted Space" \p "12, 14""#, r#""Quoted"#), (r#"CITATION "Quoted\" Space" \p "12, 14""#, r#""Quoted\""#)] {
+        let mut d = Document::new();
+        d.sources.push(Source { tag: prefix.into(), author: "Wrong".into(), year: "1999".into(), ..Default::default() });
+        d.para_mut(StoryRef::Body, &Path::top(0))
+            .unwrap()
+            .insert_object(
+                0,
+                InlineObject::Field {
+                    instr: instr.into(),
+                    result: "Original retained citation".into(),
+                    locked: false,
+                    dirty: false,
+                    code: false,
+                    form: String::new(),
+                },
+                &CharProps::default(),
+            )
+            .unwrap();
+        let mut s = Session::new(d);
+        for _ in 0..2 {
+            let before = s.doc.clone();
+            s.run("references.updateFields", &json!({})).unwrap();
+            assert_eq!(s.doc, before, "{instr}");
+            assert!(super::sources::bib_order(&s.doc, style("IEEE"), None).is_empty());
+            s = Session::new(wordcraft_docx::read(&wordcraft_docx::write(&s.doc).unwrap()).unwrap());
+        }
     }
 }
 

@@ -162,6 +162,25 @@ fn quote_field_arg(value: &str) -> String {
     format!("\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\""))
 }
 
+/// The end of a complete quoted argument, using FieldCode's escape rules.
+fn quoted_argument_end(value: &str) -> Option<usize> {
+    let mut chars = value.strip_prefix('"')?.char_indices().peekable();
+    while let Some((at, c)) = chars.next() {
+        match c {
+            '"' => {
+                let end = at.checked_add(2)?;
+                let rest = value.get(end..)?;
+                return rest.chars().next().is_none_or(char::is_whitespace).then_some(end);
+            }
+            '\\' if matches!(chars.peek(), Some((_, '"' | '\\'))) => {
+                chars.next();
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
 /// Older insertions wrote tags verbatim. Resolve an exact stored literal tag without
 /// rewriting its instruction; an existing decoded quoted tag keeps its parsed meaning.
 fn citation_code(instr: &str, source_tags: &std::collections::HashSet<String>) -> super::FieldCode {
@@ -174,12 +193,14 @@ fn citation_code(instr: &str, source_tags: &std::collections::HashSet<String>) -
     let rest = rest.trim_start();
     let end = rest.find(char::is_whitespace).unwrap_or(rest.len());
     let Some(raw) = rest.get(..end) else { return field };
-    let unquoted_literal = !raw.starts_with('"') && (raw.contains('"') || raw.starts_with('\\'));
+    let quoted_end = quoted_argument_end(rest);
+    let unquoted_literal = if raw.starts_with('"') { quoted_end.is_none() } else { raw.contains('"') || raw.starts_with('\\') };
     if !unquoted_literal && field.args.first().is_some_and(|tag| source_tags.contains(tag)) {
         return field;
     }
-    // A missing legacy source must not resolve to a shorter parsed prefix.
-    if !unquoted_literal && !source_tags.contains(raw) {
+    // A missing legacy source must not resolve to a shorter parsed prefix, and a complete
+    // quoted argument must not resolve to its first raw word.
+    if !unquoted_literal && (!source_tags.contains(raw) || quoted_end.is_some_and(|end| end != raw.len())) {
         return field;
     }
     let Some(tail) = rest.get(end..) else { return field };
