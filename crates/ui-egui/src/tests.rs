@@ -724,6 +724,44 @@ fn templates_and_files_open_from_the_start_screen() {
     let _ = std::fs::remove_dir_all(dir);
 }
 
+/// #1103: a file that fails to open names the file and the real cause on the status bar.
+#[test]
+fn a_file_that_wont_open_says_which_file_and_why() {
+    let dir = scratch("open-failure");
+    let bad = dir.join("broken.docx");
+    std::fs::write(&bad, b"PK\x03\x04 this is not really a zip").unwrap();
+    let mut a = app();
+    let path = bad.to_string_lossy().to_string();
+    let error = a.run("file.open", json!({"path": path})).unwrap_err();
+    assert!(error.contains("zip") || error.contains("Word"), "the engine names the cause: {error}");
+    let msg = a.report_open_failure(&path, &error);
+    assert!(msg.contains(&path) && msg.contains(&error), "{msg}");
+    assert_eq!(a.status_msg.as_ref().map(|(m, _)| m.as_str()), Some(msg.as_str()));
+
+    let missing = dir.join("gone.docx").to_string_lossy().to_string();
+    let error = a.run("file.open", json!({"path": missing})).unwrap_err();
+    let msg = a.report_open_failure(&missing, &error);
+    assert!(msg.contains("gone.docx") && (msg.to_lowercase().contains("no such file") || msg.contains("os error")), "{msg}");
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// A failed open of a file, with unsaved typing in the window, still names the file and the
+/// cause (#1103). (An open no longer waits on "Save changes?": the file opens in its own window.)
+#[test]
+fn failed_open_with_unsaved_work_names_the_file() {
+    let dir = scratch("open-over-unsaved");
+    let bad = dir.join("broken.docx").to_string_lossy().to_string();
+    std::fs::write(&bad, b"PK\x03\x04 not really a zip").unwrap();
+    let mut a = typed();
+    a.ui.backstage = true;
+    assert!(a.execute_held_back("file.open", json!({"path": bad})).is_err());
+    let shown = a.status_msg.as_ref().map(|(m, _)| m.clone()).unwrap_or_default();
+    assert!(shown.contains("broken.docx"), "{shown}");
+    assert!(!a.ui.backstage, "Backstage hides the status bar");
+    assert!(body_text(&a).contains(UNSAVED), "the document is untouched");
+    let _ = std::fs::remove_dir_all(dir);
+}
+
 /// The Start screen setting is a UI command, kept between runs; settings saved before it
 /// existed leave it on, and opening saved settings never reopens the Backstage by itself.
 #[test]

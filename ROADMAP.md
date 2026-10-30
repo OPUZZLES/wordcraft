@@ -204,6 +204,7 @@ Imported Word 97–2003 `.doc`/`.dot` files now ask for a supported DOCX target 
 - 2026-10-15: Find opens Navigation on Results; editing the query restores Results after manual Headings/Pages navigation. Typed and selected-text searches retain document contents (#2096).
 
 | Date | What landed |
+| 2026-10-17 | macOS launch arguments (`-psn_*`, `-NS*`, `-Apple*`) are no longer opened as files, and a file that fails to open names the file and the real cause on the status bar and in the log (#1103). The reported "corrupt" error could not be reproduced. |
 | 2026-10-17 | Password-protected Word files from Word 2007 (Standard encryption: AES-128/192/256, SHA-1) open with their password, also when named `.doc` or `.dot`; a wrong or missing password is reported as for newer files. Word 97-2003 files with an AES header, which the public spec doesn't define, are refused with a clear message (gap 9) |
 | 2026-10-23 | A command that changes nothing is not an edit: it adds no undo step, marks no unsaved changes and forces no relayout, so the redo stack survives it and five hundred of them can no longer push the user's own edits out of the undo history. |
 | 2026-10-23 | Interface translations come from storytold/craft-i18n, shared with the other Crafting Apps: the catalogs are embedded at build time from the commit in `craft-i18n.rev` and looked up through craft-libs' `craft-i18n` crate; `crates/ui-egui/src/i18n/*.tsv` are gone (translations now go to craft-i18n). Strings other apps already translate show translated; a build without `CRAFT_I18N_DIR` is English only |
@@ -257,6 +258,8 @@ Imported Word 97–2003 `.doc`/`.dot` files now ask for a supported DOCX target 
 | 2026-10-16 | DOCX: a `HYPERLINK` field (complex or simple) reads as a link, as a `w:hyperlink` does: its result stays ordinary text carrying the link (`url`, `url#bookmark` or `#bookmark`), so a tab in it reaches its tab stop and a `PAGEREF` in it stays a field (#2174). A table of contents from Word for the web, whose entries are such fields, showed a box for each tab and no dot leaders; the entries now open as in Word and their links work |
 | 2026-10-17 | The document's right-click menu offers the ribbon's Paste menu, item for item (#2583): Paste (the clipboard's formatting kept, Word's Keep Source Formatting), Keep Text Only, Merge Formatting and Paste Special…, where it had a single Paste. Same commands and shortcuts, with the system clipboard |
 | 2026-10-17 | SmartArt Text Pane: Tab demotes and Shift+Tab promotes the focused item, as Word's pane does (#2701). The row keeps its focus, so a second Tab acts on the same item; an item that can't go down a level is left alone |
+| 2026-10-15 | Selected table rows and cells copy as a table (#1744): Copy of whole rows, of cells in a row, or of a block of cells over several rows, then Paste outside the table, inserts a table of just those cells; Cut of rows or cells clears their text and leaves the rows and cells in place (the clipboard still gets the table), as Word does. Copy used to take only the cells' paragraphs |
+| 2026-10-14 | Tables can be copied and cut (#1744): with the whole table selected (Select Table, or a drag over all of it), Copy puts the table itself on the clipboard, so Paste outside it inserts a copy of the table with its formatting (the plain text is tab and newline separated); Cut removes the table in one undo step, as in Word. Copy used to keep only the cells' paragraphs and Cut left the table in place |
 | 2026-10-14 | DOCX row table border exceptions render and survive saving. Explicit cell borders win; a row exception does not change other rows. |
 | 2026-10-19 | Typing no longer starts render threads on every repaint (#3027): page, area and icon renders share one kept vello_cpu context, reset to each size, instead of building a multi-threaded one (and its thread pool) per render. Typing about 150 characters in 15 s created 295–388 threads before and none now; CPU time while typing fell by about a third (Windows, debug build). |
 | 2026-10-14 | Tab stops edited on the ruler: the corner selector picks Left/Center/Right/Decimal/Bar, a click sets a stop (Alt skips the snap), dragging moves it with a guide line and position tooltip, dragging off the ruler clears it; markers draw per kind and mirror for RTL; one `para.tabs` call and one undo step per gesture |
@@ -754,6 +757,7 @@ Footer page-table height and body wrapping are corrected. Other pagination gaps 
 | 2026-10-18 | trivial | Progress log: header-cell picture watermarks drawn behind the text (#1775); readiness estimates unchanged |
 | 2026-10-14 | trivial | Progress log: comment drafts kept and written before saving or closing (#1348) |
 | 2026-10-17 | trivial | Language dialog keeps inherited proofing language and no-proof choices (#2717); readiness estimates unchanged |
+| 2026-10-17 | trivial | Progress log: macOS launch arguments and open failures (#1103) |
 | 2026-10-14 | trivial | Progress log: ASK and SET fields show nothing (#1765) |
 | 2026-10-15 | trivial | Progress log: at-least table rows start the next page whole (#1742) |
 | 2026-10-14 | trivial | Progress log: ODT sections on export (gap 19) |
@@ -807,6 +811,8 @@ Footer page-table height and body wrapping are corrected. Other pagination gaps 
 | 2026-10-16 | trivial | Progress log: a text frame in the paragraph defaults frames nothing (#2360) |
 | 2026-10-16 | trivial | Progress log: a text file saved over itself closes without asking (#2376) |
 | 2026-10-15 | trivial | Progress log: recovery copies and .json files store pictures as base64 (#586 follow-up) |
+| 2026-10-15 | trivial | Progress log: selected table rows and cells copy as a table; Cut clears their text (#1744) |
+| 2026-10-14 | trivial | Progress log: Select Table copies and cuts the whole table (#1744) |
 | 2026-10-17 | trivial | Progress log: Scale Font Sizes command (#1475) |
 | 2026-10-14 | trivial | Progress log: row table border exceptions |
 | 2026-10-12 | minor | Czech proofing review: short-word splits rank after deletion, NOSUGGEST excludes suggestions while accepting typed forms, affix comments apply only to headers, ratios keep spaces and repeated-word messages use Czech quotes; synthetic engine end-to-end and latency checks |
