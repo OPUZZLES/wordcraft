@@ -204,3 +204,68 @@ fn hanging_autofit_review_later_tabs_retain_the_endpoint_in_the_minimum() {
         assert!((cells(&lay(&doc))[0].w - 52.8).abs() < 0.01, "cached automatic width retains the tab stop");
     }
 }
+
+#[test]
+fn hanging_autofit_first_line_tabs_keep_endpoints_across_prefix_breaks() {
+    let mut mismatches = Vec::new();
+    for (text, endpoint) in [
+        ("R: \t", 30.0),
+        ("\t", 30.0),
+        ("R:\t\t", 42.0),
+        (" \t\t  ", 42.0),
+        ("R R R R\t", 30.0),
+        ("R R R R \t", 42.0),
+        ("R R R R R\t", 42.0),
+        ("R R R R R \t", 42.0),
+    ] {
+        let (mut doc, mut table) = fixture(text, 30.0, -30.0, 30.0, false);
+        if let Block::Para(p) = Arc::make_mut(&mut table.rows[0].cells[0].blocks[0]) {
+            p.props.tabs = Some(vec![wordcraft_doc::props::TabStop { pos: 42.0, align: Default::default(), leader: Default::default() }]);
+        }
+        table.props.width = None;
+        for cell in &mut table.rows[0].cells {
+            cell.props.width = None;
+        }
+        table.rows[0].cells[1].blocks = vec![wordcraft_doc::para_block(Paragraph::new())];
+        doc.body[0] = Arc::new(Block::Table(table.clone()));
+        let expected = endpoint + 10.8;
+        let (min, max) = measure_table_columns(&doc, &table)[0];
+        let cached = cells(&lay(&doc))[0].w;
+        eprintln!("{text:?}: minimum {min}, maximum {max}, cached width {cached}, expected {expected}");
+        if (min - expected).abs() >= 0.01 || (max - expected).abs() >= 0.01 || (cached - expected).abs() >= 0.01 {
+            mismatches.push((text, min, max, cached, expected));
+        }
+    }
+    assert!(mismatches.is_empty(), "all first-line tab endpoints must remain in both width bounds: {mismatches:?}");
+}
+
+#[test]
+fn hanging_autofit_positional_tabs_do_not_make_the_measurement_width_a_minimum() {
+    use wordcraft_doc::para::{InlineObject, PTabAlign, PTabBase};
+    for (prefix, suffix, trailing_tab) in [
+        ("R R R R R ", "", false),
+        ("R R R R R ", "", true),
+        ("", "Witness", false),
+        ("", "Witness", true),
+        ("R:\n", "Witness", false),
+        ("R:\n", "Witness", true),
+    ] {
+        let (mut doc, mut table) = fixture(prefix, 30.0, -30.0, 30.0, false);
+        if let Block::Para(p) = Arc::make_mut(&mut table.rows[0].cells[0].blocks[0]) {
+            p.insert_object(
+                p.text.len(),
+                InlineObject::PositionalTab { align: PTabAlign::Right, relative_to: PTabBase::Margin, leader: Default::default() },
+                &CharProps::default(),
+            )
+            .unwrap();
+            if trailing_tab {
+                p.insert_text(p.text.len(), "\t", &CharProps::default()).unwrap();
+            }
+            p.insert_text(p.text.len(), suffix, &CharProps::default()).unwrap();
+        }
+        doc.body[0] = Arc::new(Block::Table(table.clone()));
+        let (min, max) = measure_table_columns(&doc, &table)[0];
+        assert!(min < 200.0, "a width-relative tab cannot require the unbounded measurement width: {min}");
+        assert!(max > 1_000.0, "the control must really place a right-margin alignment tab, capped by column measurement: {max}");
+    }
+}
