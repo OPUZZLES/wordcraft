@@ -197,6 +197,17 @@ fn column_rows(s: &Session) -> Option<Vec<(Pos, Pos)>> {
 
 /// Apply a change to the selection (or the pending caret formatting).
 pub fn apply(s: &mut Session, f: &dyn Fn(&mut CharProps)) -> CmdResult {
+    apply_to(s, target, f)
+}
+
+/// The selection only, not the word at a caret: what highlighting formats (#4086).
+fn selection(s: &Session) -> Option<(Pos, Pos)> {
+    let (a, b) = s.sel.ordered();
+    (a != b).then_some((a, b))
+}
+
+/// [`apply`], with `target` choosing what a non-column selection formats.
+fn apply_to(s: &mut Session, target: fn(&Session) -> Option<(Pos, Pos)>, f: &dyn Fn(&mut CharProps)) -> CmdResult {
     // A column selection formats each row's piece.
     if let Some(rows) = column_rows(s) {
         for (a, b) in rows {
@@ -211,6 +222,12 @@ pub fn apply(s: &mut Session, f: &dyn Fn(&mut CharProps)) -> CmdResult {
     match selected_text_box(s).or_else(|| target(s)) {
         Some((a, b)) => {
             s.doc.format_range(&a, &b, f)?;
+            // The word at a caret took the change: so does formatting waiting for typing (#4086).
+            if s.sel.is_collapsed()
+                && let Some(pend) = s.pending.as_mut()
+            {
+                f(pend);
+            }
         }
         None => {
             let mut pend = s.typing_props();
@@ -443,7 +460,7 @@ fn target_has_highlight(s: &Session, h: Highlight) -> bool {
             return true;
         }
     }
-    if let Some((a, b)) = selected_text_box(s).or_else(|| target(s)) {
+    if let Some((a, b)) = selected_text_box(s).or_else(|| selection(s)) {
         for path in s.doc.paths_between(&a, &b) {
             let Some(p) = s.doc.para(a.story, &path) else { continue };
             let from = if path == a.path { a.off } else { 0 };
@@ -455,7 +472,12 @@ fn target_has_highlight(s: &Session, h: Highlight) -> bool {
             }
         }
     }
-    // No runs: retain the caret/pending and empty text-box paragraph-mark rules.
+    // No runs: retain the caret/pending and empty text-box paragraph-mark rules. A caret checks
+    // what is typed next, not the word it's in (#4086).
+    if selected_text_box(s).or_else(|| selection(s)).is_none() {
+        let style = s.doc.para_at(&s.sel.focus).and_then(|p| p.props.style.as_deref());
+        return seen || matches(style, &s.typing_props());
+    }
     seen || resolved(s).iter().all(|r| r.highlight == h.rgb())
 }
 
@@ -505,7 +527,8 @@ fn highlight(s: &mut Session, v: &Value) -> CmdResult {
     };
     let remove = color.is_none() && target_has_highlight(s, h);
     let value = if remove { Highlight::None } else { h };
-    let result = apply(s, &|x| x.highlight = Some(value))?;
+    // A caret highlights what is typed next, not the word it's in, as in Word (#4086).
+    let result = apply_to(s, selection, &|x| x.highlight = Some(value))?;
     s.last_highlight = h;
     Ok(result)
 }
