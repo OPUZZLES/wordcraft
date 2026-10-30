@@ -60,9 +60,6 @@ Set Proofing Language › Set As Default now persists in user preferences and ap
 
 Text context menus now include the existing formatting mini toolbar (#2959), including at a caret. Object, equation and whole-cell menus keep their own controls; Read Mode and the mini-toolbar preference suppress it. The toolbar reuses the selection toolbar's commands; additional controls from Word's toolbar are not added. Context-menu paste choices remain tracked by #2583 / PR #2599.
 
-Ctrl/Command+Shift dragging a selected floating picture, shape or text box now creates an axis-aligned copy. Inline copies use the text insertion cursor. The original, clipboard and one-step undo behavior are preserved (#4764). Synthetic Linux tests cover the gesture; native desktop and Word remain untested. Broader intermittent object selection reports remain open. Gap 10 and readiness estimates are unchanged.
-
-Aligned copy drags keep their locked document coordinate when middle-button scrolling moves the page, and Ctrl/Command+Shift can start on a secondary selected object. Plain Ctrl and Shift clicks keep their existing selection behavior (#4764).
 
 ## Ranked
 
