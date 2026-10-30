@@ -141,7 +141,12 @@ pub(super) fn citation(s: &mut Session, v: &Value) -> CmdResult {
     let n = number_of(&s.doc, &bib_order(&s.doc, st, crate::cmd::default_lang(s)), &tag);
     let props = s.typing_props();
     let at = delete_selection(s)?;
-    let instr = if pages.is_empty() { format!("CITATION {tag}") } else { format!("CITATION {tag} \\p {pages}") };
+    let instr = if pages.is_empty() {
+        format!("CITATION {tag}")
+    } else {
+        let quoted_pages = pages.replace('\\', "\\\\").replace('"', "\\\"");
+        format!("CITATION {tag} \\p \"{quoted_pages}\"")
+    };
     let end = s.doc.insert_object(
         &at,
         InlineObject::Field { instr, result: cite(&src, st.name, n, &pages), locked: false, dirty: false, code: false, form: String::new() },

@@ -15,6 +15,11 @@ fn citation_refresh_recognizes_field_names_and_quoted_primary_tags() {
         r#"CITATION "Primary Ω" \p 12 \m plain"#,
         r#"CITATION "Primary Ω" \m plain \p 12"#,
         r#"CITATION "Primary Ω" \p "12" \m plain"#,
+        r#"CITATION plain \p 12, 14"#,
+        r#"CITATION plain \p 12,  14 \m "Primary Ω""#,
+        r#"citation "Primary Ω" \m plain \p 12–14, 20"#,
+        r#"CITATION "Primary Ω" \p "12, 14" \m plain"#,
+        r#"CITATION "Primary Ω" \P 12, 14 \l 1033"#,
         "CITATION PLAIN",
         "citation missing",
         "REF plain",
@@ -58,6 +63,11 @@ fn citation_refresh_recognizes_field_names_and_quoted_primary_tags() {
         "(Researcher, 2024, p. 12)",
         "(Researcher, 2024, p. 12)",
         "(Researcher, 2024, p. 12)",
+        "(Writer, 2023, p. 12, 14)",
+        "(Writer, 2023, p. 12,  14)",
+        "(Researcher, 2024, p. 12–14, 20)",
+        "(Researcher, 2024, p. 12, 14)",
+        "(Researcher, 2024, p. 12, 14)",
     ];
     for (index, (instr, result)) in fields.iter().enumerate() {
         assert_eq!(*instr, instructions[index]);
@@ -66,6 +76,24 @@ fn citation_refresh_recognizes_field_names_and_quoted_primary_tags() {
     assert_eq!(s.doc.sources, before.sources);
     s.run("edit.undo", &json!({})).unwrap();
     assert_eq!(s.doc, before);
+}
+
+#[test]
+fn inserted_citation_pages_survive_refresh_and_docx_reopen() {
+    for pages in ["12, 14", "12,  14", "12–14, 20", r#"12, "appendix" \ index"#] {
+        let mut s = Session::new(Document::new());
+        s.run("references.citation", &json!({"source": {"tag": "A", "kind": "book", "author": "Writer", "year": "2023"}, "pages": pages})).unwrap();
+        let original = s.doc.clone();
+        let expected = format!("(Writer, 2023, p. {pages})");
+        assert_eq!(s.doc.plain_text(StoryRef::Body), expected);
+        for _ in 0..2 {
+            s.run("references.updateFields", &json!({})).unwrap();
+            assert_eq!(s.doc.plain_text(StoryRef::Body), expected);
+            assert_eq!(s.doc.sources, original.sources);
+            assert_eq!(s.doc.para(StoryRef::Body, &Path::top(0)).unwrap().objects, original.para(StoryRef::Body, &Path::top(0)).unwrap().objects);
+            s = Session::new(wordcraft_docx::read(&wordcraft_docx::write(&s.doc).unwrap()).unwrap());
+        }
+    }
 }
 
 /// The bibliography includes every source in a multi-source field, once, in first-cited
