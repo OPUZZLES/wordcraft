@@ -13,6 +13,31 @@ fn texts(f: &Flow) -> Vec<String> {
 }
 
 #[test]
+fn metadata_ignores_scalar_statistics_without_changing_destination() {
+    for statistic in ["version", "nofpages", "nofwords", "nofchars", "edmins", "vern", "nofcharsws"] {
+        let rtf = format!(
+            r"{{\rtf1{{\info\{statistic}1{{\*\originalIgnored \{statistic}2{{\title Hidden}}{{\creatim\yr1999}}}}{{\title Before {{middle}} \{statistic}3 After}}{{\author Alice}}{{\subject Report}}{{\keywords Key}}{{\doccomm Description}}{{\creatim\yr2026\{statistic}4\mo1\dy2\hr3\min4}}}}Original {{\b body}}.\par}}"
+        );
+        let f = parse(rtf.as_bytes()).unwrap();
+        assert_eq!(f.meta.title, "Before middle After", "{statistic}");
+        assert_eq!(f.meta.author, "Alice", "{statistic}");
+        assert_eq!(f.meta.subject, "Report", "{statistic}");
+        assert_eq!(f.meta.keywords, "Key", "{statistic}");
+        assert_eq!(f.meta.description, "Description", "{statistic}");
+        assert_eq!(f.meta.created, "2026-01-02T03:04:00Z", "{statistic}");
+        assert_eq!(texts(&f), ["Normal:Original body."]);
+        let doc = import(rtf.as_bytes()).unwrap();
+        let again = import(export(&doc).as_bytes()).unwrap();
+        assert_eq!(again.core.title, doc.core.title);
+        assert_eq!(again.core.creator, doc.core.creator);
+        assert_eq!(again.core.subject, doc.core.subject);
+        assert_eq!(again.core.keywords, doc.core.keywords);
+        assert_eq!(again.core.description, doc.core.description);
+        assert_eq!(again.core.created, doc.core.created);
+    }
+}
+
+#[test]
 fn metadata_keeps_text_across_nested_groups() {
     for (content, expected) in [
         (r"Before Caf\u233? After", "Before Café After"),
@@ -548,6 +573,94 @@ fn shppict_imports_one_image_and_skips_legacy_duplicate() -> Result<(), String> 
             FBlock::Table(_) => false,
         }));
     }
+    Ok(())
+}
+
+/// #4259: `\wmetafile8` and `\emfblip` pictures are kept as WMF/EMF media (they were dropped),
+/// sized from `\picwgoal`/`\pichgoal` and `\picscalex`/`\picscaley`, else from `\picw`/`\pich`
+/// (0.01 mm for a metafile). As Word writes a floating picture: the `\shprslt` copy is read.
+#[test]
+fn metafile_pictures_are_imported() -> Result<(), String> {
+    // A plain WMF: the 9-word header (type 1, version 0x300, 12 words, max record 3), then EOF.
+    let wmf: Vec<u8> = [1u16, 9, 0x300, 12, 0, 0, 3, 0, 0, 3, 0, 0].iter().flat_map(|w| w.to_le_bytes()).collect();
+    let hex: String = wmf.iter().map(|b| format!("{b:02x}")).collect();
+    let images = |rtf: String| -> Result<Vec<model::Img>, String> {
+        let f = parse(rtf.as_bytes())?;
+        Ok(f.blocks
+            .iter()
+            .filter_map(|b| match b {
+                FBlock::Para(p) => Some(p.inlines.clone()),
+                FBlock::Table(_) => None,
+            })
+            .flatten()
+            .filter_map(|i| match i {
+                Inline::Image(img) => Some(img),
+                _ => None,
+            })
+            .collect())
+    };
+    let pict = format!("{{\\pict\\wmetafile8\\picw38761\\pich12832\\picwgoal21972\\pichgoal7272\\picscalex45\\picscaley45 {hex}}}");
+    let shape = format!("{{\\shp{{\\*\\shpinst{{\\sp{{\\sn pib}}{{\\sv {pict}}}}}}}{{\\shprslt{pict}}}}}");
+    let got = images(format!("{{\\rtf1\\ansi Before{shape}After\\par}}"))?;
+    let [img] = got.as_slice() else { return Err(format!("{} pictures", got.len())) };
+    assert_eq!((img.ext.as_str(), img.data.as_ref()), ("wmf", &wmf));
+    // 21972 twips at 45% is 494.4 pt, shrunk to the 468 pt column like every imported picture.
+    assert_eq!(img.w, 468.0);
+    assert!((img.h - 7272.0 / 20.0 * 0.45 * 468.0 / 494.37).abs() < 0.1, "{}", img.h);
+    // No goal size: the natural size, 2540 × 1270 hundredths of a millimetre = 72 × 36 pt; under
+    // MM_TEXT (`\wmetafile1`) the same numbers are pixels.
+    let hex_of = |b: &[u8]| -> String { b.iter().map(|b| format!("{b:02x}")).collect() };
+    let mut emf = vec![0u8; 88];
+    emf[0] = 1;
+    emf[4] = 88;
+    emf[40..44].copy_from_slice(b" EMF");
+    let emf_hex = hex_of(&emf);
+    let got = images(format!("{{\\rtf1\\ansi{{\\pict\\emfblip\\picw2540\\pich1270 {emf_hex}}}\\par}}"))?;
+    let [img] = got.as_slice() else { return Err(format!("{} pictures", got.len())) };
+    assert_eq!((img.ext.as_str(), img.w, img.h, img.data.as_ref()), ("emf", 72.0, 36.0, &emf));
+    let got = images(format!("{{\\rtf1\\ansi{{\\pict\\wmetafile1\\picw96\\pich48 {hex}}}\\par}}"))?;
+    let [img] = got.as_slice() else { return Err(format!("{} pictures", got.len())) };
+    assert_eq!((img.ext.as_str(), img.w, img.h), ("wmf", 72.0, 36.0));
+    // `\picscalex`/`\picscaley` scale the natural size when there is no goal size.
+    let got = images(format!("{{\\rtf1\\ansi{{\\pict\\wmetafile8\\picw2540\\pich1270\\picscalex50\\picscaley200 {hex}}}\\par}}"))?;
+    let [img] = got.as_slice() else { return Err(format!("{} pictures", got.len())) };
+    assert_eq!((img.w, img.h), (36.0, 72.0));
+    // The other mapping modes use their own units: 0.1 mm, 0.01 in, 0.001 in and twips.
+    for (mode, w, h) in [(2, 254, 127), (4, 100, 50), (5, 1000, 500), (6, 1440, 720)] {
+        let got = images(format!("{{\\rtf1\\ansi{{\\pict\\wmetafile{mode}\\picw{w}\\pich{h} {hex}}}\\par}}"))?;
+        let [img] = got.as_slice() else { return Err(format!("{} pictures", got.len())) };
+        assert!((img.w - 72.0).abs() < 0.01 && (img.h - 36.0).abs() < 0.01, "mode {mode}: {} x {}", img.w, img.h);
+    }
+    // Hostile: a zero or negative natural size falls back to the default 72 pt square, and bytes
+    // that are no picture at all are dropped, whatever the control word says.
+    let got = images(format!("{{\\rtf1\\ansi{{\\pict\\wmetafile8\\picw0\\pich-5 {hex}}}\\par}}"))?;
+    let [img] = got.as_slice() else { return Err(format!("{} pictures", got.len())) };
+    assert_eq!((img.w, img.h), (72.0, 72.0));
+    for blip in ["wmetafile8", "emfblip"] {
+        assert!(images(format!("{{\\rtf1\\ansi{{\\pict\\{blip}\\picw2540\\pich1270 0123456789abcdef}}\\par}}"))?.is_empty(), "{blip}");
+    }
+    // Saved as RTF and read back: the same picture, the EMF byte for byte, the WMF without the
+    // placeable header RTF has no room for.
+    let placeable: Vec<u8> = [0xD7u8, 0xCD, 0xC6, 0x9A].into_iter().chain([0u8; 18]).chain(wmf.iter().copied()).collect();
+    for (blip, data, want, ext) in [("emfblip", &emf, &emf, "emf"), ("wmetafile8", &wmf, &wmf, "wmf"), ("wmetafile8", &placeable, &wmf, "wmf")] {
+        let rtf = format!("{{\\rtf1\\ansi{{\\pict\\{blip}\\picw2540\\pich1270 {}}}\\par}}", hex_of(data));
+        let got = images(export(&import(rtf.as_bytes())?))?;
+        let [img] = got.as_slice() else { return Err(format!("{blip}: {} pictures", got.len())) };
+        assert_eq!((img.ext.as_str(), img.data.as_ref(), img.w, img.h), (ext, want, 72.0, 36.0), "{blip}");
+    }
+    // An EMF stored under `.wmf` (a DOCX can) is written as the EMF its bytes are.
+    let mut doc = import(format!("{{\\rtf1\\ansi{{\\pict\\wmetafile8\\picw2540\\pich1270 {hex}}}\\par}}").as_bytes())?;
+    let (key, bytes) = doc.media.iter_mut().next().ok_or("no media")?;
+    assert!(key.ends_with(".wmf"), "{key}");
+    *bytes = std::sync::Arc::new(emf.clone());
+    let rtf = export(&doc);
+    assert!(rtf.contains("\\emfblip") && !rtf.contains("\\wmetafile"), "{rtf}");
+    let got = images(rtf)?;
+    let [img] = got.as_slice() else { return Err(format!("{} pictures", got.len())) };
+    assert_eq!((img.ext.as_str(), img.data.as_ref()), ("emf", &emf));
+    // A placeable header with no records after it has nothing to write: no empty picture group.
+    *doc.media.values_mut().next().ok_or("no media")? = std::sync::Arc::new(placeable[..22].to_vec());
+    assert!(!export(&doc).contains("\\pict"), "an empty metafile is not written");
     Ok(())
 }
 
