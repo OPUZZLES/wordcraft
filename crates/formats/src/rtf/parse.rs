@@ -108,7 +108,7 @@ fn parse_full(bytes: &[u8]) -> Result<Parsed, String> {
                     if word == "upr"
                         && first_in_group
                         && !starred
-                        && let Some(content) = alternative_ends.select(bytes, i, r.st.dest, r.info_depth == Some(r.depth().saturating_sub(1)))?
+                        && let Some(content) = alternative_ends.select(bytes, i, r.st.dest)?
                     {
                         // The ANSI branch must have no reader side effects, including metadata
                         // and destination commits. Open only the selected Unicode subgroup;
@@ -216,7 +216,7 @@ fn parse_full(bytes: &[u8]) -> Result<Parsed, String> {
 }
 
 /// Select the second subgroup of an RTF 1.9.1 Unicode alternative (Unicode RTF, pp. 15–16).
-/// A missing or unrecognised Unicode header leaves the existing ANSI fallback path in place.
+/// A missing, unrecognised or truncated Unicode group leaves the existing ANSI fallback path in place.
 /// Scan the discarded group without recursion; escaped braces and bin payloads
 /// cannot close it. The selected content is read by the ordinary parser, not a second reader.
 fn unicode_alternative(bytes: &[u8], mut at: usize, ends: &mut AlternativeGroups) -> Option<usize> {
@@ -226,10 +226,11 @@ fn unicode_alternative(bytes: &[u8], mut at: usize, ends: &mut AlternativeGroups
     if bytes.get(at) != Some(&b'{') {
         return None;
     }
-    at = alternative_group_end(bytes, at, ends)?;
+    at = alternative_group_end(bytes, at, ends, true)?;
     while bytes.get(at).is_some_and(u8::is_ascii_whitespace) {
         at += 1;
     }
+    let unicode_start = at;
     // CR/LF line breaks are ignored between RTF tokens, including the header tokens.
     for token in [b"{".as_slice(), b"\\*", b"\\ud"] {
         while bytes.get(at).is_some_and(|b| matches!(b, b'\r' | b'\n' | 0)) {
@@ -247,30 +248,44 @@ fn unicode_alternative(bytes: &[u8], mut at: usize, ends: &mut AlternativeGroups
     if bytes.get(at) == Some(&b' ') {
         at += 1;
     }
+    if unicode_start >= ends.unicode_end {
+        // Check closure without consuming the discarded branch's cache or nesting budget.
+        // Every nested group before this boundary is already complete, so later selections
+        // inside it need no additional scan. The parser cursor only advances.
+        ends.unicode_end = alternative_group_end(bytes, unicode_start, ends, false)?;
+    }
     Some(at)
 }
 
 /// Keep the boundaries found during lookahead: if an outer pair is malformed and falls back
 /// to its first branch, nested pairs must not rescan that branch's bytes. Both closed and
-/// truncated groups are cached, using storage proportional to the discarded input's groups.
-fn alternative_group_end(bytes: &[u8], mut at: usize, ends: &mut AlternativeGroups) -> Option<usize> {
-    if let Some(end) = ends.ends.get(&at) {
+/// truncated discarded groups are cached, using storage proportional to their groups.
+/// Selected-group validation uses a depth counter without allocating entries or an open stack.
+fn alternative_group_end(bytes: &[u8], mut at: usize, ends: &mut AlternativeGroups, cache: bool) -> Option<usize> {
+    if cache && let Some(end) = ends.ends.get(&at) {
         return *end;
     }
     let mut open = Vec::new();
+    let mut depth = 0usize;
     let result = (|| {
         loop {
             match *bytes.get(at)? {
                 b'{' => {
-                    if open.len() >= MAX_GROUPS {
-                        ends.limited = true;
-                        return None;
+                    depth = depth.checked_add(1)?;
+                    if cache {
+                        if open.len() >= MAX_GROUPS {
+                            ends.limited = true;
+                            return None;
+                        }
+                        open.push(at);
                     }
-                    open.push(at);
                 }
                 b'}' => {
-                    ends.remember(open.pop()?, Some(at + 1))?;
-                    if open.is_empty() {
+                    depth = depth.checked_sub(1)?;
+                    if cache {
+                        ends.remember(open.pop()?, Some(at + 1))?;
+                    }
+                    if depth == 0 {
                         return Some(at + 1);
                     }
                 }
@@ -319,13 +334,14 @@ fn alternative_group_end(bytes: &[u8], mut at: usize, ends: &mut AlternativeGrou
 struct AlternativeGroups {
     ends: std::collections::HashMap<usize, Option<usize>>,
     limited: bool,
+    unicode_end: usize,
 }
 
 impl AlternativeGroups {
-    fn select(&mut self, bytes: &[u8], at: usize, dest: Dest, direct_info_child: bool) -> Result<Option<usize>, String> {
-        // The info container skips ordinary text, but its direct children can commit metadata.
-        // Other skipped destinations must retain ordinary processing without lookahead.
-        if dest == Dest::Skip && !direct_info_child {
+    fn select(&mut self, bytes: &[u8], at: usize, dest: Dest) -> Result<Option<usize>, String> {
+        // InfoContainer retains its context through transparent selected wrappers.
+        // Genuinely ignored destinations keep ordinary processing without lookahead.
+        if dest == Dest::Skip {
             return Ok(None);
         }
         let content = unicode_alternative(bytes, at, self);

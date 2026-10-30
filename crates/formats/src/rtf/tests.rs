@@ -1,6 +1,60 @@
 use super::*;
 
 #[test]
+fn unicode_alternatives_keep_info_unicode_skip_counts() {
+    let rtf = br"{\rtf1{\info{\upr{\title ANSI}{\*\ud\uc0{\title \u915X}}}{\subject \u915?X}}Visible\u915?X\par}";
+    let f = parse(rtf).unwrap();
+    assert_eq!(f.meta.title, "ΓX");
+    assert_eq!(f.meta.subject, "ΓX");
+    assert_eq!(texts(&f), ["Normal:VisibleΓX"]);
+}
+
+#[test]
+fn unicode_alternatives_in_ignored_info_fields_do_not_scan() {
+    let pair = format!("{{\\upr{{{}}}{{\\*\\ud hidden}}}}", "{}".repeat(1 << 16));
+    for field in ["title", "author", "subject", "keywords", "doccomm", "creatim"] {
+        let rtf = format!("{{\\rtf1{{\\info{{\\*\\unknown{{\\{field}{pair}}}}}}}Visible\\par}}");
+        let f = parse(rtf.as_bytes()).unwrap();
+        assert_eq!(texts(&f), ["Normal:Visible"]);
+        assert_eq!((&*f.meta.title, &*f.meta.author, &*f.meta.subject, &*f.meta.keywords, &*f.meta.description), ("", "", "", "", ""));
+    }
+}
+
+#[test]
+fn unicode_alternatives_keep_nested_info_context() {
+    let rtf = br"{\rtf1{\info{\author Original}{\upr{}{\*\ud{\upr{\title ANSI}{\*\ud{\subject Unicode \u915?}}}{\keywords Kept}}}}Visible\par}";
+    let f = parse(rtf).unwrap();
+    assert_eq!(f.meta.title, "");
+    assert_eq!(f.meta.author, "Original");
+    assert_eq!(f.meta.subject, "Unicode Γ");
+    assert_eq!(f.meta.keywords, "Kept");
+    assert_eq!(texts(&f), ["Normal:Visible"]);
+}
+
+#[test]
+fn unicode_alternatives_keep_ansi_for_truncated_unicode() {
+    for rtf in [
+        br"{\rtf1{\upr{Complete ANSI}{\*\ud partial".as_slice(),
+        br"{\rtf1{\upr{Complete ANSI}{\*\ud partial\}".as_slice(),
+        br"{\rtf1{\upr{Complete ANSI}{\*\ud \bin4 ab".as_slice(),
+    ] {
+        assert_eq!(texts(&parse(rtf).unwrap()), ["Normal:Complete ANSI"]);
+    }
+    // The selected subgroup can be complete even when its enclosing groups are truncated.
+    assert_eq!(texts(&parse(br"{\rtf1{\upr{ANSI}{\*\ud Unicode}").unwrap()), ["Normal:Unicode"]);
+}
+
+#[test]
+fn unicode_alternatives_validate_selected_groups_without_ansi_budgets() {
+    for unicode in [format!("{}Unicode{}", "{".repeat(513), "}".repeat(513)), format!("{}Unicode", "{}".repeat(1 << 16))] {
+        let rtf = format!("{{\\rtf1{{\\upr{{ANSI}}{{\\*\\ud {unicode}}}}}}}");
+        assert_eq!(texts(&parse(rtf.as_bytes()).unwrap()), ["Normal:Unicode"]);
+    }
+    let rtf = format!("{{\\rtf1{}Unicode{}}}", "{\\upr{ANSI}{\\*\\ud ".repeat(1_000), "}}".repeat(1_000));
+    assert_eq!(texts(&parse(rtf.as_bytes()).unwrap()), ["Normal:Unicode"]);
+}
+
+#[test]
 fn unicode_alternatives_discard_ansi_metadata_in_info() {
     let rtf = br"{\rtf1{\info{\author Original}{\upr{\title Discarded}{\*\ud{\subject Selected \u915?}}}}Visible\par}";
     let f = parse(rtf).unwrap();
@@ -19,7 +73,12 @@ fn unicode_alternatives_in_info_keep_lookahead_limits() {
 #[test]
 fn unicode_alternatives_do_not_scan_nested_ignored_info() {
     let pair = format!("{{\\upr{{{}}}{{\\*\\ud hidden}}}}", "{}".repeat(1 << 16));
-    for ignored in [format!("{{\\info{{\\*\\unknown{pair}}}}}"), format!("{{\\*\\unknown{{\\info{pair}}}}}")] {
+    for ignored in [
+        format!("{{\\info{{\\*\\unknown{pair}}}}}"),
+        format!("{{\\*\\unknown{{\\info{pair}}}}}"),
+        format!("{{\\info{{\\*\\upr{pair}}}}}"),
+        format!("{{\\info{{\\upr{{}}{{\\*\\ud{{\\*\\unknown{pair}}}}}}}}}"),
+    ] {
         let rtf = format!("{{\\rtf1{ignored}Visible\\par}}");
         assert_eq!(texts(&parse(rtf.as_bytes()).unwrap()), ["Normal:Visible"]);
     }
