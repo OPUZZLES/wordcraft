@@ -162,6 +162,49 @@ fn caption_labels_do_not_need_a_digit() {
     assert!(s.doc.plain_text(StoryRef::Body).ends_with("See Photo Plate I"), "{}", s.doc.plain_text(StoryRef::Body));
 }
 
+/// #4411: captions restyled with a style based on Caption, directly (`Caption Table`) or through
+/// another (`Caption Table Wide`), are still captions after a DOCX save and reopen: every `tableX`
+/// caption is a cross-reference target and in the table of figures, and a Table caption is a
+/// Table target. Captions in a style not based on Caption are not, nor are their labels.
+#[test]
+fn captions_in_a_style_based_on_caption() {
+    let mut s = Session::new(wordcraft_doc::Document::from_text("T1\nT2\nT3\nT4\nT5\nNote\nGrid\nStone\nSee "));
+    let caption = |s: &mut Session, text: &str, label: &str, title: &str| {
+        s.run("select.text", &json!({"text": text})).unwrap();
+        s.run("references.caption", &json!({"label": label, "text": title})).unwrap();
+    };
+    for k in 1..=5 {
+        caption(&mut s, &format!("T{k}"), "tableX", &format!("Row {k}"));
+    }
+    caption(&mut s, "Note", "tableX", "Aside");
+    caption(&mut s, "Grid", "Table", "Grid");
+    caption(&mut s, "Stone", "Plate", "Stone");
+    s.run("styles.create", &json!({"name": "Caption Table", "basedOn": "Caption", "fromSelection": false})).unwrap();
+    s.run("styles.create", &json!({"name": "Caption Table Wide", "basedOn": "Caption Table", "fromSelection": false})).unwrap();
+    s.run("styles.create", &json!({"name": "Aside", "fromSelection": false})).unwrap();
+    let style = |s: &Session, name: &str| s.doc.styles.find(name).map(|st| st.id.clone());
+    let (table, wide, aside) = (style(&s, "Caption Table"), style(&s, "Caption Table Wide"), style(&s, "Aside"));
+    for path in s.doc.para_paths(StoryRef::Body) {
+        let p = s.doc.para_mut(StoryRef::Body, &path).unwrap();
+        let text = p.plain_text();
+        p.props.style = match text.get(..8).unwrap_or_default() {
+            "tableX 1" | "tableX 2" => table.clone(),
+            "tableX 3" | "Table 1:" => wide.clone(),
+            "tableX 6" | "Plate 1:" => aside.clone(),
+            _ => continue,
+        };
+    }
+    let bytes = wordcraft_docx::write(&s.doc).expect("docx write");
+    let mut s = Session::new(wordcraft_docx::read(&bytes).expect("docx read"));
+    let want: Vec<String> = (1..=5).map(|k| format!("tableX {k}: Row {k}")).collect();
+    assert_eq!(s.run("insert.crossReference", &json!({"to": "label:tableX"})).unwrap(), json!(want));
+    assert_eq!(s.run("insert.crossReference", &json!({"to": "table"})).unwrap(), json!(["Table 1: Grid"]));
+    assert_eq!(caption_labels(&s), ["tableX", "Table"]);
+    s.run("caret.docEnd", &json!({})).unwrap();
+    s.run("references.tableOfFigures", &json!({"label": "tableX", "pageNumbers": false})).unwrap();
+    assert_eq!(list_entries(&s).into_iter().map(|(t, _)| t).collect::<Vec<_>>(), want);
+}
+
 /// The entries of every generated list, in order, with their last tab stop's leader.
 fn list_entries(s: &Session) -> Vec<(String, Option<TabLeader>)> {
     s.doc

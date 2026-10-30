@@ -183,6 +183,9 @@ pub struct TableForm {
     pub row_exact: bool,
     pub allow_break: bool,
     pub header_row: bool,
+    /// The settings the selected rows differ in (`allowBreak`, `headerRow`): shown as neither
+    /// on nor off, and left as each row has them unless clicked (#4857).
+    pub mixed: std::collections::BTreeSet<String>,
     pub column_width: f32,
     pub cell_width_on: bool,
     pub cell_width: f32,
@@ -232,7 +235,8 @@ impl CellMarginsForm {
 }
 
 impl TableForm {
-    /// The caret's table, row, column and cell as the dialog shows them.
+    /// The caret's table, row, column and cell as the dialog shows them; a row check box the
+    /// selected rows differ in is mixed.
     pub fn read(app: &WordApp) -> Option<TableForm> {
         use wordcraft_doc::props::{Align, HeightRule, VAlign};
         let s = &app.session;
@@ -240,6 +244,16 @@ impl TableForm {
         let t = s.doc.table(s.sel.focus.story, &tp)?;
         let k = crate::options::unit().pt_per_unit();
         let row = t.rows.get(r).map(|x| x.props.clone()).unwrap_or_default();
+        let mut rows: Vec<usize> = wordcraft_engine::cmd::table::selected_cells(s).into_iter().map(|(r, _)| r).collect();
+        rows.sort_unstable();
+        rows.dedup();
+        let selected: Vec<&wordcraft_doc::props::RowProps> = rows.iter().filter_map(|&i| t.rows.get(i)).map(|x| &x.props).collect();
+        let differ = |f: fn(&wordcraft_doc::props::RowProps) -> bool| selected.iter().any(|p| f(p) != f(&row));
+        let mixed = [("allowBreak", differ(|p| p.cant_split)), ("headerRow", differ(|p| p.header))]
+            .into_iter()
+            .filter(|(_, d)| *d)
+            .map(|(k, _)| k.to_string())
+            .collect();
         let cell = t.rows.get(r).and_then(|x| x.cells.get(c)).map(|x| x.props.clone()).unwrap_or_default();
         let tw = wordcraft_engine::cmd::page::sect(s).text_width();
         let width = t.props.width_pct.filter(|p| *p > 0.0).map(|p| tw * p.min(100.0) / 100.0).or(t.props.width.filter(|w| *w > 0.0));
@@ -260,6 +274,7 @@ impl TableForm {
             row_exact: row.height_rule == HeightRule::Exact,
             allow_break: !row.cant_split,
             header_row: row.header,
+            mixed,
             column_width: fin(t.grid.get(t.grid_col(r, c)).copied().unwrap_or(72.0)) / k,
             cell_width_on: cell.width.is_some(),
             cell_width: fin(cell.width.unwrap_or(72.0)) / k,
@@ -295,10 +310,12 @@ impl TableForm {
             v.insert("rowHeight".into(), if self.row_height_on { json!(self.row_height * k) } else { Value::Null });
             v.insert("rowHeightRule".into(), json!(if self.row_exact { "exact" } else { "atLeast" }));
         }
-        if self.allow_break != basis.allow_break {
+        // A mixed box sends nothing until clicked; clicked, it sets every selected row.
+        let set = |key: &str, on: bool, was: bool| !self.mixed.contains(key) && (basis.mixed.contains(key) || on != was);
+        if set("allowBreak", self.allow_break, basis.allow_break) {
             v.insert("allowBreak".into(), json!(self.allow_break));
         }
-        if self.header_row != basis.header_row {
+        if set("headerRow", self.header_row, basis.header_row) {
             v.insert("headerRow".into(), json!(self.header_row));
         }
         if moved(self.column_width, basis.column_width) {
@@ -396,20 +413,25 @@ pub(super) fn table_properties(ui: &mut Ui, f: &mut TableForm) {
     });
     heading(ui, "Row");
     egui::Grid::new("tp_row").num_columns(2).spacing(vec2(10.0, 6.0)).show(ui, |ui| {
-        ui.checkbox(&mut f.row_height_on, tl!("Specify height:"));
+        let specify = ui.checkbox(&mut f.row_height_on, tl!("Specify height:"));
         ui.horizontal(|ui| {
             ui.add_enabled(f.row_height_on, len(&mut f.row_height, 0.02, unit));
             ui.add_enabled_ui(f.row_height_on, |ui| {
-                craft_ui::ComboBox::from_id_salt("tp_rule").selected_text(tl!(if f.row_exact { "Exactly" } else { "At least" })).show_ui(ui, |ui| {
-                    ui.selectable_value(&mut f.row_exact, false, tl!("At least"));
-                    ui.selectable_value(&mut f.row_exact, true, tl!("Exactly"));
-                });
+                let rule = craft_ui::ComboBox::from_id_salt("tp_rule").selected_text(tl!(if f.row_exact { "Exactly" } else { "At least" })).show_ui(
+                    ui,
+                    |ui| {
+                        ui.selectable_value(&mut f.row_exact, false, tl!("At least"));
+                        ui.selectable_value(&mut f.row_exact, true, tl!("Exactly"));
+                    },
+                );
+                // A screen reader names the rule by the box it belongs to.
+                rule.response.labelled_by(specify.id);
             });
         });
         ui.end_row();
     });
-    ui.checkbox(&mut f.allow_break, tl!("Allow row to break across pages"));
-    ui.checkbox(&mut f.header_row, tl!("Repeat as header row on each page"));
+    super::paragraph::para_check(ui, &mut f.allow_break, tl!("Allow row to break across pages"), "allowBreak", &mut f.mixed);
+    super::paragraph::para_check(ui, &mut f.header_row, tl!("Repeat as header row on each page"), "headerRow", &mut f.mixed);
     heading(ui, "Column");
     egui::Grid::new("tp_col").num_columns(2).spacing(vec2(10.0, 6.0)).show(ui, |ui| {
         ui.label(tl!("Preferred width:"));
