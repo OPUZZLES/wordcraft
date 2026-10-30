@@ -140,8 +140,6 @@ Small follow-ups from the 2026-10-25 field, table and AutoFormat batch (#4232):
 - AutoFormat's `*bold*` and `_italic_` don't convert when a closing bracket or quote follows the closing mark (`(*see note*)`): the trigger checks only space and `,.;:!?` (#4098).
 - The ribbon's Accept and Reject buttons only open their menus; Word's main half runs Accept (Reject) and Move to Next. The ribbon needs a big split button (Paste needs one too) (#4205).
 
-Custom document properties retain their bookmark link targets through DOCX saves, native JSON reopens, value edits and dialog renames (#4767). Linked values are not evaluated; the existing dialog and field-update behavior are unchanged. Original fixtures cover ordinary and raw property values; broader corpus qualification and readiness estimates remain unchanged.
-
 Recipient label generation (#4880) now includes all selected recipients across as many sheets as needed, retaining filtered/sorted order and the chosen product geometry. This fixes the one-sheet omission; Update Labels and Finish & Merge template behavior remain separate, and gap 21 remains open. Readiness estimates are unchanged.
 
 ## Revision history
