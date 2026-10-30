@@ -661,6 +661,10 @@ fn start_screen_shows_file_home_and_esc_leaves_no_document() {
     let refused = a.run("ui.zotero.status", json!({})).unwrap_err();
     assert!(refused.contains("No document is open"), "refused before it runs: {refused}");
     assert!(works_without_document("font.add"), "a font file dropped on the empty window is added");
+    // #4585: File › Options › Proofing › AutoCorrect Options edits a user setting, not the document.
+    a.run("tools.autocorrect", json!({})).unwrap();
+    assert_eq!(a.dialog.as_ref().map(|d| d.name()), Some("autoCorrect"));
+    a.dialog = None;
     // Neither keys nor commands reach the hidden placeholder.
     assert!(a.run("text.insert", json!({"text": "Hello"})).is_err());
     assert!(a.execute("format.bold", json!({})).is_err());
@@ -2519,7 +2523,26 @@ fn user_name_survives_restart() {
 
     // A later rename is what gets saved next, not the name loaded at startup.
     second.run("file.setAuthor", json!({"name": "Grace Hopper"})).unwrap();
-    assert_eq!(second.prefs().author, "Grace Hopper");
+    assert_eq!(second.prefs().author.as_deref(), Some("Grace Hopper"));
+}
+
+/// #4368: a user name cleared in File › Options stays empty after a restart.
+#[test]
+fn blank_user_name_survives_restart() {
+    let mut first = app();
+    first.session.author.clear();
+    let saved = serde_json::to_vec(&first.prefs()).unwrap();
+
+    let mut second = app();
+    assert!(!second.session.author.is_empty());
+    second.apply_prefs(serde_json::from_slice(&saved).unwrap());
+    assert_eq!(second.session.author, "");
+
+    // A name of only spaces is not a name: the default stays.
+    let default = app().session.author;
+    let mut third = app();
+    third.apply_prefs(serde_json::from_str(r#"{"author": "   "}"#).unwrap());
+    assert_eq!(third.session.author, default);
 }
 
 const UNSAVED: &str = "My unsaved novel chapter";
