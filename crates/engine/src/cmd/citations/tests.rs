@@ -60,6 +60,12 @@ fn legacy_literal_citation_tags_keep_their_sources_and_pages() {
         "Alpha\u{2003}Beta",
         r"Back\Slash Name",
         "Quote\"Tag Name",
+        r#""Quoted"Suffix Name"#,
+        "\"Unclosed Name",
+        r#""A\"B"Suffix Name"#,
+        r#""日本"Suffix Name"#,
+        r#"""Suffix Name"#,
+        "\"Quoted\"Suffix\u{2003}Name",
         r"Alpha \ Beta",
         "Alpha \\",
     ] {
@@ -72,7 +78,9 @@ fn legacy_literal_citation_tags_keep_their_sources_and_pages() {
                 year: "2024".into(),
                 ..Default::default()
             });
-            let prefix = if tag.starts_with('"') && !tag.ends_with('"') {
+            let prefix = if tag.starts_with('"') && tag.chars().any(char::is_whitespace) {
+                tag.split_whitespace().next().unwrap()
+            } else if tag.starts_with('"') && !tag.ends_with('"') {
                 "Quoted"
             } else if tag.chars().any(char::is_whitespace) {
                 tag.split_whitespace().next().unwrap().split('"').next().unwrap()
@@ -152,11 +160,19 @@ fn missing_legacy_literal_citation_tags_keep_their_cached_results() {
         "Alpha\u{2003}Beta",
         r"Back\Slash Name",
         "Quote\"Tag Name",
+        r#""Quoted"Suffix Name"#,
+        "\"Unclosed Name",
+        r#""A\"B"Suffix Name"#,
+        r#""日本"Suffix Name"#,
+        r#"""Suffix Name"#,
+        "\"Quoted\"Suffix\u{2003}Name",
         r"Alpha \ Beta",
         "Alpha \\",
     ] {
         let mut d = Document::new();
-        let prefix = if tag.starts_with('"') {
+        let prefix = if tag.starts_with('"') && tag.chars().any(char::is_whitespace) {
+            tag.split_whitespace().next().unwrap()
+        } else if tag.starts_with('"') {
             "Quoted"
         } else if tag.chars().any(char::is_whitespace) {
             tag.split_whitespace().next().unwrap().split('"').next().unwrap()

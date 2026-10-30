@@ -191,7 +191,8 @@ fn citation_code(instr: &str, source_tags: &std::collections::HashSet<String>) -
     let trimmed = instr.trim_start();
     let Some(rest) = trimmed.find(char::is_whitespace).and_then(|at| trimmed.get(at..)) else { return field };
     let rest = rest.trim_start();
-    if !rest.starts_with(['"', '\\']) {
+    let quoted_end = quoted_argument_end(rest);
+    if !rest.starts_with('\\') && quoted_end.is_none() {
         // Older insertions also wrote multiword tags verbatim. Keep the whole tag up to
         // the first switch, including when it is missing, rather than citing its prefix.
         let switch = rest.char_indices().find(|(at, c)| {
@@ -207,7 +208,6 @@ fn citation_code(instr: &str, source_tags: &std::collections::HashSet<String>) -
     }
     let end = rest.find(char::is_whitespace).unwrap_or(rest.len());
     let Some(raw) = rest.get(..end) else { return field };
-    let quoted_end = quoted_argument_end(rest);
     let unquoted_literal = if raw.starts_with('"') { quoted_end.is_none() } else { raw.contains('"') || raw.starts_with('\\') };
     if !unquoted_literal && field.args.first().is_some_and(|tag| source_tags.contains(tag)) {
         return field;
