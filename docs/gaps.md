@@ -156,7 +156,7 @@ Recipient label generation (#4880) now includes all selected recipients across a
 
 | Date | Change | Summary |
 |---|---|---|
-| 2026-10-30 | trivial | Current-change metadata records ODT keyword preservation (#4876). Keyword handling, regression coverage and readiness estimates are unchanged. |
+| 2026-10-30 | trivial | Current-change metadata records ODT keyword preservation (#4876). Readiness estimates are unchanged. |
 | 2026-10-28 | trivial | Aligned copies retain their locked document coordinate during middle-button scrolling and can start on secondary selected objects; existing Ctrl and Shift selection behavior stays (#4764) |
 | 2026-10-28 | trivial | Ctrl/Command+Shift drags a selected floating object into an axis-aligned copy (#4764); synthetic Linux interaction and persistence controls, native desktop and Word untested; gap/readiness estimates unchanged |
 | 2026-10-28 | trivial | Connector object lookups retain the typed column-selection inputs on current main (#3631); readiness estimates unchanged |
