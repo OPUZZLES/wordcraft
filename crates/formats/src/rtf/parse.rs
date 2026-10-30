@@ -108,7 +108,7 @@ fn parse_full(bytes: &[u8]) -> Result<Parsed, String> {
                     if word == "upr"
                         && first_in_group
                         && !starred
-                        && let Some(content) = alternative_ends.select(bytes, i, r.st.dest)?
+                        && let Some(content) = alternative_ends.select(bytes, i, r.st.dest, r.info_depth == Some(r.depth().saturating_sub(1)))?
                     {
                         // The ANSI branch must have no reader side effects, including metadata
                         // and destination commits. Open only the selected Unicode subgroup;
@@ -120,7 +120,7 @@ fn parse_full(bytes: &[u8]) -> Result<Parsed, String> {
                         starred = false;
                         continue;
                     }
-                    if word == "info" {
+                    if word == "info" && r.st.dest == Dest::Body {
                         r.info_depth = Some(r.depth());
                     }
                     if r.skip_chars > 0
@@ -322,8 +322,10 @@ struct AlternativeGroups {
 }
 
 impl AlternativeGroups {
-    fn select(&mut self, bytes: &[u8], at: usize, dest: Dest) -> Result<Option<usize>, String> {
-        if dest == Dest::Skip {
+    fn select(&mut self, bytes: &[u8], at: usize, dest: Dest, direct_info_child: bool) -> Result<Option<usize>, String> {
+        // The info container skips ordinary text, but its direct children can commit metadata.
+        // Other skipped destinations must retain ordinary processing without lookahead.
+        if dest == Dest::Skip && !direct_info_child {
             return Ok(None);
         }
         let content = unicode_alternative(bytes, at, self);

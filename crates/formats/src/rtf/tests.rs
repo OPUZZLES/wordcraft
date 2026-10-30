@@ -1,6 +1,31 @@
 use super::*;
 
 #[test]
+fn unicode_alternatives_discard_ansi_metadata_in_info() {
+    let rtf = br"{\rtf1{\info{\author Original}{\upr{\title Discarded}{\*\ud{\subject Selected \u915?}}}}Visible\par}";
+    let f = parse(rtf).unwrap();
+    assert_eq!(f.meta.title, "");
+    assert_eq!(f.meta.subject, "Selected Γ");
+    assert_eq!(f.meta.author, "Original");
+    assert_eq!(texts(&f), ["Normal:Visible"]);
+}
+
+#[test]
+fn unicode_alternatives_in_info_keep_lookahead_limits() {
+    let rtf = format!("{{\\rtf1{{\\info{{\\upr{{{}}}{{\\*\\ud{{\\title Selected}}}}}}}}Visible\\par}}", "{}".repeat(1 << 16));
+    assert!(parse(rtf.as_bytes()).is_err(), "selected metadata must not silently import ANSI on budget exhaustion");
+}
+
+#[test]
+fn unicode_alternatives_do_not_scan_nested_ignored_info() {
+    let pair = format!("{{\\upr{{{}}}{{\\*\\ud hidden}}}}", "{}".repeat(1 << 16));
+    for ignored in [format!("{{\\info{{\\*\\unknown{pair}}}}}"), format!("{{\\*\\unknown{{\\info{pair}}}}}")] {
+        let rtf = format!("{{\\rtf1{ignored}Visible\\par}}");
+        assert_eq!(texts(&parse(rtf.as_bytes()).unwrap()), ["Normal:Visible"]);
+    }
+}
+
+#[test]
 fn unicode_alternatives_do_not_scan_ignored_destinations() {
     let rtf = format!("{{\\rtf1{{\\*\\unknown{{\\upr{{{}}}{{\\*\\ud hidden}}}}}}Visible\\par}}", "{}".repeat(1 << 16));
     assert_eq!(texts(&parse(rtf.as_bytes()).unwrap()), ["Normal:Visible"]);
