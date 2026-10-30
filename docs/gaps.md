@@ -10,7 +10,6 @@ Group connectors (gap 10): re-routing preserves displayed rotated and flipped fr
 
 > **Printing update:** 2026-10-12 · direct desktop printing through craft-print; details below.
 
-Connector rerouting (#3631) builds one temporary index of laid-out object positions for its batch of lookups. Page hints, first-match order and same-page glue are unchanged. This removes repeated layout-object scans; model-level object lookup costs and routing around obstacles remain separate. Synthetic tests cover equivalent lookup, connector geometry and an 8,000-page workload.
 
 The work list. One entry per shortfall, ranked by how much it stops a Word user from switching
 (**B** = blocks beta). Each says what's missing, the evidence, who it hurts, an Opus 5.5 agent
