@@ -4,8 +4,8 @@ use crate::Session;
 #[test]
 fn citation_refresh_recognizes_field_names_and_quoted_primary_tags() {
     let mut d = Document::new();
-    for tag in ["plain", "Primary Ω"] {
-        d.sources.push(Source { tag: tag.into(), author: "Original Author".into(), year: "2024".into(), ..Default::default() });
+    for (tag, author, year) in [("plain", "Writer", "2023"), ("Primary Ω", "Researcher", "2024")] {
+        d.sources.push(Source { tag: tag.into(), author: author.into(), year: year.into(), ..Default::default() });
     }
     let instructions = [
         r#"CITATION plain \p 12"#,
@@ -50,10 +50,18 @@ fn citation_refresh_recognizes_field_names_and_quoted_primary_tags() {
         })
         .collect();
     assert_eq!(fields.len(), instructions.len());
-    assert_ne!(fields[0].1, "Original cached citation");
+    let expected = [
+        "(Writer, 2023, p. 12)",
+        "(Writer, 2023, p. 12)",
+        "(Researcher, 2024, p. 12)",
+        "(Researcher, 2024, p. 12)",
+        "(Researcher, 2024, p. 12)",
+        "(Researcher, 2024, p. 12)",
+        "(Researcher, 2024, p. 12)",
+    ];
     for (index, (instr, result)) in fields.iter().enumerate() {
         assert_eq!(*instr, instructions[index]);
-        assert_eq!(*result, if index < 7 { fields[0].1 } else { "Original cached citation" });
+        assert_eq!(*result, expected.get(index).copied().unwrap_or("Original cached citation"));
     }
     assert_eq!(s.doc.sources, before.sources);
     s.run("edit.undo", &json!({})).unwrap();
