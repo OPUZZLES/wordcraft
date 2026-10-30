@@ -874,7 +874,7 @@ fn citation_refresh_source_lookup_work_scales_with_document_size() {
         let (t, before) = (std::time::Instant::now(), ran());
         f();
         match (before, ran()) {
-            (Some(a), Some(b)) => b.saturating_sub(a) as f64 * 1e-9,
+            (Some(a), Some(b)) if b > a => (b - a) as f64 * 1e-9,
             _ => t.elapsed().as_secs_f64(),
         }
     }
