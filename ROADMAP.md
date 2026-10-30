@@ -41,7 +41,6 @@ discounts and the user evidence (120 issues from outside users, 4 praise, 0 "swi
 
 | Audience | Ready | Opus 5.5 agent wall-clock hours to ~95% | Work that dominates |
 |---|---|---|---|
-| 2026-10-30 | trivial | Retain fixed first-line AutoFit tab prefixes across word breaks (#4203); preserve positional-tab measurement, both main histories, numbering and later-line tabs; readiness estimates unchanged |
 | Full target (ready for real work) | **~60%** | **~650–1,100 h** (70–80% parallelizes) | Breadth: charts/SmartArt/Draw, localization and proofing languages, East Asian and RTL typography, `.doc` writing, PDF Reflow, ecosystem; plus everything below |
 | Mainstream practitioner | **~55%** | **~300–500 h** (~65% parallelizes) | DOCX real-world fidelity and preserving charts/SmartArt, pagination fidelity, formatting revisions, dialog depth, objects, stability |
 | Essentials user | **~63%** | **~90–140 h** (~50% parallelizes) | Install/launch stability, opening files people send (corpus subset, chart fallbacks), native printing, picture handling, English spelling depth |
@@ -680,6 +679,7 @@ Footer page-table height and body wrapping are corrected. Other pagination gaps 
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-30 | trivial | Retain fixed first-line AutoFit tab prefixes across word breaks (#4203); preserve positional-tab measurement, both main histories, numbering and later-line tabs; readiness estimates unchanged |
 | 2026-10-27 | trivial | AutoFit measures hanging-indent content at its first-line and subsequent-line positions (#4203); retain active numbering and later-line tab endpoints in the intrinsic minimum; original geometry/cache controls, no readiness estimate change |
 | 2026-10-28 | trivial | Aligned copies retain their locked document coordinate during middle-button scrolling and can start on secondary selected objects; existing Ctrl and Shift selection behavior stays (#4764) |
 | 2026-10-28 | trivial | Ctrl/Command+Shift drags a selected floating object into an axis-aligned copy (#4764); synthetic Linux interaction and persistence controls, native desktop and Word untested; gap/readiness estimates unchanged |

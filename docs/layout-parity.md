@@ -26,7 +26,6 @@ Exact line spacing keeps the run font baseline around tall equations; automatic 
 
 | Feature | State | Evidence / gap | Hours |
 |---|---|---|---|
-| 2026-10-30 | trivial | Retain fixed first-line AutoFit tab prefixes across word breaks (#4203); preserve positional-tab measurement, both main histories, numbering and later-line tabs; readiness estimates unchanged |
 | 2026-10-16 | trivial | Split-cell content retains its resolved top margin and border band on continuation pages, matching original Word Mac16.113.2 controls. Synthetic regressions cover margins, borders, line spacing and image frames. |
 | Hint-reliant CJK glyph outlines (DFKai-SB / 標楷體) | 🟡 | Required TrueType interpreter runs at units-per-em size; local Windows glyph-bounds regression and synthetic DOCX page/window comparison pass. Other platforms and hint-reliant families remain unmeasured; no native Word comparison. A font asking for a twilight zone over 1,024 points or a stack over 4,096 values, or a glyph past 256 KiB of hinting buffer, is drawn unhinted; on desktop, once at least three of a face's hinted draws have taken over 50 ms and those slow draws are at least 1/16 of its hinted draws, its later glyphs are drawn unhinted (#3692). | — |
 | Subpoint table grid columns | 🟡 | Preserve positive grid widths rather than imposing a text-box minimum; ECMA-376 §17.4.16. Native Word for Mac 16.113.2 build26092012 confirms narrow trailing grid units. `layout::tests::subpoint_grid_keeps_widths`, `tiny_grid_scales_to_width`. Tiny totals normalize without overflowing the scale factor. Zero and invalid widths retain their fallback. Border painting remains separate. | n/a |
@@ -279,6 +278,7 @@ layout suite are pending; this is not a new Word/native-IME acceptance claim.
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-30 | trivial | Retain fixed first-line AutoFit tab prefixes across word breaks (#4203); preserve positional-tab measurement, both main histories, numbering and later-line tabs; readiness estimates unchanged |
 | 2026-10-27 | trivial | AutoFit measures hanging-indent content at its first-line and subsequent-line positions (#4203); retain active numbering and later-line tab endpoints in the intrinsic minimum; original geometry/cache controls, no readiness estimate change |
 | 2026-10-28 | trivial | Connector object lookups retain the typed column-selection inputs on current main (#3631); readiness estimates unchanged |
 | 2026-10-27 | trivial | Connector rerouting indexes laid-out object positions once per batch, preserving page hints, first-match order and same-page glue; synthetic equivalence, geometry and scaling regressions (#3631); routing policy and readiness estimates unchanged |
