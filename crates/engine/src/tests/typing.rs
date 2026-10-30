@@ -3196,6 +3196,37 @@ fn highlight_toggle_handles_mixed_inherited_and_pending_formatting() {
     assert_eq!(serde_json::to_value(&s.doc).unwrap(), before);
 }
 
+/// #4086: a caret inside a word highlights what is typed next, not the word; Bold still
+/// formats the word.
+#[test]
+fn highlight_at_a_caret_leaves_the_word_alone() {
+    let mut s = typed("Alpha Beta");
+    run(&mut s, "caret.docStart", json!({}));
+    run(&mut s, "caret.right", json!({}));
+    run(&mut s, "format.highlight", json!({"color":"yellow"}));
+    assert!(s.doc.body[0].as_para().unwrap().runs.iter().all(|r| r.props.highlight.is_none()));
+    assert_eq!(s.pending.as_ref().unwrap().highlight, Some(wordcraft_doc::props::Highlight::Yellow));
+    run(&mut s, "text.insert", json!({"text":"X"}));
+    run(&mut s, "select.text", json!({"text":"X"}));
+    assert_eq!(s.run("format.state", &json!({})).unwrap()["highlight"], json!("FFFF00"));
+    run(&mut s, "select.text", json!({"text":"Beta"}));
+    assert_eq!(s.run("format.state", &json!({})).unwrap()["highlight"], serde_json::Value::Null);
+    // The toggle reads the pending colour, not the word's: a second press turns it off.
+    run(&mut s, "caret.docStart", json!({}));
+    run(&mut s, "caret.right", json!({}));
+    run(&mut s, "format.highlight", json!({}));
+    assert_eq!(s.pending.as_ref().unwrap().highlight, Some(wordcraft_doc::props::Highlight::Yellow));
+    run(&mut s, "format.highlight", json!({}));
+    assert_eq!(s.pending.as_ref().unwrap().highlight, Some(wordcraft_doc::props::Highlight::None));
+    // Bold after Highlight formats the word and keeps both for what is typed next.
+    run(&mut s, "format.highlight", json!({}));
+    run(&mut s, "format.bold", json!({}));
+    run(&mut s, "text.insert", json!({"text":"Y"}));
+    run(&mut s, "select.text", json!({"text":"Y"}));
+    let state = s.run("format.state", &json!({})).unwrap();
+    assert_eq!((state["highlight"].clone(), state["bold"].clone()), (json!("FFFF00"), json!(true)));
+}
+
 /// A differently coloured final paragraph must remain visible to the shortcut beyond
 /// the formatting-state query limit, including a style-inherited tail and Undo/Redo.
 #[cfg(not(target_os = "macos"))]
@@ -3457,4 +3488,52 @@ fn double_space_adds_a_period_when_asked() {
     run(&mut t, "tools.autocorrect", json!({"doubleSpacePeriod": true, "enabled": false}));
     typ(&mut t, "Hello  world");
     assert_eq!(text(&t), "Hello  world");
+}
+
+#[test]
+fn backspace_after_a_floating_shape_anchor_joins_paragraphs_and_keeps_the_shape() {
+    let mut s = typed("Line one\nLine two");
+    run(&mut s, "caret.set", json!({"pos": {"story": "body", "path": [1], "off": 0}}));
+    run(&mut s, "insert.textBox", json!({"text": "Box"}));
+    let (a, f) = (Pos::body(1, 0), Pos::body(1, 3));
+    run(&mut s, "select.range", json!({"anchor": a, "focus": f}));
+    run(&mut s, "arrange.wrap", json!({"wrap": "inFrontOfText"}));
+    let objects = |s: &Session| s.doc.para_at(&Pos::body(1, 0)).map(|p| p.object_offsets().len());
+    assert_eq!(objects(&s), Some(1));
+    run(&mut s, "caret.set", json!({"pos": {"story": "body", "path": [1], "off": 3}}));
+    run(&mut s, "text.backspace", json!({}));
+    assert_eq!(s.doc.body.iter().filter(|b| b.as_para().is_some()).count(), 1);
+    assert_eq!(objects(&s), None);
+    assert_eq!(
+        s.doc.para_at(&Pos::body(0, 0)).map(|p| (p.text.replace('\u{FFFC}', ""), p.object_offsets().len())),
+        Some(("Line oneLine two".to_string(), 1))
+    );
+}
+
+#[test]
+fn backspace_after_marker_and_floating_anchors_still_joins_paragraphs() {
+    let mut s = typed("Line one\nLine two");
+    run(&mut s, "caret.set", json!({"pos": {"story": "body", "path": [1], "off": 0}}));
+    run(&mut s, "insert.textBox", json!({"text": "Box"}));
+    let (a, f) = (Pos::body(1, 0), Pos::body(1, 3));
+    run(&mut s, "select.range", json!({"anchor": a, "focus": f}));
+    run(&mut s, "arrange.wrap", json!({"wrap": "inFrontOfText"}));
+    s.doc.insert_object(&Pos::body(1, 0), wordcraft_doc::InlineObject::BookmarkStart { name: "anchor".into() }, &Default::default()).unwrap();
+    s.doc.insert_object(&Pos::body(1, 0), wordcraft_doc::InlineObject::CommentStart { id: 1 }, &Default::default()).unwrap();
+    run(&mut s, "caret.set", json!({"pos": {"story": "body", "path": [1], "off": 9}}));
+    run(&mut s, "text.backspace", json!({}));
+    assert_eq!(s.doc.body.iter().filter(|b| b.as_para().is_some()).count(), 1);
+    assert_eq!(s.doc.para_at(&Pos::body(0, 0)).map(|p| p.text.replace('\u{FFFC}', "")), Some("Line oneLine two".to_string()));
+}
+
+#[test]
+fn backspace_cannot_join_into_locked_content_control() {
+    let mut s = typed("Above\nInside");
+    run(&mut s, "select.range", json!({"anchor": {"story": "body", "path": [1], "off": 0}, "focus": {"story": "body", "path": [1], "off": 6}}));
+    run(&mut s, "developer.richText", json!({"tag": "locked"}));
+    run(&mut s, "developer.properties", json!({"control": "locked", "lockEdit": true}));
+    run(&mut s, "caret.set", json!({"pos": {"story": "body", "path": [1], "off": 0}}));
+    let before = s.doc.clone();
+    assert!(s.run("text.backspace", &json!({})).is_err());
+    assert_eq!(s.doc, before);
 }
