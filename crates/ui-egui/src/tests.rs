@@ -48,6 +48,54 @@ fn window_title_is_sent_only_when_it_changes() {
     assert_eq!(titles(&mut app), 1);
 }
 
+/// #3634: a NUL in the document title never reaches the window title (X11 needs a C string)
+/// or the suggested file name.
+#[test]
+fn window_title_with_nul_is_safe_for_x11() {
+    let ctx = egui::Context::default();
+    let mut app = app();
+    let fallback = app.title_stem();
+    app.run("file.properties", json!({"title": "\u{0}"})).unwrap();
+    let mut titles = Vec::new();
+    for _ in 0..4 {
+        let out = ctx.run_ui(egui::RawInput::default(), |ui| {
+            app.logic(ui.ctx());
+            app.ui(ui);
+        });
+        for command in out.viewport_output.values().flat_map(|v| &v.commands) {
+            if let egui::ViewportCommand::Title(title) = command {
+                titles.push(title.clone());
+            }
+        }
+        out.drop_without_applying_deltas();
+    }
+    assert!(!titles.is_empty());
+    for title in &titles {
+        assert!(std::ffi::CString::new(title.as_str()).is_ok(), "X11 needs a title without NUL: {title:?}");
+    }
+    assert_eq!(app.title_stem(), fallback);
+    assert_eq!(app.default_save_name(), format!("{fallback}.docx"));
+    assert_eq!(app.session.doc.core.title, "\u{0}");
+}
+
+/// #3634: every source of the title (path, file name, document title) drops NUL.
+#[test]
+fn title_stem_omits_nul_from_each_title_source() {
+    let mut app = app();
+    let fallback = app.title_stem();
+    for title in ["Résumé\u{0} notes", "\u{0}"] {
+        let expected = if title == "\u{0}" { fallback.as_str() } else { "Résumé notes" };
+        app.session.doc.core.title = title.into();
+        assert_eq!(app.title_stem(), expected);
+        app.session.file_name = Some(title.into());
+        assert_eq!(app.title_stem(), expected);
+        app.session.path = Some(std::path::PathBuf::from(format!("{title}.docx")));
+        assert_eq!(app.title_stem(), expected);
+        app.session.path = None;
+        app.session.file_name = None;
+    }
+}
+
 /// #1678: Focus and Full Screen View put the window in full screen, asked of the system once
 /// per change (switching between the two keeps it), and the usual window comes back after.
 #[test]
@@ -3894,6 +3942,37 @@ fn escape_selects_a_wordart_box_and_delete_removes_it() {
     h.run_steps(2);
     let s = &h.state().session;
     assert!(s.sel.is_collapsed() && s.sel.focus.story == wordcraft_doc::StoryRef::Body, "a second Escape leaves a caret in the body");
+}
+
+/// #4061: a WordArt picked from a style gallery has its text selected and the page gets the
+/// keyboard back, so typing replaces the placeholder text at once. The gallery's cells ran
+/// their command without handing focus back, so the first keystrokes went nowhere.
+#[test]
+fn picking_a_wordart_style_hands_the_keyboard_back_to_the_page() {
+    let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(400.0, 300.0)).build_ui_state(
+        |ui, app: &mut WordApp| {
+            let ctx = ui.ctx().clone();
+            app.logic(&ctx);
+            // The first pass installs the fonts the gallery's cells are drawn in.
+            if ctx.cumulative_pass_nr() > 1 {
+                crate::wordart_menus::style_gallery(ui, app, "insert.wordArt");
+            }
+        },
+        app(),
+    );
+    h.run_steps(3);
+    h.state_mut().canvas.want_focus = false;
+    // The first cell, "Solid Accent": a click on its middle (the cells carry no label here).
+    let at = egui::pos2(30.0, 30.0);
+    let button = |pressed| egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE };
+    h.event(egui::Event::PointerMoved(at));
+    h.run_steps(1);
+    h.event(button(true));
+    h.run_steps(1);
+    h.event(button(false));
+    h.run_steps(2);
+    assert!(canvas::in_text_box(h.state()), "the WordArt's text is selected");
+    assert!(h.state().canvas.want_focus, "the page takes the keyboard back");
 }
 
 /// #1218: Ctrl+Q resets the paragraph formatting and nothing else; it also closed the window

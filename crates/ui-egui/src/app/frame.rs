@@ -22,7 +22,7 @@ impl WordApp {
     /// Document title for the title bar (and the suggested file name). An untitled document is
     /// named in the interface language, as `Document1` is in English.
     pub fn title_stem(&self) -> String {
-        match &self.session.path {
+        let mut title = match &self.session.path {
             Some(p) => p.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| tl!("Document1").into()),
             None => match &self.session.file_name {
                 Some(name) => name.clone(),
@@ -31,7 +31,10 @@ impl WordApp {
                 }
                 None => self.session.doc.core.title.clone(),
             },
-        }
+        };
+        // X11 converts window titles to C strings, which cannot contain NUL (#3634).
+        title.retain(|c| c != '\0');
+        if title.is_empty() { tl!("Document1").into() } else { title }
     }
 
     /// Tell the host whether the document has unsaved changes ([`Services::on_dirty`]).
