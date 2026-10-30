@@ -1,5 +1,5 @@
 use super::generated::update_generated;
-use super::render::{authors, cite};
+use super::render::{authors, cite, corporate};
 use super::styles::{CiteStyle, Order, style};
 use super::{CmdError, CmdResult, Document, InlineObject, Selection, Session, Source, StoryRef, Value, delete_selection, json, p, sort_key};
 
@@ -14,18 +14,19 @@ fn auto_tag(doc: &Document, src: &Source) -> String {
     (1u32..).map(|n| format!("{base}{n}")).find(|t| !taken(t)).unwrap_or(base)
 }
 
-/// The author of a source for matching untagged entries: the editor when there is no author.
+/// The author of a source for matching untagged entries: the corporate author (which takes the
+/// author's place when a source is saved), else the author, else the editor.
 #[cfg(not(target_arch = "wasm32"))]
 fn by_author(x: &Source) -> &str {
-    if x.author.is_empty() { x.editor.as_str() } else { x.author.as_str() }
+    [x.corporate.trim(), x.author.as_str(), x.editor.as_str()].into_iter().find(|w| !w.is_empty()).unwrap_or_default()
 }
 
 /// The stem of a new source's tag, before `1`, `2`… are added while it is taken: the first three
-/// alphanumerics of the first author's name (nothing of the author's, `Src`) and the last two
-/// digits of the year.
+/// alphanumerics of the first author's name or the corporate author (nothing of the author's,
+/// `Src`) and the last two digits of the year.
 fn auto_tag_base(src: &Source) -> String {
-    let name: String =
-        authors(&src.author).first().map(|x| x.0.clone()).unwrap_or_default().chars().filter(|c| c.is_alphanumeric()).take(3).collect();
+    let first = corporate(src).map(str::to_string).or_else(|| authors(&src.author).first().map(|x| x.0.clone())).unwrap_or_default();
+    let name: String = first.chars().filter(|c| c.is_alphanumeric()).take(3).collect();
     let name = if name.is_empty() { "Src".to_string() } else { name };
     let digits: Vec<char> = src.year.chars().filter(char::is_ascii_digit).collect();
     let year: String = digits.get(digits.len().saturating_sub(2)..).unwrap_or_default().iter().collect();
@@ -141,12 +142,9 @@ pub(super) fn citation(s: &mut Session, v: &Value) -> CmdResult {
     let n = number_of(&s.doc, &bib_order(&s.doc, st, crate::cmd::default_lang(s)), &tag);
     let props = s.typing_props();
     let at = delete_selection(s)?;
-    let instr = if pages.is_empty() {
-        format!("CITATION {tag}")
-    } else {
-        let quoted_pages = pages.replace('\\', "\\\\").replace('"', "\\\"");
-        format!("CITATION {tag} \\p \"{quoted_pages}\"")
-    };
+    let quoted_tag = tag.chars().any(|c| c.is_whitespace() || c == '"' || c == '\\').then(|| quote_field_arg(&tag));
+    let tag_arg = quoted_tag.as_deref().unwrap_or(&tag);
+    let instr = if pages.is_empty() { format!("CITATION {tag_arg}") } else { format!("CITATION {tag_arg} \\p {}", quote_field_arg(&pages)) };
     let end = s.doc.insert_object(
         &at,
         InlineObject::Field { instr, result: cite(&src, st.name, n, &pages), locked: false, dirty: false, code: false, form: String::new() },
@@ -160,9 +158,37 @@ pub(super) fn citation(s: &mut Session, v: &Value) -> CmdResult {
     Ok(json!({"tag": tag}))
 }
 
-/// The tag and `\p` pages of a CITATION field instruction.
-fn citation_field(instr: &str) -> Option<(String, String)> {
+fn quote_field_arg(value: &str) -> String {
+    format!("\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\""))
+}
+
+/// Older insertions wrote tags verbatim. Resolve an exact stored literal tag without
+/// rewriting its instruction; an existing decoded quoted tag keeps its parsed meaning.
+fn citation_code(instr: &str, source_tags: &std::collections::HashSet<String>) -> super::FieldCode {
     let field = super::FieldCode::parse(instr);
+    if field.name != "CITATION" {
+        return field;
+    }
+    let trimmed = instr.trim_start();
+    let Some(rest) = trimmed.find(char::is_whitespace).and_then(|at| trimmed.get(at..)) else { return field };
+    let rest = rest.trim_start();
+    let end = rest.find(char::is_whitespace).unwrap_or(rest.len());
+    let Some(raw) = rest.get(..end) else { return field };
+    let unquoted_literal = !raw.starts_with('"') && (raw.contains('"') || raw.starts_with('\\'));
+    if !unquoted_literal && field.args.first().is_some_and(|tag| source_tags.contains(tag)) {
+        return field;
+    }
+    // A missing legacy source must not resolve to a shorter parsed prefix.
+    if !unquoted_literal && !source_tags.contains(raw) {
+        return field;
+    }
+    let Some(tail) = rest.get(end..) else { return field };
+    super::FieldCode::parse(&format!("CITATION {}{tail}", quote_field_arg(raw)))
+}
+
+/// The tag and `\p` pages of a CITATION field instruction.
+fn citation_field(instr: &str, source_tags: &std::collections::HashSet<String>) -> Option<(String, String)> {
+    let field = citation_code(instr, source_tags);
     if field.name != "CITATION" {
         return None;
     }
@@ -175,11 +201,12 @@ fn citation_field(instr: &str) -> Option<(String, String)> {
 fn cited_tags(doc: &Document) -> Vec<String> {
     let mut seen = std::collections::HashSet::new();
     let mut out = Vec::new();
+    let source_tags: std::collections::HashSet<String> = doc.sources.iter().map(|source| source.tag.clone()).collect();
     for path in doc.para_paths(StoryRef::Body) {
         let Some(p) = doc.para(StoryRef::Body, &path) else { continue };
         for o in &p.objects {
             let InlineObject::Field { instr, .. } = o else { continue };
-            let field = super::FieldCode::parse(instr);
+            let field = citation_code(instr, &source_tags);
             if field.name != "CITATION" {
                 continue;
             }
@@ -195,8 +222,13 @@ fn cited_tags(doc: &Document) -> Vec<String> {
     out
 }
 
+/// A source's place in an author-sorted bibliography: the corporate author, else the first
+/// author's surname, else the title.
 fn author_key(src: &Source) -> String {
-    authors(&src.author).first().map(|a| a.0.to_lowercase()).unwrap_or_else(|| src.title.to_lowercase())
+    corporate(src)
+        .map(str::to_lowercase)
+        .or_else(|| authors(&src.author).first().map(|a| a.0.to_lowercase()))
+        .unwrap_or_else(|| src.title.to_lowercase())
 }
 
 /// Indices into `doc.sources` in bibliography order: the cited sources (every source while
@@ -238,6 +270,7 @@ pub fn update_citations(s: &mut Session) -> Result<(), CmdError> {
 fn refresh_citations(s: &mut Session) -> Result<(), CmdError> {
     let st = style(&s.bib_style);
     let order = bib_order(&s.doc, st, crate::cmd::default_lang(s));
+    let source_tags: std::collections::HashSet<String> = s.doc.sources.iter().map(|source| source.tag.clone()).collect();
     for path in s.doc.para_paths(StoryRef::Body) {
         let Some(p) = s.doc.para(StoryRef::Body, &path) else { continue };
         let updates: Vec<(usize, String)> = p
@@ -246,7 +279,7 @@ fn refresh_citations(s: &mut Session) -> Result<(), CmdError> {
             .enumerate()
             .filter_map(|(k, o)| match o {
                 InlineObject::Field { instr, .. } => {
-                    let (tag, pages) = citation_field(instr)?;
+                    let (tag, pages) = citation_field(instr, &source_tags)?;
                     let src = s.doc.sources.iter().find(|x| x.tag == tag)?;
                     Some((k, cite(src, st.name, number_of(&s.doc, &order, &tag), &pages)))
                 }
