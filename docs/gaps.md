@@ -10,7 +10,6 @@ Group connectors (gap 10): re-routing preserves displayed rotated and flipped fr
 
 > **Printing update:** 2026-10-12 · direct desktop printing through craft-print; details below.
 
-
 The work list. One entry per shortfall, ranked by how much it stops a Word user from switching
 (**B** = blocks beta). Each says what's missing, the evidence, who it hurts, an Opus 5.5 agent
 wall-clock estimate, and which parity document tracks it. Agents: pick from the top, check open PRs
