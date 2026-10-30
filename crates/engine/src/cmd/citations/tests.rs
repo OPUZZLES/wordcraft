@@ -46,7 +46,23 @@ fn inserted_citation_tags_survive_refresh_and_docx_reopen() {
 
 #[test]
 fn legacy_literal_citation_tags_keep_their_sources_and_pages() {
-    for tag in ["Quote\"Tag", r"\m", r"\p", "\"Quoted\"", "\"Quoted\"Suffix", "\"Quoted", r#""Quoted"\Tail"#] {
+    for tag in [
+        "Quote\"Tag",
+        r"\m",
+        r"\p",
+        "\"Quoted\"",
+        "\"Quoted\"Suffix",
+        "\"Quoted",
+        r#""Quoted"\Tail"#,
+        "Alpha Beta",
+        "Alpha  Beta",
+        "Alpha\tBeta",
+        "Alpha\u{2003}Beta",
+        r"Back\Slash Name",
+        "Quote\"Tag Name",
+        r"Alpha \ Beta",
+        "Alpha \\",
+    ] {
         for pages in ["", "12, 14"] {
             let mut d = Document::new();
             d.sources.push(Source {
@@ -56,7 +72,13 @@ fn legacy_literal_citation_tags_keep_their_sources_and_pages() {
                 year: "2024".into(),
                 ..Default::default()
             });
-            let prefix = if tag.starts_with('"') && !tag.ends_with('"') { "Quoted" } else { "Quote" };
+            let prefix = if tag.starts_with('"') && !tag.ends_with('"') {
+                "Quoted"
+            } else if tag.chars().any(char::is_whitespace) {
+                tag.split_whitespace().next().unwrap().split('"').next().unwrap()
+            } else {
+                "Quote"
+            };
             d.sources.push(Source { tag: prefix.into(), author: "Wrong".into(), year: "1999".into(), ..Default::default() });
             let instr = if pages.is_empty() { format!("CITATION {tag}") } else { format!("CITATION {tag} \\p {pages}") };
             d.para_mut(StoryRef::Body, &Path::top(0))
@@ -117,9 +139,30 @@ fn legacy_literal_citation_tags_keep_their_sources_and_pages() {
 
 #[test]
 fn missing_legacy_literal_citation_tags_keep_their_cached_results() {
-    for tag in ["Quote\"Tag", r"\m", r"\p", "\"Quoted\"Suffix", "\"Quoted", r#""Quoted"\Tail"#] {
+    for tag in [
+        "Quote\"Tag",
+        r"\m",
+        r"\p",
+        "\"Quoted\"Suffix",
+        "\"Quoted",
+        r#""Quoted"\Tail"#,
+        "Alpha Beta",
+        "Alpha  Beta",
+        "Alpha\tBeta",
+        "Alpha\u{2003}Beta",
+        r"Back\Slash Name",
+        "Quote\"Tag Name",
+        r"Alpha \ Beta",
+        "Alpha \\",
+    ] {
         let mut d = Document::new();
-        let prefix = if tag.starts_with('"') { "Quoted" } else { "Quote" };
+        let prefix = if tag.starts_with('"') {
+            "Quoted"
+        } else if tag.chars().any(char::is_whitespace) {
+            tag.split_whitespace().next().unwrap().split('"').next().unwrap()
+        } else {
+            "Quote"
+        };
         d.sources.push(Source { tag: prefix.into(), author: "Wrong".into(), year: "1999".into(), ..Default::default() });
         let instr = format!("CITATION {tag} \\p 12, 14");
         d.para_mut(StoryRef::Body, &Path::top(0))
@@ -199,6 +242,10 @@ fn citation_refresh_recognizes_field_names_and_quoted_primary_tags() {
         r#"citation "Primary Ω" \m plain \p 12–14, 20"#,
         r#"CITATION "Primary Ω" \p "12, 14" \m plain"#,
         r#"CITATION "Primary Ω" \P 12, 14 \l 1033"#,
+        r"CITATION plain \p 12 \ index",
+        "CITATION plain \\p 12 \\",
+        r"CITATION plain \p \ index",
+        r#"CITATION plain \p 12 \ \ index \m "Primary Ω""#,
         "CITATION PLAIN",
         "citation missing",
         "REF plain",
@@ -247,6 +294,10 @@ fn citation_refresh_recognizes_field_names_and_quoted_primary_tags() {
         "(Researcher, 2024, p. 12–14, 20)",
         "(Researcher, 2024, p. 12, 14)",
         "(Researcher, 2024, p. 12, 14)",
+        r"(Writer, 2023, p. 12 \ index)",
+        "(Writer, 2023, p. 12 \\)",
+        r"(Writer, 2023, p. \ index)",
+        r"(Writer, 2023, p. 12 \ \ index)",
     ];
     for (index, (instr, result)) in fields.iter().enumerate() {
         assert_eq!(*instr, instructions[index]);

@@ -191,6 +191,20 @@ fn citation_code(instr: &str, source_tags: &std::collections::HashSet<String>) -
     let trimmed = instr.trim_start();
     let Some(rest) = trimmed.find(char::is_whitespace).and_then(|at| trimmed.get(at..)) else { return field };
     let rest = rest.trim_start();
+    if !rest.starts_with(['"', '\\']) {
+        // Older insertions also wrote multiword tags verbatim. Keep the whole tag up to
+        // the first switch, including when it is missing, rather than citing its prefix.
+        let switch = rest.char_indices().find(|(at, c)| {
+            *c == '\\'
+                && rest.get(*at..).and_then(|tail| tail.chars().nth(1)).is_some_and(|next| !next.is_whitespace())
+                && rest.get(..*at).is_some_and(|head| head.ends_with(char::is_whitespace))
+        });
+        let raw = rest.get(..switch.map_or(rest.len(), |(at, _)| at)).unwrap_or(rest).trim_end();
+        if raw.chars().any(char::is_whitespace) {
+            let Some(tail) = rest.get(raw.len()..) else { return field };
+            return super::FieldCode::parse(&format!("CITATION {}{tail}", quote_field_arg(raw)));
+        }
+    }
     let end = rest.find(char::is_whitespace).unwrap_or(rest.len());
     let Some(raw) = rest.get(..end) else { return field };
     let quoted_end = quoted_argument_end(rest);

@@ -150,10 +150,11 @@ impl FieldCode {
             let sw = if quoted { None } else { w.strip_prefix('\\').and_then(|r| r.chars().next()) };
             match sw {
                 Some(c) => {
+                    let legacy_pages = f.name == "CITATION" && c.eq_ignore_ascii_case(&'p');
                     let arg = match words.peek() {
-                        Some((n, q, _)) if *q || !n.starts_with('\\') => words.next().map(|(n, quoted, mut span)| {
-                            if f.name == "CITATION" && c.eq_ignore_ascii_case(&'p') && !quoted {
-                                while words.peek().is_some_and(|(n, q, _)| *q || !n.starts_with('\\')) {
+                        Some((n, q, _)) if *q || !n.starts_with('\\') || (legacy_pages && n == "\\") => words.next().map(|(n, quoted, mut span)| {
+                            if legacy_pages && !quoted {
+                                while words.peek().is_some_and(|(n, q, _)| *q || !n.starts_with('\\') || n == "\\") {
                                     if let Some((_, _, next)) = words.next() {
                                         span.end = next.end;
                                     }
