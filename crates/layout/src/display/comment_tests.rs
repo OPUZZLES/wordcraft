@@ -116,11 +116,21 @@ fn comment_background_walk_scales_with_unrelated_markers() {
         let cpu = || std::fs::read_to_string("/proc/thread-self/schedstat").ok()?.split_whitespace().next()?.parse::<u64>().ok();
         let before = cpu();
         let start = std::time::Instant::now();
-        f();
-        match (before, cpu()) {
+        // A short /proc sample can expose only part of a scheduler tick. Batch enough
+        // work to measure the traversal instead of dividing by an undercounted tiny sample.
+        let mut samples = 0u32;
+        loop {
+            f();
+            samples += 1;
+            if start.elapsed() >= std::time::Duration::from_millis(100) {
+                break;
+            }
+        }
+        let elapsed = match (before, cpu()) {
             (Some(a), Some(b)) if b > a => (b - a) as f64 * 1e-9,
             _ => start.elapsed().as_secs_f64(),
-        }
+        };
+        elapsed / f64::from(samples)
     };
     paint(&small);
     paint(&big);
