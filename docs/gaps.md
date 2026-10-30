@@ -100,8 +100,6 @@ full number from ~60% to ~75%. Everything else is depth on the way to full parit
 
 > **Three-column preset update:** 2026-10-15 · the header/footer preset uses editable table cells and screen-only editing guides (#2197). Synthetic command, undo/redo and repeated DOCX save/reopen checks cover this preset; broader template/layout gaps and readiness estimates remain unchanged.
 
-Converting footnotes and endnotes now walks converted reference offsets and formatting runs together (#4750), including runs after the final reference. Note kinds, IDs, custom marks, text, styles and saved content keep their behavior. This narrows gap #3; broader stability and corpus gates remain open.
-
 ## By kind
 
 List toggles now recognise numbering inherited from paragraph styles (related to #3459). This closes that command-level case; the broader issue and readiness estimates are unchanged. See [typing-parity.md](typing-parity.md) for the original-fixture and round-trip coverage.
