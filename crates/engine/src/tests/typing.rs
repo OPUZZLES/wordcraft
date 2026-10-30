@@ -1414,6 +1414,78 @@ fn indic_and_khmer_backspace_removes_one_character() {
     assert_eq!(paras(&s)[0].0, "a");
 }
 
+/// Arabic vowel and Quranic marks are individually editable without retyping their base (#4757).
+#[test]
+fn arabic_backspace_removes_one_mark_and_keeps_the_base() {
+    for mark in [
+        '\u{0610}',
+        '\u{064B}',
+        '\u{064C}',
+        '\u{064D}',
+        '\u{064E}',
+        '\u{064F}',
+        '\u{0650}',
+        '\u{0651}',
+        '\u{0652}',
+        '\u{065F}',
+        '\u{0670}',
+        '\u{06D6}',
+        '\u{06DF}',
+        '\u{06E7}',
+        '\u{06EA}',
+        '\u{0897}',
+        '\u{089F}',
+        '\u{08CA}',
+        '\u{08E1}',
+        '\u{08E3}',
+        '\u{08FF}',
+        '\u{10EFA}',
+        '\u{10EFF}',
+    ] {
+        let original = format!("Λ ب{mark}");
+        let mut s = typed(&original);
+        typ(&mut s, "\u{8}");
+        assert_eq!(paras(&s)[0].0, "Λ ب", "mark U+{:04X}", u32::from(mark));
+        assert_eq!(s.sel.focus.off, "Λ ب".len());
+        run(&mut s, "edit.undo", json!({}));
+        assert_eq!(paras(&s)[0].0, original);
+        run(&mut s, "edit.redo", json!({}));
+        typ(&mut s, "\u{0650}");
+        assert_eq!(paras(&s)[0].0, "Λ ب\u{0650}");
+    }
+}
+
+#[test]
+fn arabic_backspace_uses_stored_mark_order_but_delete_keeps_the_cluster() {
+    for marks in ["\u{0651}\u{064E}", "\u{064E}\u{0651}"] {
+        let mut s = typed(&format!("ب{marks}"));
+        typ(&mut s, "\u{8}");
+        assert_eq!(paras(&s)[0].0, format!("ب{}", marks.chars().next().unwrap()));
+        typ(&mut s, "\u{8}");
+        assert_eq!(paras(&s)[0].0, "ب");
+        typ(&mut s, "\u{8}");
+        assert!(paras(&s)[0].0.is_empty());
+        let original = format!("ب{marks}ت");
+        let mut s = typed(&original);
+        // Arabic arrows move visually. They still visit only whole-cluster boundaries.
+        let boundaries = [0, original.len() - "ت".len(), original.len()];
+        let mut visited = vec![s.sel.focus.off];
+        for command in ["caret.right", "caret.right", "caret.left", "caret.left"] {
+            run(&mut s, command, json!({}));
+            assert!(boundaries.contains(&s.sel.focus.off));
+            visited.push(s.sel.focus.off);
+        }
+        assert!(boundaries.iter().all(|off| visited.contains(off)));
+        s.sel = crate::Selection::caret(Pos::body(0, 0));
+        run(&mut s, "text.delete", json!({}));
+        assert_eq!(paras(&s)[0].0, "ت");
+    }
+    for cluster in ["e\u{0301}", "👩‍💻", "👍🏽", "🇵🇱", "ב\u{05B7}"] {
+        let s = typed(&format!("a{cluster}\u{8}"));
+        assert_eq!(paras(&s)[0].0, "a", "unchanged grapheme {cluster}");
+    }
+}
+
 /// Press a shortcut the way the keyboard does: run the command bound to it.
 fn press(s: &mut Session, combo: &str) -> Result<serde_json::Value, crate::CmdError> {
     let id = s.registry.by_shortcut(combo).map(|c| c.id).unwrap_or_else(|| panic!("nothing bound to {combo}"));
